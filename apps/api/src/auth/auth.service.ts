@@ -102,6 +102,52 @@ export class AuthService {
     return { success: true };
   }
 
+  /** Hash a plaintext password with the project's bcrypt cost (BCRYPT_ROUNDS, >= 12). */
+  hashPassword(plain: string): Promise<string> {
+    const rounds = Number(this.config.get<string>('BCRYPT_ROUNDS', '12'));
+    return bcrypt.hash(plain, rounds);
+  }
+
+  /**
+   * The authenticated user's profile, for session bootstrap (GET /auth/me).
+   * Loads name + current clinic assignments fresh from the DB.
+   */
+  async getProfile(userId: string): Promise<AuthUser> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { assignments: { select: { clinicId: true } } },
+    });
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    return toAuthUser(
+      user,
+      user.assignments.map((a) => a.clinicId),
+    );
+  }
+
+  /**
+   * Immediately invalidate every active session for a user, atomically:
+   *  1. bump `tokenVersion` — outstanding access tokens now fail the guard's
+   *     version check on their very next request (no 15-min TTL wait);
+   *  2. revoke all live refresh tokens — they can no longer be rotated.
+   *
+   * Call this on ANY change to a user's role, isActive, or clinic assignments.
+   * Centralized here so Phase 4 (user management) reuses a single code path.
+   */
+  async invalidateUserSessions(userId: string): Promise<void> {
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { tokenVersion: { increment: 1 } },
+      }),
+      this.prisma.refreshToken.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }),
+    ]);
+  }
+
   // ── Internals ────────────────────────────────────────────────────────────────
 
   private async issueTokens(user: User): Promise<AuthResponse> {
@@ -116,6 +162,7 @@ export class AuthService {
       email: user.email,
       role: user.role as UserRole,
       clinicIds,
+      tokenVersion: user.tokenVersion,
     };
     const accessToken = await this.jwt.signAsync(accessClaims, {
       secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),

@@ -1,16 +1,40 @@
-import { Outlet } from 'react-router-dom';
-import { Building2, PanelLeft } from 'lucide-react';
+import { useCallback } from 'react';
+import { NavLink, Navigate, Outlet } from 'react-router-dom';
+import { Building2, LogOut, PanelLeft } from 'lucide-react';
+import { ROLE_LABELS } from '@portal/shared';
 import { Button } from '@/components/ui/button';
 import { useUiStore } from '@/store/ui.store';
+import { useAuthStore } from '@/store/auth.store';
+import { useAuthActions } from '@/auth/useAuthActions';
+import { useIdleTimer } from '@/auth/useIdleTimer';
+import { NAV_ITEMS } from '@/auth/roles';
 import { cn } from '@/lib/utils';
 
 /**
- * Placeholder authenticated app shell: top bar + collapsible sidebar + content
- * outlet. Real auth gating and role-based navigation arrive in a later step;
- * for now it renders a blank authed page so the scaffold is verifiable.
+ * Authenticated app shell: top bar + role-filtered sidebar + content outlet.
+ * Gates on authentication, hosts the 30-min idle auto-logout, and exposes a
+ * manual logout. Nav items are filtered to the user's role (defense in depth —
+ * the backend independently enforces access).
  */
 export function AuthedShell() {
   const { sidebarOpen, toggleSidebar } = useUiStore();
+  const status = useAuthStore((s) => s.status);
+  const user = useAuthStore((s) => s.user);
+  const { logout } = useAuthActions();
+
+  const authenticated = status === 'authenticated' && !!user;
+
+  // Idle auto-logout (active only while authenticated).
+  const handleIdle = useCallback(() => {
+    void logout();
+  }, [logout]);
+  useIdleTimer(handleIdle, authenticated);
+
+  if (!authenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  const navItems = NAV_ITEMS.filter((item) => item.roles.includes(user.role));
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
@@ -22,7 +46,16 @@ export function AuthedShell() {
           <Building2 className="text-primary" />
           <span>Cost Provision Portal</span>
         </div>
-        <span className="ml-auto text-sm text-muted-foreground">HCL Avitas</span>
+        <div className="ml-auto flex items-center gap-4">
+          <div className="text-right text-sm leading-tight">
+            <div className="font-medium">{user.name}</div>
+            <div className="text-xs text-muted-foreground">{ROLE_LABELS[user.role]}</div>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => void logout()}>
+            <LogOut />
+            Logout
+          </Button>
+        </div>
       </header>
 
       <div className="flex flex-1">
@@ -32,9 +65,21 @@ export function AuthedShell() {
             sidebarOpen ? 'w-60' : 'w-0 overflow-hidden',
           )}
         >
-          <nav className="p-4 text-sm text-muted-foreground">
-            {/* Navigation populated once auth + roles land. */}
-            <p className="px-2 py-1">Navigation</p>
+          <nav className="flex flex-col gap-1 p-3 text-sm">
+            {navItems.map((item) => (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                className={({ isActive }) =>
+                  cn(
+                    'rounded-md px-3 py-2 transition-colors hover:bg-accent hover:text-accent-foreground',
+                    isActive && 'bg-accent font-medium text-accent-foreground',
+                  )
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
           </nav>
         </aside>
 

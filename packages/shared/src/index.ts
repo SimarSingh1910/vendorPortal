@@ -18,4 +18,10 @@ export type {
   AuthUser,
   AuthTokens,
   AuthResponse,
+  Clinic,
+  ExpenseHead,
+  ClinicExpenseHead,
+  ActiveFilter,
+  MappedExpenseHead,
+  AdminUser,
 } from './types';

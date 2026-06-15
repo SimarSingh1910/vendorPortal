@@ -58,6 +58,11 @@ async function main(): Promise<void> {
   const rounds = Number(process.env.BCRYPT_ROUNDS ?? 12);
   const passwordHash = await bcrypt.hash(ADMIN.password, rounds);
 
+  const existing = await prisma.user.findUnique({
+    where: { email: ADMIN.email },
+    select: { id: true },
+  });
+
   const user = await prisma.user.upsert({
     where: { email: ADMIN.email },
     update: {
@@ -74,6 +79,24 @@ async function main(): Promise<void> {
       passwordHash,
     },
   });
+
+  // Re-provisioning an existing user changes role/isActive/password, so its
+  // sessions must be invalidated — mirrors AuthService.invalidateUserSessions
+  // (the canonical implementation; Phase 4 user management should call that).
+  // Inlined here because this standalone script runs outside the Nest DI context.
+  if (existing) {
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: user.id },
+        data: { tokenVersion: { increment: 1 } },
+      }),
+      prisma.refreshToken.updateMany({
+        where: { userId: user.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }),
+    ]);
+    console.log('  (existing user re-provisioned — sessions invalidated)');
+  }
 
   console.log('✔ Dev admin ready (upserted by email):');
   console.log(`  id:       ${user.id}`);
