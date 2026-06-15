@@ -1,0 +1,34 @@
+{
+  "name": "cost-provision-portal",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Cost Provision Portal for HCL Avitas — monthly clinic cost-provision estimates with a 3-level approval chain.",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build:shared": "pnpm --filter @portal/shared build",
+    "build": "pnpm build:shared && pnpm --filter @portal/api build && pnpm --filter @portal/web build",
+    "dev": "pnpm build:shared && pnpm -r --parallel dev",
+    "dev:api": "pnpm build:shared && pnpm --filter @portal/api dev",
+    "dev:web": "pnpm build:shared && pnpm --filter @portal/web dev",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "db:up": "docker-compose up -d",
+    "db:down": "docker-compose down"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "eslint-plugin-react-refresh": "^0.4.16",
+    "globals": "^15.14.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.1"
+  }
+}

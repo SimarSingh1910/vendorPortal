@@ -1,0 +1,320 @@
+// Cost Provision Portal — Prisma schema (MySQL 8, InnoDB + utf8mb4).
+//
+// Enums mirror packages/shared/src/enums.ts (UserRole, SubmissionStatus) so the
+// DB, API, and web client share one vocabulary. CommentAction is DB-local.
+//
+// Key invariants encoded here:
+//  - BR-05 "master changes apply next cycle only" is enforced by snapshotting the
+//    active expense-head set onto a submission (SubmissionExpenseHeadSnapshot).
+//    See docs/DATA_MODEL_NOTES.md.
+//  - One provision entry per (submission, snapshot head): @@unique([submissionId, snapshotId]).
+//  - AuditLog is append-only. This schema models the table; the DB-level
+//    BEFORE UPDATE / BEFORE DELETE triggers that hard-enforce "no update, no
+//    delete, ever" are added in the audit-module migration (a later step), not here.
+//
+// MySQL: provider "mysql"; String defaults to VARCHAR(191). Free-text uses @db.Text;
+// fixed-width fields use @db.VarChar(n). Tables are InnoDB/utf8mb4 (DB created with
+// utf8mb4 + utf8mb4_unicode_ci). Money is @db.Decimal(14,2); audit values are Json.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+  // Dedicated shadow DB so the restricted `cpp` user can run `migrate dev`
+  // without global CREATE DATABASE privileges. See apps/api/.env.
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enums (mirror @portal/shared)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  FINANCE_ADMIN
+  FINANCE_VIEWER
+  CLINIC_MANAGER
+  CLINIC_SPOC
+  CLINIC_VIEWER
+}
+
+enum SubmissionStatus {
+  NOT_STARTED
+  DRAFT
+  SUBMITTED
+  CLINIC_MANAGER_REVIEW
+  CLINIC_APPROVED
+  FINANCE_REVIEW
+  FINANCE_APPROVED
+  SENT_BACK_BY_MANAGER
+  SENT_BACK_BY_FINANCE
+}
+
+enum CommentAction {
+  SENT_BACK
+  APPROVED
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Masters
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Clinic {
+  id              String   @id @default(cuid())
+  name            String
+  location        String
+  corporateClient String
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  expenseHeads ClinicExpenseHead[]
+  assignments  UserClinicAssignment[]
+  submissions  MonthlySubmission[]
+
+  @@index([isActive])
+}
+
+model ExpenseHead {
+  id        String   @id @default(cuid())
+  name      String
+  category  String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clinics   ClinicExpenseHead[]
+  snapshots SubmissionExpenseHeadSnapshot[]
+
+  @@index([isActive])
+}
+
+/// Which expense heads apply to which clinic. A head appears for a clinic ONLY
+/// if a row exists here and isActive — no mapping means an empty form.
+model ClinicExpenseHead {
+  id            String  @id @default(cuid())
+  clinicId      String
+  expenseHeadId String
+  isActive      Boolean @default(true)
+
+  clinic      Clinic      @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  expenseHead ExpenseHead @relation(fields: [expenseHeadId], references: [id], onDelete: Cascade)
+
+  @@unique([clinicId, expenseHeadId])
+  @@index([clinicId])
+  @@index([expenseHeadId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Users & access
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique @db.VarChar(191)
+  passwordHash String   @db.VarChar(255)
+  role         UserRole
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  assignments   UserClinicAssignment[]
+  refreshTokens RefreshToken[]
+
+  // Workflow back-relations (disambiguated because several FKs point at User).
+  reviewStartedSubmissions MonthlySubmission[] @relation("ReviewStartedBy")
+  unlockedSubmissions      MonthlySubmission[] @relation("UnlockedBy")
+  enteredProvisions        ProvisionEntry[]    @relation("EnteredBy")
+  modifiedProvisions       ProvisionEntry[]    @relation("LastModifiedBy")
+  comments                 SubmissionComment[]
+  auditLogs                AuditLog[]
+  notifications            Notification[]
+
+  @@index([role])
+  @@index([isActive])
+}
+
+/// Maps clinic-scoped users (Manager/SPOC/Viewer) to the clinics they cover.
+model UserClinicAssignment {
+  id       String @id @default(cuid())
+  userId   String
+  clinicId String
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clinicId])
+  @@index([userId])
+  @@index([clinicId])
+}
+
+/// Rotating refresh tokens. The raw token is a JWT handed to the client; only a
+/// SHA-256 hash of it is stored here (never the raw token). One row per issued
+/// token; on rotation the old row is revoked (revokedAt set, replacedById links
+/// to the successor). On logout / role change / deactivation, rows are revoked so
+/// the matching refresh token can no longer mint access tokens.
+model RefreshToken {
+  id        String    @id @default(cuid()) // also the JWT `jti`
+  userId    String
+  tokenHash String    @db.VarChar(64) // hex SHA-256 of the signed token
+  expiresAt DateTime
+  revokedAt DateTime?
+  /// id of the token that replaced this one on rotation (audit/reuse-detection).
+  replacedById String?
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Submission workflow
+// ─────────────────────────────────────────────────────────────────────────────
+
+model MonthlySubmission {
+  id       String           @id @default(cuid())
+  clinicId String
+  month    String           @db.VarChar(7) // YYYY-MM
+  status   SubmissionStatus @default(NOT_STARTED)
+
+  // Lifecycle timestamps — nullable until the corresponding event occurs.
+  submittedAt         DateTime?
+  reviewStartedAt     DateTime?
+  reviewStartedById   String?
+  approvedByManagerAt DateTime?
+  approvedByFinanceAt DateTime?
+  lockedAt            DateTime?
+  unlockedReason      String?   @db.Text
+  unlockedById        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clinic          Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  reviewStartedBy User?  @relation("ReviewStartedBy", fields: [reviewStartedById], references: [id])
+  unlockedBy      User?  @relation("UnlockedBy", fields: [unlockedById], references: [id])
+
+  snapshots     SubmissionExpenseHeadSnapshot[]
+  entries       ProvisionEntry[]
+  comments      SubmissionComment[]
+  notifications Notification[]
+
+  @@unique([clinicId, month])
+  @@index([clinicId])
+  @@index([month])
+  @@index([status])
+}
+
+/// Frozen copy of the expense heads that applied to a submission when its cycle
+/// opened. Form rendering reads from here, never from live masters — this is how
+/// BR-05 ("master changes take effect next cycle only") is enforced.
+model SubmissionExpenseHeadSnapshot {
+  id                            String @id @default(cuid())
+  submissionId                  String
+  expenseHeadId                 String
+  expenseHeadNameAtSnapshot     String
+  expenseHeadCategoryAtSnapshot String
+
+  submission  MonthlySubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  expenseHead ExpenseHead       @relation(fields: [expenseHeadId], references: [id])
+  entry       ProvisionEntry?
+
+  @@unique([submissionId, expenseHeadId])
+  @@index([submissionId])
+}
+
+model ProvisionEntry {
+  id           String   @id @default(cuid())
+  submissionId String
+  // Unique so each snapshot head holds at most one entry (true 1:1 with snapshot).
+  snapshotId   String   @unique
+  amount       Decimal  @db.Decimal(14, 2)
+  enteredById  String
+  enteredAt    DateTime @default(now())
+
+  lastModifiedById String
+  lastModifiedAt   DateTime @updatedAt
+
+  submission     MonthlySubmission             @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  snapshot       SubmissionExpenseHeadSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  enteredBy      User                          @relation("EnteredBy", fields: [enteredById], references: [id])
+  lastModifiedBy User                          @relation("LastModifiedBy", fields: [lastModifiedById], references: [id])
+
+  // One entry per (submission, snapshot head), per spec.
+  @@unique([submissionId, snapshotId])
+  @@index([submissionId])
+}
+
+model SubmissionComment {
+  id            String        @id @default(cuid())
+  submissionId  String
+  comment       String        @db.Text
+  commentedById String
+  roleAtTime    UserRole
+  action        CommentAction
+  createdAt     DateTime      @default(now())
+
+  submission  MonthlySubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  commentedBy User              @relation(fields: [commentedById], references: [id])
+
+  @@index([submissionId])
+  @@index([commentedById])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Audit, notifications & config
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Append-only audit trail. Never updated or deleted. Enforced in application
+/// code today; DB-level BEFORE UPDATE/DELETE triggers are added in the audit step.
+model AuditLog {
+  id            String   @id @default(cuid())
+  entityType    String
+  entityId      String
+  action        String
+  oldValue      Json?
+  newValue      Json?
+  performedById String
+  performedAt   DateTime @default(now())
+  ipAddress     String   @db.VarChar(45)
+
+  performedBy User @relation(fields: [performedById], references: [id])
+
+  @@index([performedAt])
+  @@index([entityType, entityId])
+  @@index([performedById])
+}
+
+model Notification {
+  id           String   @id @default(cuid())
+  userId       String
+  type         String
+  message      String   @db.Text
+  isRead       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  submissionId String?
+
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  submission MonthlySubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([isRead])
+}
+
+/// Global per-cycle config set by Finance Admin (one row per month).
+model NotificationConfig {
+  id                       String   @id @default(cuid())
+  month                    String   @unique @db.VarChar(7) // YYYY-MM
+  monthStartNotifyDate     DateTime
+  cutoffDate               DateTime
+  preCutoffReminderDays    Int
+  varianceThresholdPercent Decimal  @db.Decimal(5, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

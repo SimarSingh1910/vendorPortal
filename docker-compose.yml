@@ -1,0 +1,30 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: cpp-mysql
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      # Match the native Windows MySQL (case-insensitive table names) so the
+      # committed migrations, which reference both `User` and `user`, replay
+      # cleanly. Must be set at first data-dir init.
+      - --lower-case-table-names=1
+    environment:
+      MYSQL_ROOT_PASSWORD: root_local_dev
+      MYSQL_DATABASE: cost_provision
+      MYSQL_USER: cpp
+      MYSQL_PASSWORD: cpp_local_dev
+    ports:
+      - "3307:3306"
+    volumes:
+      - cpp_mysql_data:/var/lib/mysql
+      - ./docker/mysql-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot_local_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  cpp_mysql_data:

@@ -1,0 +1,38 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+
+# env
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+Thumbs.db
+
+# claude code local (per-developer) settings
+.claude/settings.local.json
+
+# test / coverage
+coverage/
+
+# vite
+apps/web/.vite/
+
+# prisma generated client (default output is under node_modules/, but be explicit)
+.prisma/
+**/generated/prisma/
