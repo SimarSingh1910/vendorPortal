@@ -1,9 +1,16 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { MonthlySubmission, SubmissionExpenseHeadSnapshot } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClinicExpenseHeadsService } from '../clinic-expense-heads/clinic-expense-heads.service';
 import { AuditService } from '../audit/audit.service';
+import { NotificationDispatchService } from '../notifications/notification-dispatch.service';
 import { AuditAction } from '@portal/shared';
 
 /** A submission with its frozen head list, as returned by the open routine. */
@@ -42,10 +49,15 @@ const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
  */
 @Injectable()
 export class CycleService {
+  private readonly logger = new Logger(CycleService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly clinicExpenseHeads: ClinicExpenseHeadsService,
     private readonly audit: AuditService,
+    // Optional so unit modules that construct CycleService without the
+    // notifications wiring keep working; dispatch is a best-effort side path.
+    @Optional() private readonly dispatch?: NotificationDispatchService,
   ) {}
 
   private assertMonth(month: string): void {
@@ -109,6 +121,23 @@ export class CycleService {
         clinicId,
         newValue: { month, status: submission.status, snapshotHeads: heads.length },
       });
+
+      // Trigger 1 (Step 10.3): notify the clinic's active SPOCs the cycle is open.
+      // Flag a zero-mapped-head open to Finance Admins (Step 10.4). Dispatched only
+      // on first creation, so an idempotent re-run never re-notifies. Best-effort.
+      if (this.dispatch) {
+        try {
+          await this.dispatch.cycleOpened(submission);
+          if (heads.length === 0) {
+            await this.dispatch.clinicHasNoHeads(submission);
+          }
+        } catch (err) {
+          this.logger.error(
+            `cycle-open notification failed for ${submission.id}: ${(err as Error).message}`,
+          );
+        }
+      }
+
       return { submission, created: true };
     } catch (err) {
       // A concurrent opener won the @@unique([clinicId, month]) race — treat as

@@ -38,4 +38,11 @@ export type {
   NotificationConfigView,
   NotificationConfigInput,
   NotificationView,
+  DashboardStatusTile,
+  MonthlyTotalPoint,
+  HeadTrendPoint,
+  ClinicTotalPoint,
+  VarianceRow,
+  VarianceReport,
+  DashboardFilterOptions,
 } from './types';

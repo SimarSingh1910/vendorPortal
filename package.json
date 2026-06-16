@@ -7,6 +7,15 @@
     "node": ">=20"
   },
   "packageManager": "pnpm@9.15.0",
+  "pnpm": {
+    "packageExtensions": {
+      "@hookform/resolvers": {
+        "peerDependencies": {
+          "zod": "*"
+        }
+      }
+    }
+  },
   "scripts": {
     "build:shared": "pnpm --filter @portal/shared build",
     "build": "pnpm build:shared && pnpm --filter @portal/api build && pnpm --filter @portal/web build",

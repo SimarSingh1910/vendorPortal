@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ClinicExpenseHeadsModule } from '../clinic-expense-heads/clinic-expense-heads.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { CycleService } from './cycle.service';
 import { WorkflowService } from './workflow.service';
 import { SubmissionCommentsService } from './submission-comments.service';
@@ -18,7 +19,7 @@ import { ProvisionEntryController } from './provision-entry.controller';
  * WorkflowService is exported for cross-service transitions.
  */
 @Module({
-  imports: [ClinicExpenseHeadsModule],
+  imports: [ClinicExpenseHeadsModule, NotificationsModule],
   controllers: [
     SubmissionWorkflowController,
     SubmissionCommentsController,

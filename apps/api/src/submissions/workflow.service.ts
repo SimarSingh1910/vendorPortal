@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma, CommentAction } from '@prisma/client';
@@ -13,6 +14,7 @@ import { AuditAction, SubmissionStatus, UserRole } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClinicScopeService } from '../common/clinic-scope.service';
 import { AuditService } from '../audit/audit.service';
+import { NotificationDispatchService } from '../notifications/notification-dispatch.service';
 import type { RequestUser } from '../auth/request-user';
 
 const S = SubmissionStatus;
@@ -144,6 +146,9 @@ export class WorkflowService {
     private readonly prisma: PrismaService,
     private readonly scope: ClinicScopeService,
     private readonly audit: AuditService,
+    // Optional so the many unit modules that construct WorkflowService without
+    // the notifications wiring keep working; dispatch is a best-effort side path.
+    @Optional() private readonly dispatch?: NotificationDispatchService,
   ) {}
 
   // ── Public action surface (one method per route) ────────────────────────────
@@ -353,28 +358,47 @@ export class WorkflowService {
       });
     }
 
-    this.emitNotificationHook(action, updated);
+    await this.notify(action, updated, trimmedComment);
     return updated;
   }
 
   /**
-   * Notification hook (wired in Phase 10: AWS SES + in-app SSE). Each transition
-   * notifies the next actor — most importantly a SUBMIT notifies the clinic's
-   * Manager that an item awaits review. For now it only logs the intent so the
-   * call sites exist and are exercised by tests.
+   * Dispatch the transition's notification(s) via the single notification path
+   * (Step 10.3 — replaces the old logging-only hook). Each transition notifies
+   * the next actor on both channels; send-backs carry the reviewer's comment.
+   * Best-effort: a notification failure is logged, never raised, so it cannot
+   * roll back a transition that already committed. Actions with no recipient
+   * (SAVE_DRAFT, *_OPEN_REVIEW) fall through to no-op.
    */
-  private emitNotificationHook(action: WorkflowAction, submission: MonthlySubmission): void {
-    const recipients: Partial<Record<WorkflowAction, string>> = {
-      [WorkflowAction.SUBMIT]: 'CLINIC_MANAGER (review pending)',
-      [WorkflowAction.MANAGER_APPROVE]: 'FINANCE (clinic approved)',
-      [WorkflowAction.MANAGER_SEND_BACK]: 'CLINIC_SPOC (sent back by manager)',
-      [WorkflowAction.FINANCE_SEND_BACK]: 'CLINIC_SPOC (sent back by finance)',
-      [WorkflowAction.FINANCE_APPROVE]: 'CLINIC_SPOC + CLINIC_MANAGER (approved & locked)',
-    };
-    const target = recipients[action];
-    if (target) {
-      this.logger.log(
-        `notify[${target}] for submission ${submission.id} (${submission.clinicId}/${submission.month})`,
+  private async notify(
+    action: WorkflowAction,
+    submission: MonthlySubmission,
+    comment?: string,
+  ): Promise<void> {
+    if (!this.dispatch) return;
+    try {
+      switch (action) {
+        case WorkflowAction.SUBMIT:
+          await this.dispatch.submitted(submission);
+          break;
+        case WorkflowAction.MANAGER_APPROVE:
+          await this.dispatch.managerApproved(submission);
+          break;
+        case WorkflowAction.MANAGER_SEND_BACK:
+          await this.dispatch.managerSentBack(submission, comment ?? '');
+          break;
+        case WorkflowAction.FINANCE_APPROVE:
+          await this.dispatch.financeApproved(submission);
+          break;
+        case WorkflowAction.FINANCE_SEND_BACK:
+          await this.dispatch.financeSentBack(submission, comment ?? '');
+          break;
+        default:
+          break;
+      }
+    } catch (err) {
+      this.logger.error(
+        `notification dispatch failed for ${action} on ${submission.id}: ${(err as Error).message}`,
       );
     }
   }

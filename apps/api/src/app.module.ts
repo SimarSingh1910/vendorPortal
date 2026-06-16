@@ -1,5 +1,7 @@
 import { MiddlewareConsumer, Module, type NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { CommonModule } from './common/common.module';
 import { AuditModule } from './audit/audit.module';
 import { requestContextMiddleware } from './audit/request-context.middleware';
@@ -12,6 +14,9 @@ import { ClinicExpenseHeadsModule } from './clinic-expense-heads/clinic-expense-
 import { UsersModule } from './users/users.module';
 import { SubmissionsModule } from './submissions/submissions.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { SchedulerModule } from './scheduler/scheduler.module';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { ExportModule } from './export/export.module';
 
 @Module({
   imports: [
@@ -20,6 +25,11 @@ import { NotificationsModule } from './notifications/notifications.module';
       // Load apps/api/.env in dev; real environments inject vars directly.
       envFilePath: '.env',
     }),
+    // Registers the cron runtime for the cycle scheduler (Step 10.4).
+    ScheduleModule.forRoot(),
+    // Rate-limiting backbone (Phase 13.1). The ThrottlerGuard is applied per-route
+    // (auth endpoints) rather than globally, so SSE/long-poll routes are unaffected.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     PrismaModule,
     CommonModule,
     AuditModule,
@@ -30,6 +40,9 @@ import { NotificationsModule } from './notifications/notifications.module';
     UsersModule,
     SubmissionsModule,
     NotificationsModule,
+    SchedulerModule,
+    DashboardModule,
+    ExportModule,
     HealthModule,
   ],
 })

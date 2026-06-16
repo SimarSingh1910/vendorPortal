@@ -4,11 +4,23 @@ import { JwtService, type JwtSignOptions } from '@nestjs/jwt';
 import { createHash, randomUUID } from 'node:crypto';
 import * as bcrypt from 'bcrypt';
 import type { User } from '@prisma/client';
-import type { AuthResponse, AuthUser, JwtClaims, UserRole } from '@portal/shared';
+import type { AuthUser, JwtClaims, UserRole } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 
 /** `ms`-style duration string (e.g. "15m", "7d") or seconds; matches jsonwebtoken. */
 type ExpiresIn = JwtSignOptions['expiresIn'];
+
+/**
+ * What login/refresh hand back to the controller. The refresh token + its expiry
+ * are used to set the httpOnly cookie and never reach the response body; only
+ * `accessToken` + `user` are returned to the client.
+ */
+export interface IssuedSession {
+  accessToken: string;
+  refreshToken: string;
+  refreshExpiresAt: Date;
+  user: AuthUser;
+}
 
 /** Payload carried by the refresh JWT. `jti` is the RefreshToken row id. */
 interface RefreshClaims {
@@ -27,7 +39,7 @@ export class AuthService {
   // ── Public endpoints ───────────────────────────────────────────────────────
 
   /** Verify credentials and issue the first token pair. */
-  async login(email: string, password: string): Promise<AuthResponse> {
+  async login(email: string, password: string): Promise<IssuedSession> {
     const user = await this.prisma.user.findUnique({ where: { email } });
     // Same generic error whether the email is unknown, the password is wrong, or
     // the account is deactivated — never leak which.
@@ -49,7 +61,7 @@ export class AuthService {
    * pair. Presenting an already-revoked token is treated as reuse and revokes
    * every live refresh token for that user.
    */
-  async refresh(refreshToken: string): Promise<AuthResponse> {
+  async refresh(refreshToken: string): Promise<IssuedSession> {
     const claims = this.verifyRefreshToken(refreshToken);
 
     const stored = await this.prisma.refreshToken.findUnique({ where: { id: claims.jti } });
@@ -172,7 +184,7 @@ export class AuthService {
 
   // ── Internals ────────────────────────────────────────────────────────────────
 
-  private async issueTokens(user: User): Promise<AuthResponse> {
+  private async issueTokens(user: User): Promise<IssuedSession> {
     const assignments = await this.prisma.userClinicAssignment.findMany({
       where: { userId: user.id },
       select: { clinicId: true },
@@ -206,7 +218,12 @@ export class AuthService {
       data: { id: jti, userId: user.id, tokenHash: hashToken(refreshToken), expiresAt },
     });
 
-    return { accessToken, refreshToken, user: toAuthUser(user, clinicIds) };
+    return {
+      accessToken,
+      refreshToken,
+      refreshExpiresAt: expiresAt,
+      user: toAuthUser(user, clinicIds),
+    };
   }
 
   private verifyRefreshToken(token: string): RefreshClaims {

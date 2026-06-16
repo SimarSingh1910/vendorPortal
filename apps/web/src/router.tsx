@@ -16,6 +16,8 @@ import { ManagerHome } from '@/pages/manager/ManagerHome';
 import { ManagerReview } from '@/pages/manager/ManagerReview';
 import { FinanceHome } from '@/pages/finance/FinanceHome';
 import { FinanceReview } from '@/pages/finance/FinanceReview';
+import { FinanceDashboard } from '@/pages/finance/FinanceDashboard';
+import { ClinicDashboard } from '@/pages/clinic/ClinicDashboard';
 import { useAuthStore } from '@/store/auth.store';
 
 /** Root: send authenticated users to their role home, everyone else to login. */
@@ -45,6 +47,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute allowedRoles={ROUTE_ROLES['/finance']}>
             <FinanceHome />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'finance/dashboard',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/finance/dashboard']}>
+            <FinanceDashboard />
           </ProtectedRoute>
         ),
       },
@@ -133,6 +143,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute allowedRoles={ROUTE_ROLES['/spoc/submissions']}>
             <SubmissionEntry />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'clinic/dashboard',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/clinic/dashboard']}>
+            <ClinicDashboard />
           </ProtectedRoute>
         ),
       },

@@ -5,11 +5,6 @@ import type { AuthResponse } from '@portal/shared';
 import { apiClient } from '@/lib/apiClient';
 import { queryClient } from '@/lib/queryClient';
 import { useAuthStore } from '@/store/auth.store';
-import {
-  clearStoredRefreshToken,
-  getStoredRefreshToken,
-  setStoredRefreshToken,
-} from '@/lib/tokenStorage';
 import { roleHome } from '@/auth/roles';
 
 export interface LoginCredentials {
@@ -18,8 +13,9 @@ export interface LoginCredentials {
 }
 
 /**
- * Login (React Query mutation) + logout. Both keep the access token in memory
- * (auth store) and the refresh token in storage, and navigate appropriately.
+ * Login (React Query mutation) + logout. The access token is kept in memory
+ * (auth store); the refresh token lives only in an httpOnly cookie the API sets,
+ * so there is nothing token-related to persist in JS (Phase 13.1).
  */
 export function useAuthActions() {
   const navigate = useNavigate();
@@ -31,24 +27,20 @@ export function useAuthActions() {
     },
     onSuccess: (data) => {
       useAuthStore.getState().setSession(data.accessToken, data.user);
-      setStoredRefreshToken(data.refreshToken);
       queryClient.clear();
       navigate(roleHome(data.user.role), { replace: true });
     },
   });
 
   const logout = useCallback(async (): Promise<void> => {
-    const refreshToken = getStoredRefreshToken();
     try {
-      // Revoke the refresh token server-side (idempotent, public endpoint).
-      if (refreshToken) {
-        await apiClient.post('/auth/logout', { refreshToken });
-      }
+      // Revoke the refresh token + clear its cookie server-side (idempotent,
+      // public; the cookie is sent automatically).
+      await apiClient.post('/auth/logout');
     } catch {
       /* even if the call fails, clear local state below */
     }
     useAuthStore.getState().clear();
-    clearStoredRefreshToken();
     queryClient.clear();
     navigate('/login', { replace: true });
   }, [navigate]);

@@ -40,14 +40,19 @@ export interface AuthUser {
   clinicIds: string[];
 }
 
-/** Token pair issued by /auth/login and /auth/refresh. */
+/** Token pair issued internally by the API (refresh travels in an httpOnly cookie). */
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
 }
 
-/** Response body for /auth/login and /auth/refresh. */
-export interface AuthResponse extends AuthTokens {
+/**
+ * Response body for /auth/login and /auth/refresh. The refresh token is NOT in
+ * the body — the API sets it as an httpOnly, SameSite cookie (Phase 13.1), so it
+ * is never readable by JS. The client keeps only the access token (in memory).
+ */
+export interface AuthResponse {
+  accessToken: string;
   user: AuthUser;
 }
 
@@ -262,6 +267,73 @@ export interface AuditLogPage {
   total: number;
   page: number;
   pageSize: number;
+}
+
+// ── Dashboards & analytics (Phase 11, FR-07) ─────────────────────────────────
+
+/**
+ * One clinic's current-month submission status for the status tracker. `total`
+ * is the summed entered amount (DECIMAL(14,2) string) or null when nothing has
+ * been entered. `status` is NOT_STARTED when no cycle row exists yet.
+ */
+export interface DashboardStatusTile {
+  clinicId: string;
+  clinicName: string;
+  month: string; // YYYY-MM
+  status: SubmissionStatus;
+  submissionId: string | null;
+  total: string | null; // DECIMAL(14,2) as string
+}
+
+/** A month → total point for the month-on-month expense comparison. */
+export interface MonthlyTotalPoint {
+  month: string; // YYYY-MM
+  total: string; // DECIMAL(14,2) as string
+}
+
+/** A (month, expense head) → total point for expense-head-wise trends. */
+export interface HeadTrendPoint {
+  month: string; // YYYY-MM
+  expenseHeadId: string;
+  expenseHeadName: string;
+  total: string; // DECIMAL(14,2) as string
+}
+
+/** A clinic → total for the clinic-wise comparison over a month range. */
+export interface ClinicTotalPoint {
+  clinicId: string;
+  clinicName: string;
+  total: string; // DECIMAL(14,2) as string
+}
+
+/**
+ * One expense head's month-on-month variance (BR-12). `deviationPercent` is the
+ * signed % change vs the prior month, or null when there is no prior baseline
+ * (prior total was zero/absent). `flagged` is true when the deviation breaches
+ * the configured threshold.
+ */
+export interface VarianceRow {
+  expenseHeadId: string;
+  expenseHeadName: string;
+  current: string; // DECIMAL(14,2) as string
+  prior: string | null; // DECIMAL(14,2) as string
+  deviationPercent: string | null; // signed %, 2dp; null = no prior baseline
+  flagged: boolean;
+}
+
+/** Variance report for a month vs its prior month. */
+export interface VarianceReport {
+  month: string; // YYYY-MM
+  priorMonth: string; // YYYY-MM
+  /** From NotificationConfig.varianceThresholdPercent for `month`; null if unset. */
+  thresholdPercent: string | null;
+  rows: VarianceRow[];
+}
+
+/** Dropdown options for the dashboard filters, scoped to the caller. */
+export interface DashboardFilterOptions {
+  clinics: { id: string; name: string }[];
+  expenseHeads: { id: string; name: string }[];
 }
 
 /** Standard error envelope returned by the API. */

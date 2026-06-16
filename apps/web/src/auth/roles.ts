@@ -25,6 +25,11 @@ export interface NavItem {
  */
 export const NAV_ITEMS: NavItem[] = [
   { path: '/finance', label: 'Finance', roles: [UserRole.FINANCE_ADMIN, UserRole.FINANCE_VIEWER] },
+  {
+    path: '/finance/dashboard',
+    label: 'Dashboard',
+    roles: [UserRole.FINANCE_ADMIN, UserRole.FINANCE_VIEWER],
+  },
   { path: '/admin/clinics', label: 'Clinics', roles: [UserRole.FINANCE_ADMIN] },
   { path: '/admin/expense-heads', label: 'Expense Heads', roles: [UserRole.FINANCE_ADMIN] },
   { path: '/admin/mappings', label: 'Mappings', roles: [UserRole.FINANCE_ADMIN] },
@@ -33,12 +38,18 @@ export const NAV_ITEMS: NavItem[] = [
   { path: '/admin/audit', label: 'Audit Log', roles: [UserRole.FINANCE_ADMIN] },
   { path: '/manager', label: 'Clinic Manager', roles: [UserRole.CLINIC_MANAGER] },
   { path: '/spoc', label: 'Data Entry', roles: [UserRole.CLINIC_SPOC] },
+  {
+    path: '/clinic/dashboard',
+    label: 'Dashboard',
+    roles: [UserRole.CLINIC_MANAGER, UserRole.CLINIC_SPOC],
+  },
   { path: '/viewer', label: 'Clinic View', roles: [UserRole.CLINIC_VIEWER] },
 ];
 
 /** Allowed roles per protected route path (single source for router + guard). */
 export const ROUTE_ROLES: Record<string, UserRole[]> = {
   '/finance': [UserRole.FINANCE_ADMIN, UserRole.FINANCE_VIEWER],
+  '/finance/dashboard': [UserRole.FINANCE_ADMIN, UserRole.FINANCE_VIEWER],
   '/finance/submissions': [UserRole.FINANCE_ADMIN, UserRole.FINANCE_VIEWER],
   '/admin/clinics': [UserRole.FINANCE_ADMIN],
   '/admin/expense-heads': [UserRole.FINANCE_ADMIN],
@@ -50,5 +61,6 @@ export const ROUTE_ROLES: Record<string, UserRole[]> = {
   '/manager/submissions': [UserRole.CLINIC_MANAGER],
   '/spoc': [UserRole.CLINIC_SPOC],
   '/spoc/submissions': [UserRole.CLINIC_SPOC],
+  '/clinic/dashboard': [UserRole.CLINIC_MANAGER, UserRole.CLINIC_SPOC],
   '/viewer': [UserRole.CLINIC_VIEWER],
 };

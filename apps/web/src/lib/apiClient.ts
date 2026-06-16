@@ -1,19 +1,15 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import type { AuthResponse } from '@portal/shared';
 import { useAuthStore } from '@/store/auth.store';
-import {
-  clearStoredRefreshToken,
-  getStoredRefreshToken,
-  setStoredRefreshToken,
-} from '@/lib/tokenStorage';
 
 const baseURL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000/api';
 
-/** Main client — all app requests go through here (token attach + 401 refresh). */
-export const apiClient = axios.create({ baseURL });
+// `withCredentials` so the browser sends/stores the httpOnly refresh cookie
+// (Phase 13.1) on the cross-origin auth calls. The access token stays in memory.
+export const apiClient = axios.create({ baseURL, withCredentials: true });
 
 /** Bare client for the refresh call itself, so it never re-enters the interceptor. */
-const refreshClient = axios.create({ baseURL });
+const refreshClient = axios.create({ baseURL, withCredentials: true });
 
 // Attach the in-memory access token to every request.
 apiClient.interceptors.request.use((config) => {
@@ -28,14 +24,10 @@ apiClient.interceptors.request.use((config) => {
 let refreshPromise: Promise<string> | null = null;
 
 async function refreshAccessToken(): Promise<string> {
-  const refreshToken = getStoredRefreshToken();
-  if (!refreshToken) {
-    throw new Error('No refresh token');
-  }
-  const { data } = await refreshClient.post<AuthResponse>('/auth/refresh', { refreshToken });
-  // Rotation: persist the new pair (access in memory, refresh in storage).
+  // No body — the refresh token rides in the httpOnly cookie. The API rotates it
+  // and sets a fresh cookie; we keep only the new access token (in memory).
+  const { data } = await refreshClient.post<AuthResponse>('/auth/refresh');
   useAuthStore.getState().setSession(data.accessToken, data.user);
-  setStoredRefreshToken(data.refreshToken);
   return data.accessToken;
 }
 
@@ -65,7 +57,6 @@ apiClient.interceptors.response.use(
     } catch (refreshError) {
       refreshPromise = null;
       useAuthStore.getState().clear();
-      clearStoredRefreshToken();
       return Promise.reject(refreshError);
     }
   },

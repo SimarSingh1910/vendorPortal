@@ -230,6 +230,8 @@ model SubmissionExpenseHeadSnapshot {
 
   @@unique([submissionId, expenseHeadId])
   @@index([submissionId])
+  // Dashboard/export GROUP BY + filter by expense head (Phase 13.2).
+  @@index([expenseHeadId])
 }
 
 model ProvisionEntry {
@@ -299,6 +301,10 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([performedById])
   @@index([clinicId])
+  // Audit viewer's action filter (Phase 13.2).
+  @@index([action])
+  // Clinic-scoped, time-ordered audit search (Phase 13.2).
+  @@index([clinicId, performedAt])
 }
 
 model Notification {
