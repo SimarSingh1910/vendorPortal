@@ -261,6 +261,7 @@ describe('WorkflowService (Step 5.2 — state machine + transition guards)', () 
     expect(audits).toHaveLength(1);
     expect(audits[0].performedById).toBe(admin.id);
     expect(audits[0].ipAddress).toBe('198.51.100.4');
+    expect(audits[0].clinicId).toBe(submission.clinicId);
 
     // Re-approval re-locks.
     await workflow.financeApprove(submission.id, admin);

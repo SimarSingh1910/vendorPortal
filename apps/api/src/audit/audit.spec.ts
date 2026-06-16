@@ -107,9 +107,11 @@ describe('Audit logging (Step 9.1 — append-only, unified write path)', () => {
     expect(saveRows[0].ipAddress).toBe('192.0.2.10');
     expect(saveRows[0].clinicId).toBe(clinic.id);
 
-    // submit (SPOC)
+    // submit (SPOC) — clinic-scoped row carries clinicId.
     await asUser(spoc.id, () => workflow.submit(submission.id, spoc));
-    expect(await rowsFor('SUBMISSION_SUBMIT', submission.id)).toHaveLength(1);
+    const submitRows = await rowsFor('SUBMISSION_SUBMIT', submission.id);
+    expect(submitRows).toHaveLength(1);
+    expect(submitRows[0].clinicId).toBe(clinic.id);
 
     // manager review + approve
     await asUser(manager.id, () => workflow.managerOpenReview(submission.id, manager));
@@ -117,14 +119,25 @@ describe('Audit logging (Step 9.1 — append-only, unified write path)', () => {
     const approveRows = await rowsFor('SUBMISSION_MANAGER_APPROVE', submission.id);
     expect(approveRows).toHaveLength(1);
     expect(approveRows[0].performedById).toBe(manager.id);
+    expect(approveRows[0].clinicId).toBe(clinic.id);
 
     // finance open + send back
     await asUser(admin.id, () => workflow.financeOpenReview(submission.id, admin));
     await asUser(admin.id, () => workflow.financeSendBack(submission.id, admin, 'please fix'));
-    expect(await rowsFor('SUBMISSION_FINANCE_SEND_BACK', submission.id)).toHaveLength(1);
+    const sendBackRows = await rowsFor('SUBMISSION_FINANCE_SEND_BACK', submission.id);
+    expect(sendBackRows).toHaveLength(1);
+    expect(sendBackRows[0].clinicId).toBe(clinic.id);
 
     // SAVE_DRAFT (triggered by the save above) must NOT be audited (no double row).
     expect(await rowsFor('SUBMISSION_SAVE_DRAFT', submission.id)).toHaveLength(0);
+
+    // Every clinic-scoped row must carry the clinicId (the filter 9.2 rides on).
+    const clinicScoped = await prisma.auditLog.findMany({
+      where: { entityId: submission.id },
+      select: { clinicId: true },
+    });
+    expect(clinicScoped.length).toBeGreaterThan(0);
+    expect(clinicScoped.every((r) => r.clinicId === clinic.id)).toBe(true);
   });
 
   it('audits a master edit and a user edit', async () => {
