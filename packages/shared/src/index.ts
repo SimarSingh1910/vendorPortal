@@ -37,4 +37,5 @@ export type {
   AuditLogPage,
   NotificationConfigView,
   NotificationConfigInput,
+  NotificationView,
 } from './types';

@@ -226,6 +226,18 @@ export interface NotificationConfigInput {
   varianceThresholdPercent: number;
 }
 
+// ── Notifications (Phase 10.2) ───────────────────────────────────────────────
+
+/** An in-app notification as shown in the tray. */
+export interface NotificationView {
+  id: string;
+  type: string;
+  message: string;
+  isRead: boolean;
+  createdAt: string; // ISO-8601
+  submissionId: string | null;
+}
+
 // ── Audit log viewer (Phase 9.2) ─────────────────────────────────────────────
 
 /** One audit row as shown in the Finance-Admin audit viewer. */

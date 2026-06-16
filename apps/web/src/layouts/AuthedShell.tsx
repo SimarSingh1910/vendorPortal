@@ -8,6 +8,7 @@ import { useAuthStore } from '@/store/auth.store';
 import { useAuthActions } from '@/auth/useAuthActions';
 import { useIdleTimer } from '@/auth/useIdleTimer';
 import { NAV_ITEMS } from '@/auth/roles';
+import { NotificationTray } from '@/components/NotificationTray';
 import { cn } from '@/lib/utils';
 
 /**
@@ -47,6 +48,7 @@ export function AuthedShell() {
           <span>Cost Provision Portal</span>
         </div>
         <div className="ml-auto flex items-center gap-4">
+          <NotificationTray />
           <div className="text-right text-sm leading-tight">
             <div className="font-medium">{user.name}</div>
             <div className="text-xs text-muted-foreground">{ROLE_LABELS[user.role]}</div>

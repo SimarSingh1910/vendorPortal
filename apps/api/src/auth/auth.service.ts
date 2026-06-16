@@ -102,6 +102,28 @@ export class AuthService {
     return { success: true };
   }
 
+  /**
+   * Verify an access token and return the user id, applying the same
+   * immediate-revocation checks as JwtAccessGuard. Used where the bearer header
+   * isn't available (e.g. the SSE stream, which carries the token as a query
+   * param because EventSource can't set headers).
+   */
+  async verifyAccessToken(token: string): Promise<string> {
+    let claims: JwtClaims;
+    try {
+      claims = await this.jwt.verifyAsync<JwtClaims>(token, {
+        secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid access token');
+    }
+    const user = await this.prisma.user.findUnique({ where: { id: claims.sub } });
+    if (!user || !user.isActive || claims.tokenVersion !== user.tokenVersion) {
+      throw new UnauthorizedException('Token no longer valid');
+    }
+    return user.id;
+  }
+
   /** Hash a plaintext password with the project's bcrypt cost (BCRYPT_ROUNDS, >= 12). */
   hashPassword(plain: string): Promise<string> {
     const rounds = Number(this.config.get<string>('BCRYPT_ROUNDS', '12'));
