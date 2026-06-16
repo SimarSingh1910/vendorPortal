@@ -47,7 +47,6 @@ export class ProvisionEntryService {
     submissionId: string,
     user: RequestUser,
     items: ProvisionEntryInput[],
-    ipAddress = '',
   ): Promise<SubmissionDetail> {
     const submission = await this.prisma.monthlySubmission.findUnique({
       where: { id: submissionId },
@@ -74,7 +73,7 @@ export class ProvisionEntryService {
     }
 
     if (items.length > 0) {
-      await this.applyEntries(submissionId, user, items, isAdmin, ipAddress);
+      await this.applyEntries(submissionId, user, items, isAdmin, submission.clinicId);
     }
 
     if (isAdmin) {
@@ -88,13 +87,13 @@ export class ProvisionEntryService {
     return this.submissions.getDetail(submissionId, user);
   }
 
-  /** Validate the targets, capture before/after for admin audit, then upsert. */
+  /** Validate the targets, capture before/after, upsert, then audit the save. */
   private async applyEntries(
     submissionId: string,
     user: RequestUser,
     items: ProvisionEntryInput[],
     isAdmin: boolean,
-    ipAddress: string,
+    clinicId: string,
   ): Promise<void> {
     const snaps = await this.prisma.submissionExpenseHeadSnapshot.findMany({
       where: { submissionId },
@@ -107,13 +106,11 @@ export class ProvisionEntryService {
       }
     }
 
-    // For an admin override, snapshot the prior values so the audit captures the change.
-    const before = isAdmin
-      ? await this.prisma.provisionEntry.findMany({
-          where: { snapshotId: { in: items.map((i) => i.snapshotId) } },
-          select: { snapshotId: true, amount: true },
-        })
-      : [];
+    // Snapshot the prior values so the audit captures the change.
+    const before = await this.prisma.provisionEntry.findMany({
+      where: { snapshotId: { in: items.map((i) => i.snapshotId) } },
+      select: { snapshotId: true, amount: true },
+    });
 
     await this.prisma.$transaction(
       items.map((item) =>
@@ -131,16 +128,16 @@ export class ProvisionEntryService {
       ),
     );
 
-    if (isAdmin) {
-      await this.audit.log({
-        entityType: 'MonthlySubmission',
-        entityId: submissionId,
-        action: 'PROVISION_EDIT_OVERRIDE',
-        performedById: user.id,
-        ipAddress,
-        oldValue: before.map((b) => ({ snapshotId: b.snapshotId, amount: b.amount.toFixed(2) })),
-        newValue: items,
-      });
-    }
+    // One audit row per save. A SPOC's normal save is PROVISION_SAVE (the
+    // SAVE_DRAFT transition it triggers is intentionally NOT audited, avoiding a
+    // double row); a Finance Admin's BR-08 override is PROVISION_EDIT_OVERRIDE.
+    await this.audit.record({
+      action: isAdmin ? 'PROVISION_EDIT_OVERRIDE' : 'PROVISION_SAVE',
+      entityType: 'MonthlySubmission',
+      entityId: submissionId,
+      clinicId,
+      oldValue: before.map((b) => ({ snapshotId: b.snapshotId, amount: b.amount.toFixed(2) })),
+      newValue: items,
+    });
   }
 }

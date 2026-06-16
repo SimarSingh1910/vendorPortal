@@ -8,6 +8,7 @@ import { WorkflowService } from './workflow.service';
 import { SubmissionsService } from './submissions.service';
 import { ProvisionEntryService } from './provision-entry.service';
 import { AuditService } from '../audit/audit.service';
+import { runWithRequestContext } from '../audit/request-context';
 import { makeFixtures, type Fixtures, expectStatus } from '../../test/fixtures';
 import { resetDb } from '../../test/reset';
 
@@ -155,11 +156,8 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
     await fx.driveToStatus(submission.id, SubmissionStatus.FINANCE_APPROVED);
     const admin = (await fx.makeUser(UserRole.FINANCE_ADMIN)).user;
 
-    const detail = await entries.saveEntries(
-      submission.id,
-      admin,
-      [{ snapshotId: snapshotIds[0], amount: 4242 }],
-      '203.0.113.7',
+    const detail = await runWithRequestContext({ user: { id: admin.id }, ip: '203.0.113.7' }, () =>
+      entries.saveEntries(submission.id, admin, [{ snapshotId: snapshotIds[0], amount: 4242 }]),
     );
 
     // Edit applied; status stays FINANCE_APPROVED (still locked).
@@ -167,10 +165,11 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
     expect(detail.locked).toBe(true);
     expect(detail.heads[0].amount).toBe('4242.00');
 
-    // One audit row recorded for the override.
-    const audits = await prisma.auditLog.findMany({ where: { entityId: submission.id } });
+    // One audit row recorded for the override (other rows exist from the drive).
+    const audits = await prisma.auditLog.findMany({
+      where: { entityId: submission.id, action: 'PROVISION_EDIT_OVERRIDE' },
+    });
     expect(audits).toHaveLength(1);
-    expect(audits[0].action).toBe('PROVISION_EDIT_OVERRIDE');
     expect(audits[0].performedById).toBe(admin.id);
     expect(audits[0].ipAddress).toBe('203.0.113.7');
   });

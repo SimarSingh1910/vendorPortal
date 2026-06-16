@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { CLINIC_ROLES, UserRole, type ActiveFilter, type AdminUser } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
+import { AuditService } from '../audit/audit.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 
@@ -37,6 +38,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auth: AuthService,
+    private readonly audit: AuditService,
   ) {}
 
   private isClinicRole(role: UserRole): boolean {
@@ -94,6 +96,12 @@ export class UsersService {
       },
       include: { assignments: true },
     });
+    await this.audit.record({
+      action: 'USER_CREATE',
+      entityType: 'User',
+      entityId: user.id,
+      newValue: { name: dto.name, email: dto.email, role: dto.role, clinicIds },
+    });
     // New user has no sessions yet — nothing to invalidate.
     return toAdminUser(user);
   }
@@ -149,6 +157,20 @@ export class UsersService {
     if (roleChanged || assignmentsChanged || passwordChanged) {
       await this.auth.invalidateUserSessions(id);
     }
+
+    await this.audit.record({
+      action: 'USER_UPDATE',
+      entityType: 'User',
+      entityId: id,
+      // Never log password material — only whether it changed.
+      oldValue: { role: current.role, clinicIds: currentClinicIds },
+      newValue: {
+        ...(dto.name !== undefined ? { name: dto.name } : {}),
+        role: newRole,
+        clinicIds: targetClinicIds,
+        passwordChanged,
+      },
+    });
     return toAdminUser(user);
   }
 
@@ -165,6 +187,12 @@ export class UsersService {
       include: { assignments: true },
     });
     await this.auth.invalidateUserSessions(id);
+    await this.audit.record({
+      action: 'USER_SET_ACTIVE',
+      entityType: 'User',
+      entityId: id,
+      newValue: { isActive },
+    });
     return toAdminUser(user);
   }
 }

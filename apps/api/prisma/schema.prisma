@@ -277,21 +277,28 @@ model SubmissionComment {
 /// Append-only audit trail. Never updated or deleted. Enforced in application
 /// code today; DB-level BEFORE UPDATE/DELETE triggers are added in the audit step.
 model AuditLog {
-  id            String   @id @default(cuid())
-  entityType    String
-  entityId      String
-  action        String
-  oldValue      Json?
-  newValue      Json?
-  performedById String
+  id         String   @id @default(cuid())
+  entityType String
+  entityId   String
+  action     String
+  oldValue   Json?
+  newValue   Json?
+  // Nullable so SYSTEM actions (e.g. the scheduler opening a cycle) can be
+  // recorded with no actor / no client IP.
+  performedById String?
   performedAt   DateTime @default(now())
-  ipAddress     String   @db.VarChar(45)
+  ipAddress     String?  @db.VarChar(45)
+  /// Denormalized clinic for FR-09 clinic-scoped audit search — set when the
+  /// action concerns a clinic or a clinic-scoped submission. No FK (append-only
+  /// search field; clinics are deactivated, never deleted).
+  clinicId String?
 
-  performedBy User @relation(fields: [performedById], references: [id])
+  performedBy User? @relation(fields: [performedById], references: [id])
 
   @@index([performedAt])
   @@index([entityType, entityId])
   @@index([performedById])
+  @@index([clinicId])
 }
 
 model Notification {

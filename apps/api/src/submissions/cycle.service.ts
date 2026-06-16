@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type { MonthlySubmission, SubmissionExpenseHeadSnapshot } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClinicExpenseHeadsService } from '../clinic-expense-heads/clinic-expense-heads.service';
+import { AuditService } from '../audit/audit.service';
 
 /** A submission with its frozen head list, as returned by the open routine. */
 export type OpenedSubmission = MonthlySubmission & {
@@ -43,6 +44,7 @@ export class CycleService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly clinicExpenseHeads: ClinicExpenseHeadsService,
+    private readonly audit: AuditService,
   ) {}
 
   private assertMonth(month: string): void {
@@ -96,6 +98,15 @@ export class CycleService {
           },
         },
         include: { snapshots: true },
+      });
+      // SYSTEM action when invoked by the scheduler (no request context) → null
+      // actor + null IP; an admin re-run carries that admin from the request.
+      await this.audit.record({
+        action: 'CYCLE_OPEN',
+        entityType: 'MonthlySubmission',
+        entityId: submission.id,
+        clinicId,
+        newValue: { month, status: submission.status, snapshotHeads: heads.length },
       });
       return { submission, created: true };
     } catch (err) {

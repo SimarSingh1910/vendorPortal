@@ -1,4 +1,4 @@
-import { Body, Controller, Ip, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
 import { UserRole } from '@portal/shared';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -95,8 +95,7 @@ export class SubmissionWorkflowController {
     @Param('submissionId') id: string,
     @CurrentUser() user: RequestUser,
     @Body() dto: UnlockDto,
-    @Ip() ip: string,
   ) {
-    return this.workflow.financeUnlock(id, user, dto.reason, ip);
+    return this.workflow.financeUnlock(id, user, dto.reason);
   }
 }

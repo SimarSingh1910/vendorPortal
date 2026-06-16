@@ -1,10 +1,14 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { MappedExpenseHead } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 
 @Injectable()
 export class ClinicExpenseHeadsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   private async assertClinic(clinicId: string): Promise<void> {
     const clinic = await this.prisma.clinic.findUnique({
@@ -74,6 +78,14 @@ export class ClinicExpenseHeadsService {
           create: { clinicId, expenseHeadId, isActive: true },
         });
       }
+    });
+
+    await this.audit.record({
+      action: 'CLINIC_MAPPINGS_SET',
+      entityType: 'Clinic',
+      entityId: clinicId,
+      clinicId,
+      newValue: { expenseHeadIds: desired },
     });
 
     return this.listMapped(clinicId);

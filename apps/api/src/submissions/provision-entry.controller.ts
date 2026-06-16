@@ -1,4 +1,4 @@
-import { Body, Controller, Ip, Param, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Param, Put, UseGuards } from '@nestjs/common';
 import { UserRole } from '@portal/shared';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -23,8 +23,7 @@ export class ProvisionEntryController {
     @Param('submissionId') submissionId: string,
     @CurrentUser() user: RequestUser,
     @Body() dto: SaveEntriesDto,
-    @Ip() ip: string,
   ) {
-    return this.entries.saveEntries(submissionId, user, dto.entries, ip);
+    return this.entries.saveEntries(submissionId, user, dto.entries);
   }
 }

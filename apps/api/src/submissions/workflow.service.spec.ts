@@ -7,6 +7,7 @@ import { ClinicExpenseHeadsService } from '../clinic-expense-heads/clinic-expens
 import { CycleService } from './cycle.service';
 import { WorkflowService } from './workflow.service';
 import { AuditService } from '../audit/audit.service';
+import { runWithRequestContext } from '../audit/request-context';
 import { makeFixtures, type Fixtures, expectStatus } from '../../test/fixtures';
 import { resetDb } from '../../test/reset';
 
@@ -244,7 +245,9 @@ describe('WorkflowService (Step 5.2 — state machine + transition guards)', () 
     await expectStatus(workflow.financeUnlock(submission.id, admin, '   '), 400);
 
     // With a reason → reopens, clears the lock, stores the reason.
-    await workflow.financeUnlock(submission.id, admin, 'Correcting the rent figure', '198.51.100.4');
+    await runWithRequestContext({ user: { id: admin.id }, ip: '198.51.100.4' }, () =>
+      workflow.financeUnlock(submission.id, admin, 'Correcting the rent figure'),
+    );
     let s = await reload(submission.id);
     expect(s.status).toBe(SubmissionStatus.FINANCE_REVIEW);
     expect(s.lockedAt).toBeNull();

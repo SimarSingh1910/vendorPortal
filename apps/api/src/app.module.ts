@@ -1,7 +1,8 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, type NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { CommonModule } from './common/common.module';
 import { AuditModule } from './audit/audit.module';
+import { requestContextMiddleware } from './audit/request-context.middleware';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
@@ -30,4 +31,10 @@ import { SubmissionsModule } from './submissions/submissions.module';
     HealthModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    // Wrap every request in an AsyncLocalStorage scope so the audit writer can
+    // resolve the actor + IP from context (no per-service threading).
+    consumer.apply(requestContextMiddleware).forRoutes('*');
+  }
+}

@@ -212,7 +212,6 @@ export class WorkflowService {
     submissionId: string,
     user: RequestUser,
     reason: string,
-    ipAddress = '',
   ): Promise<MonthlySubmission> {
     const submission = await this.prisma.monthlySubmission.findUnique({
       where: { id: submissionId },
@@ -255,12 +254,11 @@ export class WorkflowService {
       return tx.monthlySubmission.findUniqueOrThrow({ where: { id: submissionId } });
     });
 
-    await this.audit.log({
+    await this.audit.record({
+      action: 'UNLOCK',
       entityType: 'MonthlySubmission',
       entityId: submissionId,
-      action: 'UNLOCK',
-      performedById: user.id,
-      ipAddress,
+      clinicId: submission.clinicId,
       oldValue: { status: S.FINANCE_APPROVED },
       newValue: { status: S.FINANCE_REVIEW, reason: trimmedReason },
     });
@@ -316,6 +314,7 @@ export class WorkflowService {
       ...(def.stamp ? def.stamp(now, user.id) : {}),
     };
 
+    const fromStatus = submission.status as SubmissionStatus;
     const updated = await this.prisma.$transaction(async (tx) => {
       // Conditional on the from-states so two racing transitions can't both win.
       const result = await tx.monthlySubmission.updateMany({
@@ -340,6 +339,19 @@ export class WorkflowService {
 
       return tx.monthlySubmission.findUniqueOrThrow({ where: { id: submissionId } });
     });
+
+    // Audit every real transition. SAVE_DRAFT is excluded — the value-save it
+    // accompanies is audited once by ProvisionEntryService (no double row).
+    if (action !== WorkflowAction.SAVE_DRAFT) {
+      await this.audit.record({
+        action: `SUBMISSION_${action}`,
+        entityType: 'MonthlySubmission',
+        entityId: submissionId,
+        clinicId: submission.clinicId,
+        oldValue: { status: fromStatus },
+        newValue: { status: def.to },
+      });
+    }
 
     this.emitNotificationHook(action, updated);
     return updated;
