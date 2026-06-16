@@ -6,6 +6,7 @@ import { ClinicExpenseHeadsService } from '../clinic-expense-heads/clinic-expens
 import { CycleService } from './cycle.service';
 import { WorkflowService } from './workflow.service';
 import { SubmissionsService } from './submissions.service';
+import { AuditService } from '../audit/audit.service';
 import { makeFixtures, type Fixtures } from '../../test/fixtures';
 import { resetDb } from '../../test/reset';
 
@@ -27,6 +28,7 @@ describe('SubmissionsService queue/detail (Step 7.1 — manager review surface)'
         CycleService,
         WorkflowService,
         SubmissionsService,
+        AuditService,
       ],
     }).compile();
 

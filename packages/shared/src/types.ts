@@ -194,6 +194,8 @@ export interface SubmissionDetail {
   submittedAt: string | null; // ISO-8601
   reviewStartedAt: string | null; // ISO-8601 — stamped when a reviewer opens it
   reviewStartedByName: string | null;
+  /** Reason from the most recent Finance-Admin unlock, if any. */
+  unlockedReason: string | null;
   heads: ProvisionHeadRow[];
 }
 

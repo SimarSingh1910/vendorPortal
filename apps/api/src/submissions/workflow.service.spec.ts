@@ -6,6 +6,7 @@ import { ClinicScopeService } from '../common/clinic-scope.service';
 import { ClinicExpenseHeadsService } from '../clinic-expense-heads/clinic-expense-heads.service';
 import { CycleService } from './cycle.service';
 import { WorkflowService } from './workflow.service';
+import { AuditService } from '../audit/audit.service';
 import { makeFixtures, type Fixtures, expectStatus } from '../../test/fixtures';
 import { resetDb } from '../../test/reset';
 
@@ -26,6 +27,7 @@ describe('WorkflowService (Step 5.2 — state machine + transition guards)', () 
         ClinicExpenseHeadsService,
         CycleService,
         WorkflowService,
+        AuditService,
       ],
     }).compile();
 
@@ -229,5 +231,51 @@ describe('WorkflowService (Step 5.2 — state machine + transition guards)', () 
     });
     const manager = (await fx.makeUser(UserRole.CLINIC_MANAGER, [clinic.id])).user;
     await expectStatus(workflow.managerOpenReview(submission.id, manager), 409);
+  });
+
+  // ── Step 8.3 — unlock with mandatory reason (FR-06) ─────────────────────────
+
+  it('unlock requires a reason, reopens to FINANCE_REVIEW, stores it, audit-logs it; re-approval re-locks', async () => {
+    const { submission } = await openWithHeads(1);
+    await fx.driveToStatus(submission.id, SubmissionStatus.FINANCE_APPROVED);
+    const admin = (await fx.makeUser(UserRole.FINANCE_ADMIN)).user;
+
+    // No reason → 400.
+    await expectStatus(workflow.financeUnlock(submission.id, admin, '   '), 400);
+
+    // With a reason → reopens, clears the lock, stores the reason.
+    await workflow.financeUnlock(submission.id, admin, 'Correcting the rent figure', '198.51.100.4');
+    let s = await reload(submission.id);
+    expect(s.status).toBe(SubmissionStatus.FINANCE_REVIEW);
+    expect(s.lockedAt).toBeNull();
+    expect(s.unlockedReason).toBe('Correcting the rent figure');
+    expect(s.unlockedById).toBe(admin.id);
+
+    // Audit row for the unlock.
+    const audits = await prisma.auditLog.findMany({
+      where: { entityId: submission.id, action: 'UNLOCK' },
+    });
+    expect(audits).toHaveLength(1);
+    expect(audits[0].performedById).toBe(admin.id);
+    expect(audits[0].ipAddress).toBe('198.51.100.4');
+
+    // Re-approval re-locks.
+    await workflow.financeApprove(submission.id, admin);
+    s = await reload(submission.id);
+    expect(s.status).toBe(SubmissionStatus.FINANCE_APPROVED);
+    expect(s.lockedAt).not.toBeNull();
+  });
+
+  it('rejects unlocking a submission that is not approved (409) and non-admins (403)', async () => {
+    const { clinic, submission } = await openWithHeads(1);
+    await fx.driveToStatus(submission.id, SubmissionStatus.FINANCE_REVIEW);
+    const admin = (await fx.makeUser(UserRole.FINANCE_ADMIN)).user;
+
+    // Not yet locked → 409.
+    await expectStatus(workflow.financeUnlock(submission.id, admin, 'reason'), 409);
+
+    // A non-admin can never unlock → 403 (role checked before status).
+    const manager = (await fx.makeUser(UserRole.CLINIC_MANAGER, [clinic.id])).user;
+    await expectStatus(workflow.financeUnlock(submission.id, manager, 'reason'), 403);
   });
 });

@@ -5,6 +5,7 @@ import { ClinicScopeService } from '../common/clinic-scope.service';
 import { ClinicExpenseHeadsService } from '../clinic-expense-heads/clinic-expense-heads.service';
 import { CycleService } from './cycle.service';
 import { WorkflowService } from './workflow.service';
+import { AuditService } from '../audit/audit.service';
 import { makeFixtures, type Fixtures, expectStatus } from '../../test/fixtures';
 import { resetDb } from '../../test/reset';
 
@@ -24,6 +25,7 @@ describe('CycleService (Step 5.1 — cycle opening + snapshot)', () => {
         ClinicExpenseHeadsService,
         CycleService,
         WorkflowService,
+        AuditService,
       ],
     }).compile();
 

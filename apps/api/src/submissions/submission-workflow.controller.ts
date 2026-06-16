@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Ip, Param, Post, UseGuards } from '@nestjs/common';
 import { UserRole } from '@portal/shared';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -7,6 +7,7 @@ import { ClinicScopeGuard } from '../common/guards/clinic-scope.guard';
 import { WorkflowService } from './workflow.service';
 import { SendBackDto } from './dto/send-back.dto';
 import { ApproveDto } from './dto/approve.dto';
+import { UnlockDto } from './dto/unlock.dto';
 
 /**
  * HTTP surface for submission workflow transitions (Step 5.2). Each route is
@@ -85,5 +86,17 @@ export class SubmissionWorkflowController {
     @Body() dto: SendBackDto,
   ) {
     return this.workflow.financeSendBack(id, user, dto.comment);
+  }
+
+  /** Unlock an approved (locked) submission with a mandatory reason (Step 8.3). */
+  @Post('finance/unlock')
+  @Roles(UserRole.FINANCE_ADMIN)
+  financeUnlock(
+    @Param('submissionId') id: string,
+    @CurrentUser() user: RequestUser,
+    @Body() dto: UnlockDto,
+    @Ip() ip: string,
+  ) {
+    return this.workflow.financeUnlock(id, user, dto.reason, ip);
   }
 }

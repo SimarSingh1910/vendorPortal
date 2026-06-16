@@ -12,6 +12,7 @@ import type { MonthlySubmission } from '@prisma/client';
 import { SubmissionStatus, UserRole } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClinicScopeService } from '../common/clinic-scope.service';
+import { AuditService } from '../audit/audit.service';
 import type { RequestUser } from '../auth/request-user';
 
 const S = SubmissionStatus;
@@ -142,6 +143,7 @@ export class WorkflowService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly scope: ClinicScopeService,
+    private readonly audit: AuditService,
   ) {}
 
   // ── Public action surface (one method per route) ────────────────────────────
@@ -197,6 +199,73 @@ export class WorkflowService {
     comment: string,
   ): Promise<MonthlySubmission> {
     return this.run(WorkflowAction.FINANCE_SEND_BACK, submissionId, user, comment);
+  }
+
+  /**
+   * Unlock a FINANCE_APPROVED submission for correction (FR-06, Step 8.3). Finance
+   * Admin only; a non-empty reason is mandatory. Moves it back to FINANCE_REVIEW,
+   * clears lockedAt, stores the reason on the submission, and audit-logs the
+   * unlock (actor + timestamp). The admin then corrects (override edit) and
+   * re-approves to re-lock.
+   */
+  async financeUnlock(
+    submissionId: string,
+    user: RequestUser,
+    reason: string,
+    ipAddress = '',
+  ): Promise<MonthlySubmission> {
+    const submission = await this.prisma.monthlySubmission.findUnique({
+      where: { id: submissionId },
+      select: { id: true, clinicId: true, status: true },
+    });
+    if (!submission) {
+      throw new NotFoundException('Submission not found');
+    }
+    if (user.role !== UserRole.FINANCE_ADMIN) {
+      throw new ForbiddenException('Only a Finance Admin can unlock a submission');
+    }
+    if (!this.scope.canAccessClinic(user, submission.clinicId)) {
+      throw new ForbiddenException('Clinic not in your accessible scope');
+    }
+    if ((submission.status as SubmissionStatus) !== S.FINANCE_APPROVED) {
+      throw new ConflictException('Only an approved (locked) submission can be unlocked');
+    }
+    const trimmedReason = reason?.trim();
+    if (!trimmedReason) {
+      throw new BadRequestException('A reason is required to unlock a submission');
+    }
+
+    const now = new Date();
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.monthlySubmission.updateMany({
+        where: { id: submissionId, status: S.FINANCE_APPROVED },
+        data: {
+          status: S.FINANCE_REVIEW,
+          unlockedReason: trimmedReason,
+          unlockedById: user.id,
+          lockedAt: null,
+          // Back in review by the unlocking admin.
+          reviewStartedAt: now,
+          reviewStartedById: user.id,
+        },
+      });
+      if (result.count === 0) {
+        throw new ConflictException('Submission changed state concurrently; retry');
+      }
+      return tx.monthlySubmission.findUniqueOrThrow({ where: { id: submissionId } });
+    });
+
+    await this.audit.log({
+      entityType: 'MonthlySubmission',
+      entityId: submissionId,
+      action: 'UNLOCK',
+      performedById: user.id,
+      ipAddress,
+      oldValue: { status: S.FINANCE_APPROVED },
+      newValue: { status: S.FINANCE_REVIEW, reason: trimmedReason },
+    });
+
+    return updated;
   }
 
   // ── Engine ──────────────────────────────────────────────────────────────────

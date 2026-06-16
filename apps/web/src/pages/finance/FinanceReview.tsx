@@ -19,6 +19,7 @@ import {
   financeApprove,
   financeOpenReview,
   financeSendBack,
+  financeUnlock,
   getComments,
   getSubmission,
   saveEntries,
@@ -51,6 +52,7 @@ export function FinanceReview() {
   const isAdmin = role === UserRole.FINANCE_ADMIN;
 
   const [comment, setComment] = useState('');
+  const [unlockReason, setUnlockReason] = useState('');
   const [values, setValues] = useState<ValueMap>({});
   const [error, setError] = useState<string | null>(null);
 
@@ -117,13 +119,26 @@ export function FinanceReview() {
     onError: (e) => setError(apiErrorMessage(e, 'Could not send back. Please try again.')),
   });
 
+  const unlockMutation = useMutation({
+    mutationFn: () => financeUnlock(submissionId, unlockReason.trim()),
+    onSuccess: () => {
+      setError(null);
+      setUnlockReason('');
+      invalidate(); // status flips to FINANCE_REVIEW; the screen re-renders editable
+    },
+    onError: (e) => setError(apiErrorMessage(e, 'Could not unlock. Please try again.')),
+  });
+
   if (isLoading || !detail) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
 
   const inReview = detail.status === SubmissionStatus.FINANCE_REVIEW;
   const busy =
-    approveMutation.isPending || sendBackMutation.isPending || overrideMutation.isPending;
+    approveMutation.isPending ||
+    sendBackMutation.isPending ||
+    overrideMutation.isPending ||
+    unlockMutation.isPending;
 
   return (
     <div className="space-y-6">
@@ -150,6 +165,12 @@ export function FinanceReview() {
           In review since {formatIST(detail.reviewStartedAt)}
           {detail.reviewStartedByName ? ` · opened by ${detail.reviewStartedByName}` : ''}
         </p>
+      )}
+
+      {detail.unlockedReason && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <span className="font-medium">Unlocked for correction:</span> {detail.unlockedReason}
+        </div>
       )}
 
       {comments.length > 0 && (
@@ -222,6 +243,29 @@ export function FinanceReview() {
             Finance Admin edits apply at any status and are audit-logged.
           </span>
         </div>
+      )}
+
+      {isAdmin && detail.locked && (
+        <section className="space-y-3 border-t pt-4">
+          <h2 className="text-sm font-medium">Unlock for correction</h2>
+          <Textarea
+            placeholder="Reason for unlocking (required)…"
+            value={unlockReason}
+            onChange={(e) => setUnlockReason(e.target.value)}
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="destructive"
+              disabled={busy || unlockReason.trim() === ''}
+              onClick={() => unlockMutation.mutate()}
+            >
+              {unlockMutation.isPending ? 'Unlocking…' : 'Unlock'}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              Reopens editing and is audit-logged. Re-approve afterwards to re-lock.
+            </span>
+          </div>
+        </section>
       )}
 
       {isAdmin && inReview ? (

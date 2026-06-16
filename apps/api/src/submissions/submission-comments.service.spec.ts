@@ -6,6 +6,7 @@ import { ClinicExpenseHeadsService } from '../clinic-expense-heads/clinic-expens
 import { CycleService } from './cycle.service';
 import { WorkflowService } from './workflow.service';
 import { SubmissionCommentsService } from './submission-comments.service';
+import { AuditService } from '../audit/audit.service';
 import { makeFixtures, type Fixtures, expectStatus } from '../../test/fixtures';
 import { resetDb } from '../../test/reset';
 
@@ -28,6 +29,7 @@ describe('SubmissionCommentsService (Step 5.3 — comment timeline)', () => {
         CycleService,
         WorkflowService,
         SubmissionCommentsService,
+        AuditService,
       ],
     }).compile();
 

@@ -160,6 +160,7 @@ export class SubmissionsService {
       submittedAt: submission.submittedAt?.toISOString() ?? null,
       reviewStartedAt: submission.reviewStartedAt?.toISOString() ?? null,
       reviewStartedByName: submission.reviewStartedBy?.name ?? null,
+      unlockedReason: submission.unlockedReason ?? null,
       heads: submission.snapshots.map((snap) => ({
         snapshotId: snap.id,
         expenseHeadId: snap.expenseHeadId,

@@ -88,3 +88,8 @@ export async function financeApprove(submissionId: string, comment?: string): Pr
 export async function financeSendBack(submissionId: string, comment: string): Promise<void> {
   await apiClient.post(`/submissions/${submissionId}/finance/send-back`, { comment });
 }
+
+/** Unlock an approved (locked) submission with a mandatory reason. */
+export async function financeUnlock(submissionId: string, reason: string): Promise<void> {
+  await apiClient.post(`/submissions/${submissionId}/finance/unlock`, { reason });
+}
