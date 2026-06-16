@@ -52,3 +52,25 @@ export async function getComments(submissionId: string): Promise<SubmissionComme
   );
   return data;
 }
+
+/** The caller's cross-clinic work queue for the given statuses (Manager/Finance). */
+export async function getQueue(statuses: SubmissionStatus[]): Promise<SubmissionListItem[]> {
+  const { data } = await apiClient.get<SubmissionListItem[]>('/submissions', {
+    params: { status: statuses.join(',') },
+  });
+  return data;
+}
+
+// ── Manager workflow transitions ─────────────────────────────────────────────
+
+export async function managerOpenReview(submissionId: string): Promise<void> {
+  await apiClient.post(`/submissions/${submissionId}/manager/open`);
+}
+
+export async function managerApprove(submissionId: string, comment?: string): Promise<void> {
+  await apiClient.post(`/submissions/${submissionId}/manager/approve`, comment ? { comment } : {});
+}
+
+export async function managerSendBack(submissionId: string, comment: string): Promise<void> {
+  await apiClient.post(`/submissions/${submissionId}/manager/send-back`, { comment });
+}

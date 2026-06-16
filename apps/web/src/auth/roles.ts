@@ -42,6 +42,7 @@ export const ROUTE_ROLES: Record<string, UserRole[]> = {
   '/admin/mappings': [UserRole.FINANCE_ADMIN],
   '/admin/users': [UserRole.FINANCE_ADMIN],
   '/manager': [UserRole.CLINIC_MANAGER],
+  '/manager/submissions': [UserRole.CLINIC_MANAGER],
   '/spoc': [UserRole.CLINIC_SPOC],
   '/spoc/submissions': [UserRole.CLINIC_SPOC],
   '/viewer': [UserRole.CLINIC_VIEWER],

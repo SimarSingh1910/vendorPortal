@@ -191,6 +191,9 @@ export interface SubmissionDetail {
   locked: boolean;
   /** True only when the viewer is a SPOC and the status still permits editing. */
   canEdit: boolean;
+  submittedAt: string | null; // ISO-8601
+  reviewStartedAt: string | null; // ISO-8601 — stamped when a reviewer opens it
+  reviewStartedByName: string | null;
   heads: ProvisionHeadRow[];
 }
 

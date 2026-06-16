@@ -62,7 +62,7 @@ export class SubmissionsService {
   async listForClinic(
     clinicId: string,
     user: RequestUser,
-    filter: { status?: SubmissionStatus; month?: string } = {},
+    filter: { statuses?: SubmissionStatus[]; month?: string } = {},
   ): Promise<SubmissionListItem[]> {
     if (!this.scope.canAccessClinic(user, clinicId)) {
       throw new ForbiddenException('Clinic not in your accessible scope');
@@ -70,13 +70,51 @@ export class SubmissionsService {
     const submissions = await this.prisma.monthlySubmission.findMany({
       where: {
         clinicId,
-        ...(filter.status ? { status: filter.status } : {}),
+        ...(filter.statuses?.length ? { status: { in: filter.statuses } } : {}),
         ...(filter.month ? { month: filter.month } : {}),
       },
       include: { clinic: { select: { name: true } } },
       orderBy: { month: 'desc' },
     });
-    return submissions.map((s) => ({
+    return submissions.map((s) => this.toListItem(s));
+  }
+
+  /**
+   * The caller's cross-clinic work queue: every submission in `statuses` across
+   * all clinics they can access, oldest submission first (FIFO review order).
+   * Powers the Manager/Finance review trackers.
+   */
+  async listQueue(
+    user: RequestUser,
+    query: { statuses: SubmissionStatus[]; month?: string },
+  ): Promise<SubmissionListItem[]> {
+    const clinicIds = await this.scope.accessibleClinicIds(user);
+    if (clinicIds.length === 0) return [];
+
+    const submissions = await this.prisma.monthlySubmission.findMany({
+      where: {
+        clinicId: { in: clinicIds },
+        status: { in: query.statuses },
+        ...(query.month ? { month: query.month } : {}),
+      },
+      include: { clinic: { select: { name: true } } },
+      orderBy: [{ submittedAt: 'asc' }, { month: 'asc' }],
+    });
+    return submissions.map((s) => this.toListItem(s));
+  }
+
+  private toListItem(
+    s: {
+      id: string;
+      clinicId: string;
+      clinic: { name: string };
+      month: string;
+      status: string;
+      submittedAt: Date | null;
+      approvedByFinanceAt: Date | null;
+    },
+  ): SubmissionListItem {
+    return {
       id: s.id,
       clinicId: s.clinicId,
       clinicName: s.clinic.name,
@@ -85,7 +123,7 @@ export class SubmissionsService {
       locked: isLocked(s.status as SubmissionStatus),
       submittedAt: s.submittedAt?.toISOString() ?? null,
       approvedByFinanceAt: s.approvedByFinanceAt?.toISOString() ?? null,
-    }));
+    };
   }
 
   /** The provision form / read-only detail: snapshot heads + any entered values. */
@@ -94,6 +132,7 @@ export class SubmissionsService {
       where: { id: submissionId },
       include: {
         clinic: { select: { name: true } },
+        reviewStartedBy: { select: { name: true } },
         snapshots: {
           include: { entry: true },
           orderBy: [{ expenseHeadCategoryAtSnapshot: 'asc' }, { expenseHeadNameAtSnapshot: 'asc' }],
@@ -118,6 +157,9 @@ export class SubmissionsService {
       status,
       locked: isLocked(status),
       canEdit,
+      submittedAt: submission.submittedAt?.toISOString() ?? null,
+      reviewStartedAt: submission.reviewStartedAt?.toISOString() ?? null,
+      reviewStartedByName: submission.reviewStartedBy?.name ?? null,
       heads: submission.snapshots.map((snap) => ({
         snapshotId: snap.id,
         expenseHeadId: snap.expenseHeadId,

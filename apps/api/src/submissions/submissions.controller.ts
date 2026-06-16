@@ -23,9 +23,12 @@ export class SubmissionsController {
   list(@Query() query: ListSubmissionsQuery, @CurrentUser() user: RequestUser) {
     if (query.clinicId) {
       return this.submissions.listForClinic(query.clinicId, user, {
-        status: query.status,
+        statuses: query.status,
         month: query.month,
       });
+    }
+    if (query.status?.length) {
+      return this.submissions.listQueue(user, { statuses: query.status, month: query.month });
     }
     return this.submissions.getOverview(user, query.month ?? currentMonthIST());
   }

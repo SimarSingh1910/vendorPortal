@@ -11,8 +11,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { getClinicHistory, getOverview } from '@/api/submissions';
-import { formatIST, formatMonth, statusBadgeVariant, statusLabel } from '@/lib/format';
+import { getOverview } from '@/api/submissions';
+import { ClinicApprovedHistory } from '@/components/submissions/ClinicApprovedHistory';
+import { formatMonth, statusBadgeVariant, statusLabel } from '@/lib/format';
 
 /** What the SPOC can do with a clinic's current-month submission. */
 function primaryAction(row: ClinicMonthStatus): { label: string; actionable: boolean } {
@@ -107,50 +108,15 @@ export function SpocHome() {
           <p className="text-sm text-muted-foreground">Nothing yet.</p>
         ) : (
           rows.map((row) => (
-            <ClinicApprovedHistory key={row.clinicId} clinicId={row.clinicId} clinicName={row.clinicName} />
+            <ClinicApprovedHistory
+              key={row.clinicId}
+              clinicId={row.clinicId}
+              clinicName={row.clinicName}
+              linkBase="/spoc/submissions"
+            />
           ))
         )}
       </section>
-    </div>
-  );
-}
-
-/** Locked (FINANCE_APPROVED) months for a clinic — read-only links. */
-function ClinicApprovedHistory({ clinicId, clinicName }: { clinicId: string; clinicName: string }) {
-  const { data = [] } = useQuery({
-    queryKey: ['submissions', 'history', clinicId, SubmissionStatus.FINANCE_APPROVED],
-    queryFn: () => getClinicHistory(clinicId, SubmissionStatus.FINANCE_APPROVED),
-  });
-
-  if (data.length === 0) return null;
-
-  return (
-    <div className="rounded-lg border">
-      <div className="border-b px-4 py-2 text-sm font-medium">{clinicName}</div>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Month</TableHead>
-            <TableHead>Approved</TableHead>
-            <TableHead className="text-right">Action</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {data.map((item) => (
-            <TableRow key={item.id}>
-              <TableCell className="font-medium">{formatMonth(item.month)}</TableCell>
-              <TableCell className="text-sm text-muted-foreground">
-                {item.approvedByFinanceAt ? formatIST(item.approvedByFinanceAt) : '—'}
-              </TableCell>
-              <TableCell className="text-right">
-                <Button asChild size="sm" variant="ghost">
-                  <Link to={`/spoc/submissions/${item.id}`}>View (locked)</Link>
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
     </div>
   );
 }
