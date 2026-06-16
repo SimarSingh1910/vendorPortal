@@ -37,6 +37,7 @@ export const NAV_ITEMS: NavItem[] = [
 /** Allowed roles per protected route path (single source for router + guard). */
 export const ROUTE_ROLES: Record<string, UserRole[]> = {
   '/finance': [UserRole.FINANCE_ADMIN, UserRole.FINANCE_VIEWER],
+  '/finance/submissions': [UserRole.FINANCE_ADMIN, UserRole.FINANCE_VIEWER],
   '/admin/clinics': [UserRole.FINANCE_ADMIN],
   '/admin/expense-heads': [UserRole.FINANCE_ADMIN],
   '/admin/mappings': [UserRole.FINANCE_ADMIN],

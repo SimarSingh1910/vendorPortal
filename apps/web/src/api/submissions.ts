@@ -74,3 +74,17 @@ export async function managerApprove(submissionId: string, comment?: string): Pr
 export async function managerSendBack(submissionId: string, comment: string): Promise<void> {
   await apiClient.post(`/submissions/${submissionId}/manager/send-back`, { comment });
 }
+
+// ── Finance workflow transitions ─────────────────────────────────────────────
+
+export async function financeOpenReview(submissionId: string): Promise<void> {
+  await apiClient.post(`/submissions/${submissionId}/finance/open`);
+}
+
+export async function financeApprove(submissionId: string, comment?: string): Promise<void> {
+  await apiClient.post(`/submissions/${submissionId}/finance/approve`, comment ? { comment } : {});
+}
+
+export async function financeSendBack(submissionId: string, comment: string): Promise<void> {
+  await apiClient.post(`/submissions/${submissionId}/finance/send-back`, { comment });
+}

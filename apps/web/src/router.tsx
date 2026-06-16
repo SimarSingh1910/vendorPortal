@@ -12,6 +12,8 @@ import { SpocHome } from '@/pages/spoc/SpocHome';
 import { SubmissionEntry } from '@/pages/spoc/SubmissionEntry';
 import { ManagerHome } from '@/pages/manager/ManagerHome';
 import { ManagerReview } from '@/pages/manager/ManagerReview';
+import { FinanceHome } from '@/pages/finance/FinanceHome';
+import { FinanceReview } from '@/pages/finance/FinanceReview';
 import { useAuthStore } from '@/store/auth.store';
 
 /** Root: send authenticated users to their role home, everyone else to login. */
@@ -40,7 +42,15 @@ export const router = createBrowserRouter([
         path: 'finance',
         element: (
           <ProtectedRoute allowedRoles={ROUTE_ROLES['/finance']}>
-            <RoleHome />
+            <FinanceHome />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'finance/submissions/:submissionId',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/finance/submissions']}>
+            <FinanceReview />
           </ProtectedRoute>
         ),
       },

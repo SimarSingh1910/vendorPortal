@@ -7,6 +7,7 @@ import { CycleService } from './cycle.service';
 import { WorkflowService } from './workflow.service';
 import { SubmissionsService } from './submissions.service';
 import { ProvisionEntryService } from './provision-entry.service';
+import { AuditService } from '../audit/audit.service';
 import { makeFixtures, type Fixtures, expectStatus } from '../../test/fixtures';
 import { resetDb } from '../../test/reset';
 
@@ -31,6 +32,7 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
         WorkflowService,
         SubmissionsService,
         ProvisionEntryService,
+        AuditService,
       ],
     }).compile();
 
@@ -134,5 +136,42 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
     expect(clinic.id).toBeDefined();
 
     await expectStatus(entries.saveEntries('no-such-submission', spoc, []), 404);
+  });
+
+  // ── Step 8.2 — lock enforcement + Finance Admin override (BR-08) ─────────────
+
+  it('locks an approved submission: SPOC/Manager edits → 403', async () => {
+    const { clinic, submission, spoc } = await setup(1);
+    await fx.driveToStatus(submission.id, SubmissionStatus.FINANCE_APPROVED);
+
+    await expectStatus(entries.saveEntries(submission.id, spoc, []), 403);
+
+    const manager = (await fx.makeUser(UserRole.CLINIC_MANAGER, [clinic.id])).user;
+    await expectStatus(entries.saveEntries(submission.id, manager, []), 403);
+  });
+
+  it('Finance Admin override edits a locked submission, keeps it locked, and audit-logs it', async () => {
+    const { submission, snapshotIds } = await setup(1);
+    await fx.driveToStatus(submission.id, SubmissionStatus.FINANCE_APPROVED);
+    const admin = (await fx.makeUser(UserRole.FINANCE_ADMIN)).user;
+
+    const detail = await entries.saveEntries(
+      submission.id,
+      admin,
+      [{ snapshotId: snapshotIds[0], amount: 4242 }],
+      '203.0.113.7',
+    );
+
+    // Edit applied; status stays FINANCE_APPROVED (still locked).
+    expect(detail.status).toBe(SubmissionStatus.FINANCE_APPROVED);
+    expect(detail.locked).toBe(true);
+    expect(detail.heads[0].amount).toBe('4242.00');
+
+    // One audit row recorded for the override.
+    const audits = await prisma.auditLog.findMany({ where: { entityId: submission.id } });
+    expect(audits).toHaveLength(1);
+    expect(audits[0].action).toBe('PROVISION_EDIT_OVERRIDE');
+    expect(audits[0].performedById).toBe(admin.id);
+    expect(audits[0].ipAddress).toBe('203.0.113.7');
   });
 });

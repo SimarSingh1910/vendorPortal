@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Ip, Param, Put, UseGuards } from '@nestjs/common';
 import { UserRole } from '@portal/shared';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -8,12 +8,12 @@ import { ProvisionEntryService } from './provision-entry.service';
 import { SaveEntriesDto } from './dto/save-entries.dto';
 
 /**
- * SPOC provision data entry (Step 6.1). Save is a partial upsert (any subset of
- * heads). SPOC only, clinic-scoped via the :submissionId-resolving guard. The
- * service re-checks role-editable status; submit is the workflow transition.
+ * Provision data entry. SPOC saves a partial draft; FINANCE_ADMIN may edit at
+ * any status as an audited override (BR-08). Clinic-scoped via the
+ * :submissionId-resolving guard; the service enforces lock/state rules and audit.
  */
 @Controller('submissions/:submissionId/entries')
-@Roles(UserRole.CLINIC_SPOC)
+@Roles(UserRole.CLINIC_SPOC, UserRole.FINANCE_ADMIN)
 @UseGuards(ClinicScopeGuard)
 export class ProvisionEntryController {
   constructor(private readonly entries: ProvisionEntryService) {}
@@ -23,7 +23,8 @@ export class ProvisionEntryController {
     @Param('submissionId') submissionId: string,
     @CurrentUser() user: RequestUser,
     @Body() dto: SaveEntriesDto,
+    @Ip() ip: string,
   ) {
-    return this.entries.saveEntries(submissionId, user, dto.entries);
+    return this.entries.saveEntries(submissionId, user, dto.entries, ip);
   }
 }
