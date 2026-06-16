@@ -8,6 +8,7 @@
     "start": "node dist/main.js",
     "start:prod": "node dist/main.js",
     "lint": "eslint \"src/**/*.ts\"",
+    "test": "jest --runInBand",
     "prisma:seed:admin": "tsc prisma/seed-admin.ts --outDir dist/prisma --module CommonJS --moduleResolution Node --target ES2022 --esModuleInterop --skipLibCheck && node dist/prisma/seed-admin.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
@@ -32,10 +33,14 @@
   "devDependencies": {
     "@nestjs/cli": "^10.4.9",
     "@nestjs/schematics": "^10.2.3",
+    "@nestjs/testing": "^10",
     "@types/bcrypt": "^6.0.0",
     "@types/express": "^5.0.0",
+    "@types/jest": "^29",
     "@types/node": "^22.10.2",
+    "jest": "^29",
     "prisma": "^6.1.0",
+    "ts-jest": "^29",
     "typescript": "^5.7.2"
   }
 }

@@ -1,0 +1,233 @@
+import { Test, type TestingModule } from '@nestjs/testing';
+import { CommentAction } from '@prisma/client';
+import { SubmissionStatus, UserRole } from '@portal/shared';
+import { PrismaService } from '../prisma/prisma.service';
+import { ClinicScopeService } from '../common/clinic-scope.service';
+import { ClinicExpenseHeadsService } from '../clinic-expense-heads/clinic-expense-heads.service';
+import { CycleService } from './cycle.service';
+import { WorkflowService } from './workflow.service';
+import { makeFixtures, type Fixtures, expectStatus } from '../../test/fixtures';
+import { resetDb } from '../../test/reset';
+
+const MONTH = '2026-07';
+
+describe('WorkflowService (Step 5.2 — state machine + transition guards)', () => {
+  let moduleRef: TestingModule;
+  let prisma: PrismaService;
+  let cycle: CycleService;
+  let workflow: WorkflowService;
+  let fx: Fixtures;
+
+  beforeAll(async () => {
+    moduleRef = await Test.createTestingModule({
+      providers: [
+        PrismaService,
+        ClinicScopeService,
+        ClinicExpenseHeadsService,
+        CycleService,
+        WorkflowService,
+      ],
+    }).compile();
+
+    prisma = moduleRef.get(PrismaService);
+    cycle = moduleRef.get(CycleService);
+    workflow = moduleRef.get(WorkflowService);
+    fx = makeFixtures({ prisma, cycle, workflow });
+  });
+
+  afterAll(async () => {
+    await prisma.$disconnect();
+    await moduleRef.close();
+  });
+
+  beforeEach(async () => {
+    await resetDb(prisma);
+  });
+
+  /** A clinic + opened cycle with `headCount` mapped heads. */
+  async function openWithHeads(headCount: number) {
+    const clinic = await fx.makeClinic();
+    const heads = [];
+    for (let i = 0; i < headCount; i += 1) {
+      heads.push(await fx.makeExpenseHead());
+    }
+    if (heads.length > 0) {
+      await fx.mapHeads(clinic.id, heads.map((h) => h.id));
+    }
+    const { submission } = await cycle.openClinicCycle(clinic.id, MONTH);
+    return { clinic, submission };
+  }
+
+  function reload(id: string) {
+    return prisma.monthlySubmission.findUniqueOrThrow({ where: { id } });
+  }
+
+  it('happy path advances through every state and stamps the right fields', async () => {
+    const { clinic, submission } = await openWithHeads(2);
+    const spoc = (await fx.makeUser(UserRole.CLINIC_SPOC, [clinic.id])).user;
+    const manager = (await fx.makeUser(UserRole.CLINIC_MANAGER, [clinic.id])).user;
+    const finance = (await fx.makeUser(UserRole.FINANCE_ADMIN)).user;
+
+    await fx.valueAllHeads(submission.id, { enteredById: spoc.id });
+
+    await workflow.submit(submission.id, spoc);
+    let s = await reload(submission.id);
+    expect(s.status).toBe(SubmissionStatus.SUBMITTED);
+    expect(s.submittedAt).not.toBeNull();
+
+    await workflow.managerOpenReview(submission.id, manager);
+    s = await reload(submission.id);
+    expect(s.status).toBe(SubmissionStatus.CLINIC_MANAGER_REVIEW);
+    expect(s.reviewStartedAt).not.toBeNull();
+    expect(s.reviewStartedById).toBe(manager.id);
+
+    await workflow.managerApprove(submission.id, manager);
+    s = await reload(submission.id);
+    expect(s.status).toBe(SubmissionStatus.CLINIC_APPROVED);
+    expect(s.approvedByManagerAt).not.toBeNull();
+
+    await workflow.financeOpenReview(submission.id, finance);
+    s = await reload(submission.id);
+    expect(s.status).toBe(SubmissionStatus.FINANCE_REVIEW);
+    expect(s.reviewStartedById).toBe(finance.id); // re-stamped by the finance reviewer
+
+    await workflow.financeApprove(submission.id, finance);
+    s = await reload(submission.id);
+    expect(s.status).toBe(SubmissionStatus.FINANCE_APPROVED);
+    expect(s.approvedByFinanceAt).not.toBeNull();
+    expect(s.lockedAt).not.toBeNull();
+  });
+
+  it('BR-03: submit fails (422) with an unvalued head; BR-07: succeeds when every head valued including 0', async () => {
+    // BR-03 negative — one head left blank.
+    const a = await openWithHeads(3);
+    const spocA = (await fx.makeUser(UserRole.CLINIC_SPOC, [a.clinic.id])).user;
+    await fx.valueAllHeads(a.submission.id, { enteredById: spocA.id, leaveUnvalued: 1 });
+    await expectStatus(workflow.submit(a.submission.id, spocA), 422);
+    expect((await reload(a.submission.id)).status).toBe(SubmissionStatus.NOT_STARTED);
+
+    // BR-07 — all heads valued, one of them explicitly 0.
+    const b = await openWithHeads(2);
+    const spocB = (await fx.makeUser(UserRole.CLINIC_SPOC, [b.clinic.id])).user;
+    await fx.valueAllHeads(b.submission.id, { enteredById: spocB.id, amount: 0 });
+    await workflow.submit(b.submission.id, spocB);
+    expect((await reload(b.submission.id)).status).toBe(SubmissionStatus.SUBMITTED);
+  });
+
+  it('rejects submit on a clinic with no mapped heads (422)', async () => {
+    const { clinic, submission } = await openWithHeads(0);
+    const spoc = (await fx.makeUser(UserRole.CLINIC_SPOC, [clinic.id])).user;
+    await expectStatus(workflow.submit(submission.id, spoc), 422);
+  });
+
+  it('rejects illegal transitions with the documented codes', async () => {
+    // Manager approves a DRAFT → 409 (wrong from-state).
+    const draft = await openWithHeads(1);
+    await fx.driveToStatus(draft.submission.id, SubmissionStatus.DRAFT);
+    const mgrDraft = (await fx.makeUser(UserRole.CLINIC_MANAGER, [draft.clinic.id])).user;
+    await expectStatus(workflow.managerApprove(draft.submission.id, mgrDraft), 409);
+
+    // Finance approves something not in FINANCE_REVIEW → 409.
+    const approved = await openWithHeads(1);
+    await fx.driveToStatus(approved.submission.id, SubmissionStatus.CLINIC_APPROVED);
+    const fin = (await fx.makeUser(UserRole.FINANCE_ADMIN)).user;
+    await expectStatus(workflow.financeApprove(approved.submission.id, fin), 409);
+
+    // SPOC acts on a FINANCE_APPROVED (locked) submission → 409.
+    const locked = await openWithHeads(1);
+    await fx.driveToStatus(locked.submission.id, SubmissionStatus.FINANCE_APPROVED);
+    const spocLocked = (await fx.makeUser(UserRole.CLINIC_SPOC, [locked.clinic.id])).user;
+    await expectStatus(workflow.submit(locked.submission.id, spocLocked), 409);
+
+    // Non-SPOC attempting a SPOC action → 403 (role check before state).
+    const draft2 = await openWithHeads(1);
+    await fx.driveToStatus(draft2.submission.id, SubmissionStatus.DRAFT);
+    const mgr2 = (await fx.makeUser(UserRole.CLINIC_MANAGER, [draft2.clinic.id])).user;
+    await expectStatus(workflow.submit(draft2.submission.id, mgr2), 403);
+
+    // Missing submission → 404.
+    const someSpoc = (await fx.makeUser(UserRole.CLINIC_SPOC)).user;
+    await expectStatus(workflow.submit('no-such-submission', someSpoc), 404);
+  });
+
+  it('BR-04: a finance send-back forces SPOC → Manager → Finance again (no direct finance edge)', async () => {
+    const { clinic, submission } = await openWithHeads(1);
+    const actors = await fx.driveToStatus(submission.id, SubmissionStatus.FINANCE_REVIEW);
+
+    // Finance sends back (comment required) → SPOC-actionable.
+    await workflow.financeSendBack(submission.id, actors.finance, 'Please revise the rent figure');
+    expect((await reload(submission.id)).status).toBe(SubmissionStatus.SENT_BACK_BY_FINANCE);
+
+    // SPOC resubmits (entries still present from the drive) → SUBMITTED.
+    await workflow.submit(submission.id, actors.spoc);
+    expect((await reload(submission.id)).status).toBe(SubmissionStatus.SUBMITTED);
+
+    // Finance CANNOT jump straight back in — no SUBMITTED → FINANCE_* edge.
+    await expectStatus(workflow.financeOpenReview(submission.id, actors.finance), 409);
+    await expectStatus(workflow.financeApprove(submission.id, actors.finance), 409);
+
+    // The only forward path is through the Manager again.
+    await workflow.managerOpenReview(submission.id, actors.manager);
+    expect((await reload(submission.id)).status).toBe(SubmissionStatus.CLINIC_MANAGER_REVIEW);
+    await workflow.managerApprove(submission.id, actors.manager);
+    // Now — and only now — Finance may act.
+    await workflow.financeOpenReview(submission.id, actors.finance);
+    expect((await reload(submission.id)).status).toBe(SubmissionStatus.FINANCE_REVIEW);
+
+    // sanity: clinic scope unchanged
+    expect(clinic.id).toBeDefined();
+  });
+
+  it('comments: send-back requires one, and records SENT_BACK / APPROVED with roleAtTime', async () => {
+    // Empty/missing comment on send-back → 400.
+    const r = await openWithHeads(1);
+    const actors = await fx.driveToStatus(r.submission.id, SubmissionStatus.CLINIC_MANAGER_REVIEW);
+    await expectStatus(workflow.managerSendBack(r.submission.id, actors.manager, '   '), 400);
+
+    // With a comment → one SENT_BACK comment, roleAtTime = CLINIC_MANAGER.
+    await workflow.managerSendBack(r.submission.id, actors.manager, 'Numbers look off');
+    const sentBack = await prisma.submissionComment.findMany({ where: { submissionId: r.submission.id } });
+    expect(sentBack).toHaveLength(1);
+    expect(sentBack[0].action).toBe(CommentAction.SENT_BACK);
+    expect(sentBack[0].roleAtTime).toBe(UserRole.CLINIC_MANAGER);
+    expect(sentBack[0].comment).toBe('Numbers look off');
+
+    // Approve WITH an optional comment → one APPROVED comment.
+    const a = await openWithHeads(1);
+    const aa = await fx.driveToStatus(a.submission.id, SubmissionStatus.CLINIC_MANAGER_REVIEW);
+    await workflow.managerApprove(a.submission.id, aa.manager, 'Looks good');
+    const approved = await prisma.submissionComment.findMany({
+      where: { submissionId: a.submission.id, action: CommentAction.APPROVED },
+    });
+    expect(approved).toHaveLength(1);
+    expect(approved[0].roleAtTime).toBe(UserRole.CLINIC_MANAGER);
+  });
+
+  it('clinic scope: a manager of clinic A cannot act on clinic B; finance can act anywhere', async () => {
+    const b = await openWithHeads(1);
+    await fx.driveToStatus(b.submission.id, SubmissionStatus.SUBMITTED);
+
+    const clinicA = await fx.makeClinic();
+    const managerA = (await fx.makeUser(UserRole.CLINIC_MANAGER, [clinicA.id])).user;
+    await expectStatus(workflow.managerOpenReview(b.submission.id, managerA), 403);
+
+    // Finance has org-wide access — drive B to CLINIC_APPROVED then finance opens it.
+    const realManagerB = (await fx.makeUser(UserRole.CLINIC_MANAGER, [b.clinic.id])).user;
+    await workflow.managerOpenReview(b.submission.id, realManagerB);
+    await workflow.managerApprove(b.submission.id, realManagerB);
+    const finance = (await fx.makeUser(UserRole.FINANCE_ADMIN)).user;
+    await workflow.financeOpenReview(b.submission.id, finance);
+    expect((await reload(b.submission.id)).status).toBe(SubmissionStatus.FINANCE_REVIEW);
+  });
+
+  it('stale-status: acting on a submission whose status is not in the action from-set → 409', async () => {
+    const { clinic, submission } = await openWithHeads(1);
+    // Force a status that MANAGER_OPEN_REVIEW does not accept (from = [SUBMITTED]).
+    await prisma.monthlySubmission.update({
+      where: { id: submission.id },
+      data: { status: SubmissionStatus.CLINIC_APPROVED },
+    });
+    const manager = (await fx.makeUser(UserRole.CLINIC_MANAGER, [clinic.id])).user;
+    await expectStatus(workflow.managerOpenReview(submission.id, manager), 409);
+  });
+});
