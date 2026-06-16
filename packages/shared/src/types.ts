@@ -114,6 +114,33 @@ export interface MappedExpenseHead {
   category: string;
 }
 
+// ── Submission comments / timeline (Phase 5) ─────────────────────────────────
+
+/**
+ * The two reviewer actions a comment can accompany. DB-local (mirrors the
+ * Prisma `CommentAction` enum); kept here so the web timeline can type-check
+ * without importing from the API.
+ */
+export type SubmissionCommentAction = 'SENT_BACK' | 'APPROVED';
+
+/**
+ * A comment as shown on a submission's review timeline. Send-backs always carry
+ * one (mandatory); approvals may. `roleAtTime` is the commenter's role when the
+ * action happened, frozen so the timeline reads correctly even if the user's
+ * role later changes.
+ */
+export interface SubmissionCommentView {
+  id: string;
+  comment: string;
+  action: SubmissionCommentAction;
+  roleAtTime: UserRole;
+  createdAt: string; // ISO-8601, UTC
+  commentedBy: {
+    id: string;
+    name: string;
+  };
+}
+
 /** Standard error envelope returned by the API. */
 export interface ApiError {
   statusCode: number;

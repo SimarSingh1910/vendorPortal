@@ -24,4 +24,6 @@ export type {
   ActiveFilter,
   MappedExpenseHead,
   AdminUser,
+  SubmissionCommentAction,
+  SubmissionCommentView,
 } from './types';
