@@ -8,6 +8,7 @@ import { ClinicsModule } from './clinics/clinics.module';
 import { ExpenseHeadsModule } from './expense-heads/expense-heads.module';
 import { ClinicExpenseHeadsModule } from './clinic-expense-heads/clinic-expense-heads.module';
 import { UsersModule } from './users/users.module';
+import { SubmissionsModule } from './submissions/submissions.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { UsersModule } from './users/users.module';
     ExpenseHeadsModule,
     ClinicExpenseHeadsModule,
     UsersModule,
+    SubmissionsModule,
     HealthModule,
   ],
 })
