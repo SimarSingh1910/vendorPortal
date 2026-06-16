@@ -31,4 +31,6 @@ export type {
   ProvisionHeadRow,
   SubmissionDetail,
   ProvisionEntryInput,
+  AuditLogView,
+  AuditLogPage,
 } from './types';

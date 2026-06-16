@@ -205,6 +205,32 @@ export interface ProvisionEntryInput {
   amount: number;
 }
 
+// ── Audit log viewer (Phase 9.2) ─────────────────────────────────────────────
+
+/** One audit row as shown in the Finance-Admin audit viewer. */
+export interface AuditLogView {
+  id: string;
+  performedAt: string; // ISO-8601, UTC
+  action: string;
+  entityType: string;
+  entityId: string;
+  clinicId: string | null;
+  clinicName: string | null;
+  performedById: string | null; // null = SYSTEM action
+  performedByName: string | null;
+  ipAddress: string | null;
+  oldValue: unknown | null;
+  newValue: unknown | null;
+}
+
+/** A page of audit rows (newest first). */
+export interface AuditLogPage {
+  items: AuditLogView[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 /** Standard error envelope returned by the API. */
 export interface ApiError {
   statusCode: number;
