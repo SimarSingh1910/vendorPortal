@@ -4,6 +4,7 @@ import type { MonthlySubmission, SubmissionExpenseHeadSnapshot } from '@prisma/c
 import { PrismaService } from '../prisma/prisma.service';
 import { ClinicExpenseHeadsService } from '../clinic-expense-heads/clinic-expense-heads.service';
 import { AuditService } from '../audit/audit.service';
+import { AuditAction } from '@portal/shared';
 
 /** A submission with its frozen head list, as returned by the open routine. */
 export type OpenedSubmission = MonthlySubmission & {
@@ -102,7 +103,7 @@ export class CycleService {
       // SYSTEM action when invoked by the scheduler (no request context) → null
       // actor + null IP; an admin re-run carries that admin from the request.
       await this.audit.record({
-        action: 'CYCLE_OPEN',
+        action: AuditAction.CYCLE_OPEN,
         entityType: 'MonthlySubmission',
         entityId: submission.id,
         clinicId,

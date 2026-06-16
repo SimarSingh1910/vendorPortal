@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AuditAction,
   SubmissionStatus,
   UserRole,
   type ProvisionEntryInput,
@@ -132,7 +133,7 @@ export class ProvisionEntryService {
     // SAVE_DRAFT transition it triggers is intentionally NOT audited, avoiding a
     // double row); a Finance Admin's BR-08 override is PROVISION_EDIT_OVERRIDE.
     await this.audit.record({
-      action: isAdmin ? 'PROVISION_EDIT_OVERRIDE' : 'PROVISION_SAVE',
+      action: isAdmin ? AuditAction.PROVISION_EDIT_OVERRIDE : AuditAction.PROVISION_SAVE,
       entityType: 'MonthlySubmission',
       entityId: submissionId,
       clinicId,

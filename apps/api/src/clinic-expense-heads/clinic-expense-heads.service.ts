@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import type { MappedExpenseHead } from '@portal/shared';
+import { AuditAction, type MappedExpenseHead } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 
@@ -81,7 +81,7 @@ export class ClinicExpenseHeadsService {
     });
 
     await this.audit.record({
-      action: 'CLINIC_MAPPINGS_SET',
+      action: AuditAction.CLINIC_MAPPINGS_SET,
       entityType: 'Clinic',
       entityId: clinicId,
       clinicId,

@@ -205,6 +205,27 @@ export interface ProvisionEntryInput {
   amount: number;
 }
 
+// ── Notification config (Phase 10.1) ─────────────────────────────────────────
+
+/** Per-cycle notification config (one row per month). Read by scheduler + dashboard. */
+export interface NotificationConfigView {
+  month: string; // YYYY-MM
+  monthStartNotifyDate: string; // ISO-8601
+  cutoffDate: string; // ISO-8601
+  preCutoffReminderDays: number;
+  varianceThresholdPercent: string; // DECIMAL(5,2) as string
+  createdAt: string; // ISO-8601
+  updatedAt: string; // ISO-8601
+}
+
+/** Finance-Admin input to set/update a month's notification config. */
+export interface NotificationConfigInput {
+  monthStartNotifyDate: string; // ISO-8601
+  cutoffDate: string; // ISO-8601
+  preCutoffReminderDays: number;
+  varianceThresholdPercent: number;
+}
+
 // ── Audit log viewer (Phase 9.2) ─────────────────────────────────────────────
 
 /** One audit row as shown in the Finance-Admin audit viewer. */

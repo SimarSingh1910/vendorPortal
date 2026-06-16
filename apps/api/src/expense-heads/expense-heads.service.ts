@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { ExpenseHead } from '@prisma/client';
-import type { ActiveFilter } from '@portal/shared';
+import { AuditAction, type ActiveFilter } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateExpenseHeadDto } from './dto/create-expense-head.dto';
@@ -16,7 +16,7 @@ export class ExpenseHeadsService {
   async create(dto: CreateExpenseHeadDto): Promise<ExpenseHead> {
     const head = await this.prisma.expenseHead.create({ data: dto });
     await this.audit.record({
-      action: 'EXPENSE_HEAD_CREATE',
+      action: AuditAction.EXPENSE_HEAD_CREATE,
       entityType: 'ExpenseHead',
       entityId: head.id,
       newValue: dto,
@@ -42,7 +42,7 @@ export class ExpenseHeadsService {
     const before = await this.get(id);
     const head = await this.prisma.expenseHead.update({ where: { id }, data: dto });
     await this.audit.record({
-      action: 'EXPENSE_HEAD_UPDATE',
+      action: AuditAction.EXPENSE_HEAD_UPDATE,
       entityType: 'ExpenseHead',
       entityId: id,
       oldValue: { name: before.name, category: before.category },
@@ -56,7 +56,7 @@ export class ExpenseHeadsService {
     const before = await this.get(id);
     const head = await this.prisma.expenseHead.update({ where: { id }, data: { isActive } });
     await this.audit.record({
-      action: 'EXPENSE_HEAD_SET_ACTIVE',
+      action: AuditAction.EXPENSE_HEAD_SET_ACTIVE,
       entityType: 'ExpenseHead',
       entityId: id,
       oldValue: { isActive: before.isActive },

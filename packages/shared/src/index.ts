@@ -11,6 +11,8 @@ export {
   SUBMISSION_STATUS_LABELS,
 } from './enums';
 
+export { AuditAction } from './audit-actions';
+
 export type {
   HealthResponse,
   JwtClaims,
@@ -33,4 +35,6 @@ export type {
   ProvisionEntryInput,
   AuditLogView,
   AuditLogPage,
+  NotificationConfigView,
+  NotificationConfigInput,
 } from './types';

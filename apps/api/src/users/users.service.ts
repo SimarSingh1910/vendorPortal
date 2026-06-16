@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { CLINIC_ROLES, UserRole, type ActiveFilter, type AdminUser } from '@portal/shared';
+import { AuditAction, CLINIC_ROLES, UserRole, type ActiveFilter, type AdminUser } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { AuditService } from '../audit/audit.service';
@@ -97,7 +97,7 @@ export class UsersService {
       include: { assignments: true },
     });
     await this.audit.record({
-      action: 'USER_CREATE',
+      action: AuditAction.USER_CREATE,
       entityType: 'User',
       entityId: user.id,
       newValue: { name: dto.name, email: dto.email, role: dto.role, clinicIds },
@@ -159,7 +159,7 @@ export class UsersService {
     }
 
     await this.audit.record({
-      action: 'USER_UPDATE',
+      action: AuditAction.USER_UPDATE,
       entityType: 'User',
       entityId: id,
       // Never log password material — only whether it changed.
@@ -188,7 +188,7 @@ export class UsersService {
     });
     await this.auth.invalidateUserSessions(id);
     await this.audit.record({
-      action: 'USER_SET_ACTIVE',
+      action: AuditAction.USER_SET_ACTIVE,
       entityType: 'User',
       entityId: id,
       newValue: { isActive },

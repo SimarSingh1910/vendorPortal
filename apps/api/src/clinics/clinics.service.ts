@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Clinic } from '@prisma/client';
-import type { ActiveFilter } from '@portal/shared';
+import { AuditAction, type ActiveFilter } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateClinicDto } from './dto/create-clinic.dto';
@@ -16,7 +16,7 @@ export class ClinicsService {
   async create(dto: CreateClinicDto): Promise<Clinic> {
     const clinic = await this.prisma.clinic.create({ data: dto });
     await this.audit.record({
-      action: 'CLINIC_CREATE',
+      action: AuditAction.CLINIC_CREATE,
       entityType: 'Clinic',
       entityId: clinic.id,
       clinicId: clinic.id,
@@ -43,7 +43,7 @@ export class ClinicsService {
     const before = await this.get(id); // 404 if missing
     const clinic = await this.prisma.clinic.update({ where: { id }, data: dto });
     await this.audit.record({
-      action: 'CLINIC_UPDATE',
+      action: AuditAction.CLINIC_UPDATE,
       entityType: 'Clinic',
       entityId: id,
       clinicId: id,
@@ -65,7 +65,7 @@ export class ClinicsService {
     const before = await this.get(id);
     const clinic = await this.prisma.clinic.update({ where: { id }, data: { isActive } });
     await this.audit.record({
-      action: 'CLINIC_SET_ACTIVE',
+      action: AuditAction.CLINIC_SET_ACTIVE,
       entityType: 'Clinic',
       entityId: id,
       clinicId: id,

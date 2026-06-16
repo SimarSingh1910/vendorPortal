@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, CommentAction } from '@prisma/client';
 import type { MonthlySubmission } from '@prisma/client';
-import { SubmissionStatus, UserRole } from '@portal/shared';
+import { AuditAction, SubmissionStatus, UserRole } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClinicScopeService } from '../common/clinic-scope.service';
 import { AuditService } from '../audit/audit.service';
@@ -255,7 +255,7 @@ export class WorkflowService {
     });
 
     await this.audit.record({
-      action: 'UNLOCK',
+      action: AuditAction.UNLOCK,
       entityType: 'MonthlySubmission',
       entityId: submissionId,
       clinicId: submission.clinicId,

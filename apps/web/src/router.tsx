@@ -9,6 +9,7 @@ import { ExpenseHeadsAdmin } from '@/pages/admin/ExpenseHeadsAdmin';
 import { MappingsAdmin } from '@/pages/admin/MappingsAdmin';
 import { UsersAdmin } from '@/pages/admin/UsersAdmin';
 import { AuditAdmin } from '@/pages/admin/AuditAdmin';
+import { NotificationConfigAdmin } from '@/pages/admin/NotificationConfigAdmin';
 import { SpocHome } from '@/pages/spoc/SpocHome';
 import { SubmissionEntry } from '@/pages/spoc/SubmissionEntry';
 import { ManagerHome } from '@/pages/manager/ManagerHome';
@@ -84,6 +85,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute allowedRoles={ROUTE_ROLES['/admin/users']}>
             <UsersAdmin />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'admin/notifications',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/admin/notifications']}>
+            <NotificationConfigAdmin />
           </ProtectedRoute>
         ),
       },

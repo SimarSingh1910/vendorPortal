@@ -11,6 +11,7 @@ import { ExpenseHeadsModule } from './expense-heads/expense-heads.module';
 import { ClinicExpenseHeadsModule } from './clinic-expense-heads/clinic-expense-heads.module';
 import { UsersModule } from './users/users.module';
 import { SubmissionsModule } from './submissions/submissions.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { SubmissionsModule } from './submissions/submissions.module';
     ClinicExpenseHeadsModule,
     UsersModule,
     SubmissionsModule,
+    NotificationsModule,
     HealthModule,
   ],
 })
