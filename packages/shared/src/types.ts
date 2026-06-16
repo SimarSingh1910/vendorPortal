@@ -7,7 +7,7 @@
  * shape that RBAC will rely on.
  */
 
-import type { UserRole } from './enums';
+import type { SubmissionStatus, UserRole } from './enums';
 
 /** Response from the API health endpoint. */
 export interface HealthResponse {
@@ -139,6 +139,65 @@ export interface SubmissionCommentView {
     id: string;
     name: string;
   };
+}
+
+// ── Provision entry / SPOC workspace (Phase 6) ───────────────────────────────
+
+/**
+ * One accessible clinic's submission status for a given month — the row shape of
+ * the SPOC home overview. `submissionId` is null until the cycle is opened.
+ */
+export interface ClinicMonthStatus {
+  clinicId: string;
+  clinicName: string;
+  month: string; // YYYY-MM
+  submissionId: string | null;
+  status: SubmissionStatus;
+  locked: boolean;
+}
+
+/** A submission as a row in a clinic's history list. */
+export interface SubmissionListItem {
+  id: string;
+  clinicId: string;
+  clinicName: string;
+  month: string; // YYYY-MM
+  status: SubmissionStatus;
+  locked: boolean;
+  submittedAt: string | null; // ISO-8601
+  approvedByFinanceAt: string | null; // ISO-8601
+}
+
+/**
+ * One snapshot expense head as a row in the provision form. `amount` is the
+ * entered INR value as a DECIMAL(14,2) string, or null when nothing has been
+ * entered yet (blank — distinct from an explicit "0.00").
+ */
+export interface ProvisionHeadRow {
+  snapshotId: string;
+  expenseHeadId: string;
+  name: string;
+  category: string;
+  amount: string | null;
+}
+
+/** Full provision form / read-only detail for a single submission. */
+export interface SubmissionDetail {
+  id: string;
+  clinicId: string;
+  clinicName: string;
+  month: string; // YYYY-MM
+  status: SubmissionStatus;
+  locked: boolean;
+  /** True only when the viewer is a SPOC and the status still permits editing. */
+  canEdit: boolean;
+  heads: ProvisionHeadRow[];
+}
+
+/** A single value being saved against a snapshot head (0 is valid; blank = omit). */
+export interface ProvisionEntryInput {
+  snapshotId: string;
+  amount: number;
 }
 
 /** Standard error envelope returned by the API. */

@@ -1,0 +1,130 @@
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  SubmissionStatus,
+  UserRole,
+  type ClinicMonthStatus,
+  type SubmissionDetail,
+  type SubmissionListItem,
+} from '@portal/shared';
+import { PrismaService } from '../prisma/prisma.service';
+import { ClinicScopeService } from '../common/clinic-scope.service';
+import type { RequestUser } from '../auth/request-user';
+import { isSpocEditable } from './workflow.service';
+
+const isLocked = (status: SubmissionStatus): boolean => status === SubmissionStatus.FINANCE_APPROVED;
+
+/**
+ * Read side of the submission/provision surface (Phase 6): the SPOC home
+ * overview, a clinic's submission history, and the full provision-form detail.
+ * All access is clinic-scoped (finance roles see every clinic).
+ */
+@Injectable()
+export class SubmissionsService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly scope: ClinicScopeService,
+  ) {}
+
+  /**
+   * One row per ACTIVE clinic the user can access, with that clinic's submission
+   * status for `month` (NOT_STARTED + null id when the cycle isn't open yet).
+   */
+  async getOverview(user: RequestUser, month: string): Promise<ClinicMonthStatus[]> {
+    const clinicIds = await this.scope.accessibleClinicIds(user);
+    if (clinicIds.length === 0) return [];
+
+    const clinics = await this.prisma.clinic.findMany({
+      where: { id: { in: clinicIds }, isActive: true },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+    const submissions = await this.prisma.monthlySubmission.findMany({
+      where: { month, clinicId: { in: clinics.map((c) => c.id) } },
+      select: { id: true, clinicId: true, status: true },
+    });
+    const byClinic = new Map(submissions.map((s) => [s.clinicId, s]));
+
+    return clinics.map((clinic) => {
+      const sub = byClinic.get(clinic.id);
+      const status = (sub?.status as SubmissionStatus | undefined) ?? SubmissionStatus.NOT_STARTED;
+      return {
+        clinicId: clinic.id,
+        clinicName: clinic.name,
+        month,
+        submissionId: sub?.id ?? null,
+        status,
+        locked: isLocked(status),
+      };
+    });
+  }
+
+  /** A clinic's submissions, newest month first, optionally filtered. */
+  async listForClinic(
+    clinicId: string,
+    user: RequestUser,
+    filter: { status?: SubmissionStatus; month?: string } = {},
+  ): Promise<SubmissionListItem[]> {
+    if (!this.scope.canAccessClinic(user, clinicId)) {
+      throw new ForbiddenException('Clinic not in your accessible scope');
+    }
+    const submissions = await this.prisma.monthlySubmission.findMany({
+      where: {
+        clinicId,
+        ...(filter.status ? { status: filter.status } : {}),
+        ...(filter.month ? { month: filter.month } : {}),
+      },
+      include: { clinic: { select: { name: true } } },
+      orderBy: { month: 'desc' },
+    });
+    return submissions.map((s) => ({
+      id: s.id,
+      clinicId: s.clinicId,
+      clinicName: s.clinic.name,
+      month: s.month,
+      status: s.status as SubmissionStatus,
+      locked: isLocked(s.status as SubmissionStatus),
+      submittedAt: s.submittedAt?.toISOString() ?? null,
+      approvedByFinanceAt: s.approvedByFinanceAt?.toISOString() ?? null,
+    }));
+  }
+
+  /** The provision form / read-only detail: snapshot heads + any entered values. */
+  async getDetail(submissionId: string, user: RequestUser): Promise<SubmissionDetail> {
+    const submission = await this.prisma.monthlySubmission.findUnique({
+      where: { id: submissionId },
+      include: {
+        clinic: { select: { name: true } },
+        snapshots: {
+          include: { entry: true },
+          orderBy: [{ expenseHeadCategoryAtSnapshot: 'asc' }, { expenseHeadNameAtSnapshot: 'asc' }],
+        },
+      },
+    });
+    if (!submission) {
+      throw new NotFoundException('Submission not found');
+    }
+    if (!this.scope.canAccessClinic(user, submission.clinicId)) {
+      throw new ForbiddenException('Clinic not in your accessible scope');
+    }
+
+    const status = submission.status as SubmissionStatus;
+    const canEdit = user.role === UserRole.CLINIC_SPOC && isSpocEditable(status);
+
+    return {
+      id: submission.id,
+      clinicId: submission.clinicId,
+      clinicName: submission.clinic.name,
+      month: submission.month,
+      status,
+      locked: isLocked(status),
+      canEdit,
+      heads: submission.snapshots.map((snap) => ({
+        snapshotId: snap.id,
+        expenseHeadId: snap.expenseHeadId,
+        name: snap.expenseHeadNameAtSnapshot,
+        category: snap.expenseHeadCategoryAtSnapshot,
+        amount: snap.entry ? snap.entry.amount.toFixed(2) : null,
+      })),
+    };
+  }
+}

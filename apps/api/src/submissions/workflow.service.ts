@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -16,12 +17,17 @@ import type { RequestUser } from '../auth/request-user';
 const S = SubmissionStatus;
 
 /** The states a SPOC may act on (save / submit). Send-backs return here. */
-const SPOC_ACTIONABLE: SubmissionStatus[] = [
+export const SPOC_ACTIONABLE: SubmissionStatus[] = [
   S.NOT_STARTED,
   S.DRAFT,
   S.SENT_BACK_BY_MANAGER,
   S.SENT_BACK_BY_FINANCE,
 ];
+
+/** True when a SPOC may still edit provision values for this status. */
+export function isSpocEditable(status: SubmissionStatus): boolean {
+  return SPOC_ACTIONABLE.includes(status);
+}
 
 /**
  * Every workflow action the engine understands. Each maps 1:1 to a controller
@@ -131,6 +137,8 @@ export class WorkflowService {
     },
   };
 
+  private readonly logger = new Logger(WorkflowService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly scope: ClinicScopeService,
@@ -239,7 +247,7 @@ export class WorkflowService {
       ...(def.stamp ? def.stamp(now, user.id) : {}),
     };
 
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       // Conditional on the from-states so two racing transitions can't both win.
       const result = await tx.monthlySubmission.updateMany({
         where: { id: submissionId, status: { in: def.from } },
@@ -263,6 +271,31 @@ export class WorkflowService {
 
       return tx.monthlySubmission.findUniqueOrThrow({ where: { id: submissionId } });
     });
+
+    this.emitNotificationHook(action, updated);
+    return updated;
+  }
+
+  /**
+   * Notification hook (wired in Phase 10: AWS SES + in-app SSE). Each transition
+   * notifies the next actor — most importantly a SUBMIT notifies the clinic's
+   * Manager that an item awaits review. For now it only logs the intent so the
+   * call sites exist and are exercised by tests.
+   */
+  private emitNotificationHook(action: WorkflowAction, submission: MonthlySubmission): void {
+    const recipients: Partial<Record<WorkflowAction, string>> = {
+      [WorkflowAction.SUBMIT]: 'CLINIC_MANAGER (review pending)',
+      [WorkflowAction.MANAGER_APPROVE]: 'FINANCE (clinic approved)',
+      [WorkflowAction.MANAGER_SEND_BACK]: 'CLINIC_SPOC (sent back by manager)',
+      [WorkflowAction.FINANCE_SEND_BACK]: 'CLINIC_SPOC (sent back by finance)',
+      [WorkflowAction.FINANCE_APPROVE]: 'CLINIC_SPOC + CLINIC_MANAGER (approved & locked)',
+    };
+    const target = recipients[action];
+    if (target) {
+      this.logger.log(
+        `notify[${target}] for submission ${submission.id} (${submission.clinicId}/${submission.month})`,
+      );
+    }
   }
 
   /**

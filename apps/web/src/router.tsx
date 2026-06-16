@@ -8,6 +8,8 @@ import { ClinicsAdmin } from '@/pages/admin/ClinicsAdmin';
 import { ExpenseHeadsAdmin } from '@/pages/admin/ExpenseHeadsAdmin';
 import { MappingsAdmin } from '@/pages/admin/MappingsAdmin';
 import { UsersAdmin } from '@/pages/admin/UsersAdmin';
+import { SpocHome } from '@/pages/spoc/SpocHome';
+import { SubmissionEntry } from '@/pages/spoc/SubmissionEntry';
 import { useAuthStore } from '@/store/auth.store';
 
 /** Root: send authenticated users to their role home, everyone else to login. */
@@ -84,7 +86,15 @@ export const router = createBrowserRouter([
         path: 'spoc',
         element: (
           <ProtectedRoute allowedRoles={ROUTE_ROLES['/spoc']}>
-            <RoleHome />
+            <SpocHome />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'spoc/submissions/:submissionId',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/spoc/submissions']}>
+            <SubmissionEntry />
           </ProtectedRoute>
         ),
       },

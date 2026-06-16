@@ -26,4 +26,9 @@ export type {
   AdminUser,
   SubmissionCommentAction,
   SubmissionCommentView,
+  ClinicMonthStatus,
+  SubmissionListItem,
+  ProvisionHeadRow,
+  SubmissionDetail,
+  ProvisionEntryInput,
 } from './types';
