@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft } from 'lucide-react';
-import { SubmissionStatus } from '@portal/shared';
+import { SubmissionStatus, type SubmissionDetail } from '@portal/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Table,
@@ -20,6 +21,7 @@ import {
   managerApprove,
   managerOpenReview,
   managerSendBack,
+  saveEntries,
 } from '@/api/submissions';
 import { apiErrorMessage } from '@/lib/apiError';
 import {
@@ -33,11 +35,28 @@ import {
 } from '@/lib/format';
 import { MonthwiseReportPanel } from '@/components/MonthwiseReportPanel';
 
+type ValueMap = Record<string, string>;
+
+function seedValues(detail: SubmissionDetail): ValueMap {
+  const map: ValueMap = {};
+  for (const head of detail.heads) map[head.snapshotId] = head.amount ?? '';
+  return map;
+}
+
+function parseAmount(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (trimmed === '') return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 100) / 100;
+}
+
 export function ManagerReview() {
   const { submissionId = '' } = useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [comment, setComment] = useState('');
+  const [values, setValues] = useState<ValueMap>({});
   const [error, setError] = useState<string | null>(null);
 
   const { data: detail, isLoading } = useQuery({
@@ -49,9 +68,31 @@ export function ManagerReview() {
     queryFn: () => getComments(submissionId),
   });
 
+  // Seed the editable values whenever the detail (re)loads.
+  useEffect(() => {
+    if (detail) setValues(seedValues(detail));
+  }, [detail]);
+
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['submissions'] });
   };
+
+  const collectEntries = () =>
+    (detail?.heads ?? [])
+      .map((h) => ({ snapshotId: h.snapshotId, amount: parseAmount(values[h.snapshotId] ?? '') }))
+      .filter((e): e is { snapshotId: string; amount: number } => e.amount !== null);
+
+  // Manager value override → writes the canonical entries (audited); everyone
+  // sees the new value on refetch (queries invalidated).
+  const overrideMutation = useMutation({
+    mutationFn: () => saveEntries(submissionId, collectEntries()),
+    onSuccess: (updated) => {
+      setError(null);
+      setValues(seedValues(updated));
+      invalidate();
+    },
+    onError: (e) => setError(apiErrorMessage(e, 'Could not save override. Please try again.')),
+  });
 
   // Opening the item moves SUBMITTED → CLINIC_MANAGER_REVIEW (stamps who/when).
   // Fire once; ignore a 409 if it's already in review (e.g. StrictMode re-mount).
@@ -90,7 +131,12 @@ export function ManagerReview() {
   }
 
   const inReview = detail.status === SubmissionStatus.CLINIC_MANAGER_REVIEW;
-  const busy = approveMutation.isPending || sendBackMutation.isPending;
+  // The manager may override values during their review stage (own clinic).
+  const canOverride =
+    detail.status === SubmissionStatus.SUBMITTED ||
+    detail.status === SubmissionStatus.CLINIC_MANAGER_REVIEW;
+  const busy =
+    approveMutation.isPending || sendBackMutation.isPending || overrideMutation.isPending;
 
   return (
     <div className="space-y-6">
@@ -138,14 +184,15 @@ export function ManagerReview() {
         </section>
       )}
 
-      {/* Entry data — read only. A manager reviews values but cannot edit them. */}
+      {/* Entry data. The manager may override values during their review stage;
+          the edit writes the canonical entries and is audit-logged. */}
       <div className="rounded-lg border">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Category</TableHead>
               <TableHead>Expense head</TableHead>
-              <TableHead className="text-right">Amount</TableHead>
+              <TableHead className="text-right">Amount (₹)</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -153,12 +200,39 @@ export function ManagerReview() {
               <TableRow key={head.snapshotId}>
                 <TableCell className="text-muted-foreground">{head.category}</TableCell>
                 <TableCell className="font-medium">{head.name}</TableCell>
-                <TableCell className="text-right">{formatINR(head.amount)}</TableCell>
+                <TableCell className="text-right">
+                  {canOverride ? (
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      className="ml-auto w-40 text-right"
+                      value={values[head.snapshotId] ?? ''}
+                      onChange={(e) =>
+                        setValues((prev) => ({ ...prev, [head.snapshotId]: e.target.value }))
+                      }
+                    />
+                  ) : (
+                    formatINR(head.amount)
+                  )}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </div>
+
+      {canOverride && (
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="outline" disabled={busy} onClick={() => overrideMutation.mutate()}>
+            {overrideMutation.isPending ? 'Saving…' : 'Save override'}
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Manager edits replace the SPOC value, apply during your review, and are audit-logged.
+          </span>
+        </div>
+      )}
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 

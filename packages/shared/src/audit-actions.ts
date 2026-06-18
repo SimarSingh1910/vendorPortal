@@ -11,6 +11,9 @@ export const AuditAction = {
 
   PROVISION_SAVE: 'PROVISION_SAVE',
   PROVISION_EDIT_OVERRIDE: 'PROVISION_EDIT_OVERRIDE',
+  /** Clinic-manager value override during their review stage (mirrors finance's
+   * PROVISION_EDIT_OVERRIDE; records old->new, actor, clinicId). */
+  MANAGER_PROVISION_OVERRIDE: 'MANAGER_PROVISION_OVERRIDE',
   UNLOCK: 'UNLOCK',
 
   CLINIC_CREATE: 'CLINIC_CREATE',

@@ -71,7 +71,7 @@ describe('SubmissionsService queue/detail (Step 7.1 — manager review surface)'
     expect(queue.find((q) => q.clinicId === foreign.clinic.id)).toBeUndefined();
   });
 
-  it('getDetail exposes who/when after review opens and stays read-only for a manager', async () => {
+  it('getDetail exposes who/when after review opens; canEdit is the SPOC inline-edit flag (false for a manager)', async () => {
     const clinic = await fx.makeClinic();
     const head = await fx.makeExpenseHead();
     await fx.mapHeads(clinic.id, [head.id]);
@@ -82,7 +82,9 @@ describe('SubmissionsService queue/detail (Step 7.1 — manager review surface)'
     const detail = await submissions.getDetail(submission.id, manager);
 
     expect(detail.status).toBe(SubmissionStatus.CLINIC_MANAGER_REVIEW);
-    expect(detail.canEdit).toBe(false); // managers never edit values
+    // canEdit drives the SPOC inline-edit screen only; a manager overrides via the
+    // audited entries endpoint (own clinic, review stage), not this flag.
+    expect(detail.canEdit).toBe(false);
     expect(detail.reviewStartedAt).not.toBeNull();
 
     const reviewer = await prisma.user.findUniqueOrThrow({ where: { id: actors.manager.id } });

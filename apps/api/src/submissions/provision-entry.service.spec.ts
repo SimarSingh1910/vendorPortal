@@ -173,4 +173,77 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
     expect(audits[0].performedById).toBe(admin.id);
     expect(audits[0].ipAddress).toBe('203.0.113.7');
   });
+
+  // ── Iteration 2 — Clinic Manager value override (own clinic, review stage) ────
+
+  it('Manager override edits the canonical entry during review, keeps the status, preserves enteredBy, and audits it', async () => {
+    const { submission, snapshotIds } = await setup(1);
+    const { manager } = await fx.driveToStatus(submission.id, SubmissionStatus.CLINIC_MANAGER_REVIEW);
+
+    // Original entry was written by the SPOC during the drive.
+    const original = await prisma.provisionEntry.findUniqueOrThrow({
+      where: { snapshotId: snapshotIds[0] },
+    });
+    expect(original.lastModifiedById).not.toBe(manager.id);
+
+    const detail = await runWithRequestContext(
+      { user: { id: manager.id }, ip: '198.51.100.9' },
+      () => entries.saveEntries(submission.id, manager, [{ snapshotId: snapshotIds[0], amount: 9999 }]),
+    );
+
+    // Value overwritten; status unchanged (override never advances the workflow).
+    expect(detail.status).toBe(SubmissionStatus.CLINIC_MANAGER_REVIEW);
+    expect(detail.heads[0].amount).toBe('9999.00');
+
+    // Provenance: enteredBy stays the SPOC; lastModifiedBy becomes the manager.
+    const row = await prisma.provisionEntry.findUniqueOrThrow({
+      where: { snapshotId: snapshotIds[0] },
+    });
+    expect(row.enteredById).toBe(original.enteredById);
+    expect(row.enteredById).not.toBe(manager.id);
+    expect(row.lastModifiedById).toBe(manager.id);
+
+    // A fresh read (any user) sees the new canonical value.
+    const refetched = await submissions.getDetail(submission.id, manager);
+    expect(refetched.heads[0].amount).toBe('9999.00');
+
+    // Audited as MANAGER_PROVISION_OVERRIDE with old→new, actor, and IP.
+    const audits = await prisma.auditLog.findMany({
+      where: { entityId: submission.id, action: 'MANAGER_PROVISION_OVERRIDE' },
+    });
+    expect(audits).toHaveLength(1);
+    expect(audits[0].performedById).toBe(manager.id);
+    expect(audits[0].ipAddress).toBe('198.51.100.9');
+    expect(audits[0].newValue).toEqual([{ snapshotId: snapshotIds[0], amount: 9999 }]);
+  });
+
+  it('Manager override is allowed in the SUBMITTED stage too (before opening review)', async () => {
+    const { submission, snapshotIds } = await setup(1);
+    const { manager } = await fx.driveToStatus(submission.id, SubmissionStatus.SUBMITTED);
+
+    const detail = await runWithRequestContext({ user: { id: manager.id } }, () =>
+      entries.saveEntries(submission.id, manager, [{ snapshotId: snapshotIds[0], amount: 12 }]),
+    );
+    expect(detail.status).toBe(SubmissionStatus.SUBMITTED);
+    expect(detail.heads[0].amount).toBe('12.00');
+  });
+
+  it('Manager override is rejected outside the review stage — e.g. once CLINIC_APPROVED (409)', async () => {
+    const { submission, snapshotIds } = await setup(1);
+    const { manager } = await fx.driveToStatus(submission.id, SubmissionStatus.CLINIC_APPROVED);
+
+    await expectStatus(
+      entries.saveEntries(submission.id, manager, [{ snapshotId: snapshotIds[0], amount: 1 }]),
+      409,
+    );
+  });
+
+  it("Manager cannot override another clinic's submission (403)", async () => {
+    const { submission } = await setup(1);
+    await fx.driveToStatus(submission.id, SubmissionStatus.CLINIC_MANAGER_REVIEW);
+
+    const otherClinic = await fx.makeClinic();
+    const outsideManager = (await fx.makeUser(UserRole.CLINIC_MANAGER, [otherClinic.id])).user;
+    await expectStatus(entries.saveEntries(submission.id, outsideManager, []), 403);
+  });
 });

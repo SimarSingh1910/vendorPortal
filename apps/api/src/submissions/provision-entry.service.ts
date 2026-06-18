@@ -8,6 +8,7 @@ import {
 import {
   AuditAction,
   SubmissionStatus,
+  UserRole,
   type ProvisionEntryInput,
   type SubmissionDetail,
 } from '@portal/shared';
@@ -21,20 +22,34 @@ import { SubmissionsService } from './submissions.service';
 
 const isLocked = (status: SubmissionStatus): boolean => status === SubmissionStatus.FINANCE_APPROVED;
 
+/** Statuses in which the clinic manager owns the submission and may override values. */
+const MANAGER_REVIEW_STATUSES: SubmissionStatus[] = [
+  SubmissionStatus.SUBMITTED,
+  SubmissionStatus.CLINIC_MANAGER_REVIEW,
+];
+
+/** How an incoming edit is classified — drives the audit action and whether the
+ * SPOC draft-save transition fires. */
+type WriteKind = 'spoc' | 'manager-override' | 'finance-override';
+
 /**
- * Provision data entry (Phase 6) + lock enforcement & finance override
- * (Phase 8, BR-08). Two write paths share this service:
+ * Provision data entry (Phase 6) + lock enforcement, manager override, and
+ * finance override (Phase 8, BR-08). Three write paths share this service, all
+ * writing the CANONICAL submission entries (single source of truth):
  *
  *  - SPOC: partial upsert while the submission is SPOC-actionable; moves it to
  *    DRAFT via the state machine. Editing a locked submission → 403; editing in
  *    any other non-actionable state → 409.
+ *  - Clinic Manager (own clinic): may override values ONLY during their review
+ *    stage (SUBMITTED / CLINIC_MANAGER_REVIEW), WITHOUT changing the status;
+ *    every edit is audited (MANAGER_PROVISION_OVERRIDE). Editing outside that
+ *    stage → 409, another clinic → 403, a locked submission → 403.
  *  - Finance approver (Admin or Manager): may edit at ANY status (including
- *    FINANCE_APPROVED/locked) WITHOUT changing the status, and every such edit
- *    writes an audit entry.
+ *    FINANCE_APPROVED/locked) WITHOUT changing the status; every edit is audited
+ *    (PROVISION_EDIT_OVERRIDE).
  *
- * Clinic Manager/Viewer never reach this service (route is SPOC + finance
- * approvers only), but the lock check below is role-based so it holds even if
- * called directly.
+ * Both override paths preserve provenance: the upsert keeps enteredBy on the
+ * original SPOC and stamps lastModifiedBy = the overriding actor.
  */
 @Injectable()
 export class ProvisionEntryService {
@@ -64,28 +79,41 @@ export class ProvisionEntryService {
 
     const status = submission.status as SubmissionStatus;
     const isFinanceOverride = FINANCE_APPROVER_ROLES.includes(user.role);
+    const isManager = user.role === UserRole.CLINIC_MANAGER;
 
     // Lock enforcement: a FINANCE_APPROVED submission is editable only by a
     // finance approver (Admin or Manager) as an override (BR-08). Everyone else → 403.
     if (isLocked(status) && !isFinanceOverride) {
       throw new ForbiddenException('This submission is locked');
     }
-    // Non-admins may only edit in SPOC-actionable states.
-    if (!isFinanceOverride && !isSpocEditable(status)) {
+    // State rules per role:
+    //  - finance: any status (lock handled above);
+    //  - manager: only their review stage (SUBMITTED / CLINIC_MANAGER_REVIEW);
+    //  - SPOC: only SPOC-actionable states.
+    if (isManager) {
+      if (!MANAGER_REVIEW_STATUSES.includes(status)) {
+        throw new ConflictException(`Cannot edit a submission in ${status}`);
+      }
+    } else if (!isFinanceOverride && !isSpocEditable(status)) {
       throw new ConflictException(`Cannot edit a submission in ${status}`);
     }
 
+    const kind: WriteKind = isFinanceOverride
+      ? 'finance-override'
+      : isManager
+        ? 'manager-override'
+        : 'spoc';
+
     if (items.length > 0) {
-      await this.applyEntries(submissionId, user, items, isFinanceOverride, submission.clinicId);
+      await this.applyEntries(submissionId, user, items, kind, submission.clinicId);
     }
 
-    if (isFinanceOverride) {
-      // Override edits never change the workflow status (a locked item stays
-      // locked); the change is captured by the audit entry written above.
-    } else {
+    if (kind === 'spoc') {
       // SPOC save: persisting progress moves NOT_STARTED / SENT_BACK_* → DRAFT.
       await this.workflow.saveDraft(submissionId, user);
     }
+    // Manager/finance overrides never change the workflow status (a locked item
+    // stays locked); the change is captured by the audit entry written above.
 
     return this.submissions.getDetail(submissionId, user);
   }
@@ -95,7 +123,7 @@ export class ProvisionEntryService {
     submissionId: string,
     user: RequestUser,
     items: ProvisionEntryInput[],
-    isFinanceOverride: boolean,
+    kind: WriteKind,
     clinicId: string,
   ): Promise<void> {
     const snaps = await this.prisma.submissionExpenseHeadSnapshot.findMany({
@@ -133,9 +161,16 @@ export class ProvisionEntryService {
 
     // One audit row per save. A SPOC's normal save is PROVISION_SAVE (the
     // SAVE_DRAFT transition it triggers is intentionally NOT audited, avoiding a
-    // double row); a Finance Admin's BR-08 override is PROVISION_EDIT_OVERRIDE.
+    // double row); a manager review-stage override is MANAGER_PROVISION_OVERRIDE;
+    // a finance (Admin/Manager) BR-08 override is PROVISION_EDIT_OVERRIDE.
+    const auditAction =
+      kind === 'finance-override'
+        ? AuditAction.PROVISION_EDIT_OVERRIDE
+        : kind === 'manager-override'
+          ? AuditAction.MANAGER_PROVISION_OVERRIDE
+          : AuditAction.PROVISION_SAVE;
     await this.audit.record({
-      action: isFinanceOverride ? AuditAction.PROVISION_EDIT_OVERRIDE : AuditAction.PROVISION_SAVE,
+      action: auditAction,
       entityType: 'MonthlySubmission',
       entityId: submissionId,
       clinicId,
