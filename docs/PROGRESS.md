@@ -19,13 +19,13 @@ through a 3-level approval chain, then locks it.
   `/packages/shared` (types/enums).
 - **Money**: INR only, `DECIMAL(14,2)`. Timestamps stored UTC, displayed IST (+5:30).
 
-## Roles (one per user; clinic roles map to exactly one clinic, finance roles to all)
-- FINANCE_ADMIN — full access (masters, users, approve/reject all, unlock, audit, export); no clinic assignment (oversees all)
-- FINANCE_MANAGER — senior approver: every FINANCE_ADMIN power (masters, approve/reject all, unlock, audit, export) EXCEPT user management; no clinic assignment (oversees all)
-- CLINIC_MANAGER — 1st-level approver for its one clinic; may override (edit) entry values during its review stage (SUBMITTED / CLINIC_MANAGER_REVIEW), written to the canonical entries and audited as MANAGER_PROVISION_OVERRIDE (enteredBy stays the SPOC, lastModifiedBy = manager)
-- CLINIC_SPOC — data entry for its one clinic; draft/submit/revise
-- CLINIC_VIEWER — read-only for its one clinic
-- (A clinic may have several users — its own manager, SPOC, viewer — but each user belongs to exactly one clinic.)
+## Roles (one per user; clinic roles map to one or more clinics, finance roles to all)
+- FINANCE_ADMIN — full access (masters incl. create/edit clinics/expense-heads/mappings, users, approve/reject all, unlock, audit, export); no clinic assignment (oversees all)
+- FINANCE_MANAGER — senior approver: every FINANCE_ADMIN power (approve/reject all, unlock, audit, export, dashboards) EXCEPT user management AND master-data management — clinics/expense-heads/mappings are FINANCE_ADMIN-only to create/edit/delete (the manager may still READ them, e.g. the audit clinic filter); no clinic assignment (oversees all)
+- CLINIC_MANAGER — 1st-level approver for its assigned clinic(s); may override (edit) entry values during its review stage (SUBMITTED / CLINIC_MANAGER_REVIEW), written to the canonical entries and audited as MANAGER_PROVISION_OVERRIDE (enteredBy stays the SPOC, lastModifiedBy = manager)
+- CLINIC_SPOC — data entry for its assigned clinic(s); draft/submit/revise
+- CLINIC_VIEWER — read-only for its assigned clinic(s)
+- (A clinic may have several users; a clinic-role user may cover one or more clinics — at least one is required.)
 
 ## Submission lifecycle (per clinic, per month YYYY-MM)
 NOT_STARTED -> DRAFT -> SUBMITTED -> CLINIC_MANAGER_REVIEW -> CLINIC_APPROVED ->

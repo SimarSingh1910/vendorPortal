@@ -46,16 +46,15 @@ export class UsersService {
   }
 
   /**
-   * Resolve and validate the clinic assignment for a user (Step 2 — exactly one
-   * clinic per clinic-role user; none for finance roles):
+   * Resolve and validate the clinic assignment for a user (one or more clinics
+   * per clinic-role user; none for finance roles):
    *  - Finance roles oversee every clinic and must carry NO assignment. An
    *    explicit non-empty clinic list is rejected (400); an omitted/empty list
    *    resolves to none (so promoting a clinic user to finance clears it).
-   *  - Clinic roles (Manager / SPOC / Viewer) must resolve to exactly ONE clinic
-   *    (0 or >1 → 400). On update, an omitted list falls back to the current
-   *    assignment so a legacy multi-clinic row is surfaced as an error rather
-   *    than silently trimmed.
-   * Note: one clinic per user, but a clinic may still have many users.
+   *  - Clinic roles (Manager / SPOC / Viewer) must resolve to AT LEAST ONE
+   *    clinic (0 → 400); duplicates are de-duplicated. On update, an omitted
+   *    list falls back to the current assignment.
+   * Note: a user may cover several clinics, and a clinic may have many users.
    */
   private resolveClinicIds(
     role: UserRole,
@@ -71,9 +70,9 @@ export class UsersService {
       return [];
     }
     const target = [...new Set(provided ?? current ?? [])];
-    if (target.length !== 1) {
+    if (target.length === 0) {
       throw new BadRequestException(
-        'Clinic Manager, SPOC and Viewer users must be assigned to exactly one clinic',
+        'Clinic Manager, SPOC and Viewer users must be assigned to at least one clinic',
       );
     }
     return target;

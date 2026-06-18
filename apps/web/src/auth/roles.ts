@@ -32,9 +32,11 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { path: '/finance', label: 'Finance', roles: FINANCE_FULL },
   { path: '/finance/dashboard', label: 'Dashboard', roles: FINANCE_FULL },
-  { path: '/admin/clinics', label: 'Clinics', roles: FINANCE_FULL },
-  { path: '/admin/expense-heads', label: 'Expense Heads', roles: FINANCE_FULL },
-  { path: '/admin/mappings', label: 'Mappings', roles: FINANCE_FULL },
+  // Master-data management (create/edit) is FINANCE_ADMIN-only; the manager keeps
+  // finance review, dashboards, audit, exports and notification config.
+  { path: '/admin/clinics', label: 'Clinics', roles: [UserRole.FINANCE_ADMIN] },
+  { path: '/admin/expense-heads', label: 'Expense Heads', roles: [UserRole.FINANCE_ADMIN] },
+  { path: '/admin/mappings', label: 'Mappings', roles: [UserRole.FINANCE_ADMIN] },
   { path: '/admin/users', label: 'Users', roles: [UserRole.FINANCE_ADMIN] },
   { path: '/admin/notifications', label: 'Notification Config', roles: FINANCE_FULL },
   { path: '/admin/audit', label: 'Audit Log', roles: FINANCE_FULL },
@@ -53,9 +55,9 @@ export const ROUTE_ROLES: Record<string, UserRole[]> = {
   '/finance': FINANCE_FULL,
   '/finance/dashboard': FINANCE_FULL,
   '/finance/submissions': FINANCE_FULL,
-  '/admin/clinics': FINANCE_FULL,
-  '/admin/expense-heads': FINANCE_FULL,
-  '/admin/mappings': FINANCE_FULL,
+  '/admin/clinics': [UserRole.FINANCE_ADMIN],
+  '/admin/expense-heads': [UserRole.FINANCE_ADMIN],
+  '/admin/mappings': [UserRole.FINANCE_ADMIN],
   '/admin/users': [UserRole.FINANCE_ADMIN],
   '/admin/notifications': FINANCE_FULL,
   '/admin/audit': FINANCE_FULL,

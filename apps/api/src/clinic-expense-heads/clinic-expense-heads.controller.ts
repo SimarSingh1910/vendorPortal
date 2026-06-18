@@ -5,7 +5,9 @@ import { ClinicExpenseHeadsService } from './clinic-expense-heads.service';
 import { SetMappingsDto } from './dto/set-mappings.dto';
 
 /**
- * Clinic ↔ expense-head mapping (FR-01). Finance Admin or Manager.
+ * Clinic ↔ expense-head mapping (FR-01). Reading the mapped set is open to
+ * Finance Admin or Manager; SETTING the mapping is FINANCE_ADMIN-only
+ * (method-level @Roles overrides the class-level one).
  * A head applies to a clinic ONLY if explicitly mapped here and active.
  */
 @Controller('clinics/:clinicId/expense-heads')
@@ -21,6 +23,7 @@ export class ClinicExpenseHeadsController {
 
   /** Set the exact active mapping set for this clinic. */
   @Put()
+  @Roles(UserRole.FINANCE_ADMIN)
   set(@Param('clinicId') clinicId: string, @Body() dto: SetMappingsDto) {
     return this.mappings.setMappings(clinicId, dto.expenseHeadIds);
   }

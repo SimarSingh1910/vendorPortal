@@ -14,6 +14,9 @@ import { SubmissionWorkflowController } from './submission-workflow.controller';
 import { AuditController } from '../audit/audit.controller';
 import { UsersController } from '../users/users.controller';
 import { DashboardController } from '../dashboard/dashboard.controller';
+import { ClinicsController } from '../clinics/clinics.controller';
+import { ExpenseHeadsController } from '../expense-heads/expense-heads.controller';
+import { ClinicExpenseHeadsController } from '../clinic-expense-heads/clinic-expense-heads.controller';
 import type { RequestUser } from '../auth/request-user';
 import { makeFixtures, type Fixtures } from '../../test/fixtures';
 import { resetDb } from '../../test/reset';
@@ -148,6 +151,43 @@ describe('FINANCE_MANAGER authorization (Step 1)', () => {
       ).toThrow(ForbiddenException);
       expect(
         guard.canActivate(ctx(UserRole.FINANCE_ADMIN, UsersController.prototype.create, UsersController)),
+      ).toBe(true);
+    });
+
+    it('blocks FINANCE_MANAGER on master-data WRITES (clinics/heads/mappings) but keeps READS', () => {
+      // Writes are FINANCE_ADMIN-only (method-level @Roles overrides the class).
+      const writes: [unknown, unknown][] = [
+        [ClinicsController.prototype.create, ClinicsController],
+        [ClinicsController.prototype.update, ClinicsController],
+        [ClinicsController.prototype.deactivate, ClinicsController],
+        [ExpenseHeadsController.prototype.create, ExpenseHeadsController],
+        [ExpenseHeadsController.prototype.deactivate, ExpenseHeadsController],
+        [ClinicExpenseHeadsController.prototype.set, ClinicExpenseHeadsController],
+      ];
+      for (const [handler, cls] of writes) {
+        expect(() => guard.canActivate(ctx(UserRole.FINANCE_MANAGER, handler, cls))).toThrow(
+          ForbiddenException,
+        );
+        expect(guard.canActivate(ctx(UserRole.FINANCE_ADMIN, handler, cls))).toBe(true);
+      }
+
+      // Reads stay open to the manager (other finance screens depend on them).
+      expect(
+        guard.canActivate(ctx(UserRole.FINANCE_MANAGER, ClinicsController.prototype.list, ClinicsController)),
+      ).toBe(true);
+      expect(
+        guard.canActivate(
+          ctx(UserRole.FINANCE_MANAGER, ExpenseHeadsController.prototype.list, ExpenseHeadsController),
+        ),
+      ).toBe(true);
+      expect(
+        guard.canActivate(
+          ctx(
+            UserRole.FINANCE_MANAGER,
+            ClinicExpenseHeadsController.prototype.list,
+            ClinicExpenseHeadsController,
+          ),
+        ),
       ).toBe(true);
     });
 

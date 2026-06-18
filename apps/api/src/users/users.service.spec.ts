@@ -20,11 +20,12 @@ import { resetDb } from '../../test/reset';
 import { expectStatus } from '../../test/fixtures';
 
 /**
- * Step 2 — clinic-role users (Manager / SPOC / Viewer) must be assigned to
- * exactly one clinic; finance roles carry none. Validation lives in UsersService
- * (cross-field role↔clinic), with the scope reads confirmed via ClinicScopeService.
+ * Clinic-role users (Manager / SPOC / Viewer) must be assigned to AT LEAST ONE
+ * clinic (one or more); finance roles carry none. Validation lives in
+ * UsersService (cross-field role↔clinic), with the scope reads confirmed via
+ * ClinicScopeService.
  */
-describe('UsersService — one clinic per clinic-role user (Step 2)', () => {
+describe('UsersService — one or more clinics per clinic-role user', () => {
   let moduleRef: TestingModule;
   let prisma: PrismaService;
   let users: UsersService;
@@ -70,16 +71,14 @@ describe('UsersService — one clinic per clinic-role user (Step 2)', () => {
     );
   });
 
-  it('rejects a clinic-role user with MORE THAN ONE clinic (400)', async () => {
-    await expectStatus(
-      users.create({
-        ...base,
-        email: email(),
-        role: UserRole.CLINIC_MANAGER,
-        clinicIds: [clinicA.id, clinicB.id],
-      }),
-      400,
-    );
+  it('accepts a clinic-role user with MULTIPLE clinics (de-duplicated)', async () => {
+    const manager = await users.create({
+      ...base,
+      email: email(),
+      role: UserRole.CLINIC_MANAGER,
+      clinicIds: [clinicA.id, clinicB.id, clinicA.id],
+    });
+    expect([...manager.clinicIds].sort()).toEqual([clinicA.id, clinicB.id].sort());
   });
 
   it('rejects a clinic assigned to a finance-role user (400)', async () => {
@@ -114,17 +113,19 @@ describe('UsersService — one clinic per clinic-role user (Step 2)', () => {
 
   // ── update ───────────────────────────────────────────────────────────────
 
-  it('rejects widening a one-clinic user to two on edit (400)', async () => {
+  it('widens a one-clinic user to several on edit, and rejects clearing all clinics (400)', async () => {
     const spoc = await users.create({
       ...base,
       email: email(),
       role: UserRole.CLINIC_SPOC,
       clinicIds: [clinicA.id],
     });
-    await expectStatus(
-      users.update(spoc.id, { clinicIds: [clinicA.id, clinicB.id] }, 'requester'),
-      400,
-    );
+
+    const widened = await users.update(spoc.id, { clinicIds: [clinicA.id, clinicB.id] }, 'requester');
+    expect([...widened.clinicIds].sort()).toEqual([clinicA.id, clinicB.id].sort());
+
+    // A clinic-role user may not be left with zero clinics.
+    await expectStatus(users.update(spoc.id, { clinicIds: [] }, 'requester'), 400);
   });
 
   it('promoting a clinic user to finance clears the clinic; an explicit clinic is rejected', async () => {
