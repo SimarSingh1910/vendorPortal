@@ -13,6 +13,8 @@ export {
 
 export { AuditAction } from './audit-actions';
 
+export { isActionPending, pendingCount } from './attention';
+
 // Runtime constants from types.ts (values, not types).
 export { MONTHWISE_PRESETS, DEFAULT_MONTHWISE_PRESET } from './types';
 

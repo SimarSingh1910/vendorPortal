@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { SubmissionStatus } from '@portal/shared';
+import { isActionPending, SubmissionStatus, UserRole } from '@portal/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -13,7 +13,15 @@ import {
 } from '@/components/ui/table';
 import { getOverview, getQueue } from '@/api/submissions';
 import { ClinicApprovedHistory } from '@/components/submissions/ClinicApprovedHistory';
+import {
+  ActionNeededBadge,
+  attentionAccentClass,
+  AttentionBanner,
+  PendingCountBadge,
+} from '@/components/attention';
+import { useAuthStore } from '@/store/auth.store';
 import { formatIST, formatMonth } from '@/lib/format';
+import { cn } from '@/lib/utils';
 
 const QUEUE_STATUSES = [SubmissionStatus.CLINIC_APPROVED, SubmissionStatus.FINANCE_REVIEW];
 
@@ -27,6 +35,10 @@ export function FinanceHome() {
     queryFn: () => getOverview(),
   });
 
+  // Both finance roles share the same pending window; fall back to MANAGER-equivalent finance role.
+  const role = useAuthStore((s) => s.user?.role) ?? UserRole.FINANCE_MANAGER;
+  const pendingCount = queue.filter((item) => isActionPending(role, item.status)).length;
+
   return (
     <div className="space-y-8">
       <div className="space-y-1">
@@ -36,8 +48,19 @@ export function FinanceHome() {
         </p>
       </div>
 
+      {pendingCount > 0 && (
+        <AttentionBanner>
+          {pendingCount === 1
+            ? 'Action needed — 1 submission is waiting for finance approval.'
+            : `Action needed — ${pendingCount} submissions are waiting for finance approval.`}
+        </AttentionBanner>
+      )}
+
       <section className="space-y-3">
-        <h2 className="text-sm font-medium text-muted-foreground">Review queue</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-medium text-muted-foreground">Review queue</h2>
+          <PendingCountBadge count={pendingCount} />
+        </div>
         <div className="rounded-lg border">
           <Table>
             <TableHeader>
@@ -65,17 +88,21 @@ export function FinanceHome() {
               ) : (
                 queue.map((item) => {
                   const inReview = item.status === SubmissionStatus.FINANCE_REVIEW;
+                  const pending = isActionPending(role, item.status);
                   return (
-                    <TableRow key={item.id}>
+                    <TableRow key={item.id} className={cn(pending && attentionAccentClass)}>
                       <TableCell className="font-medium">{item.clinicName}</TableCell>
                       <TableCell>{formatMonth(item.month)}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {item.submittedAt ? formatIST(item.submittedAt) : '—'}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={inReview ? 'default' : 'secondary'}>
-                          {inReview ? 'In finance review' : 'Clinic-approved — waiting'}
-                        </Badge>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant={inReview ? 'default' : 'secondary'}>
+                            {inReview ? 'In finance review' : 'Clinic-approved — waiting'}
+                          </Badge>
+                          {pending && <ActionNeededBadge />}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         <Button asChild size="sm" variant="outline">

@@ -3,7 +3,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Lock } from 'lucide-react';
 import {
+  isActionPending,
   SubmissionStatus,
+  UserRole,
   type ProvisionEntryInput,
   type SubmissionDetail,
 } from '@portal/shared';
@@ -22,7 +24,13 @@ import {
 } from '@/components/ui/table';
 import { getComments, getSubmission, saveEntries, submitSubmission } from '@/api/submissions';
 import { MonthwiseReportPanel } from '@/components/MonthwiseReportPanel';
+import {
+  ActionNeededBadge,
+  attentionAccentClass,
+  AttentionBanner,
+} from '@/components/attention';
 import { apiErrorMessage } from '@/lib/apiError';
+import { cn } from '@/lib/utils';
 import {
   commentActionLabel,
   commentActionVariant,
@@ -126,6 +134,8 @@ export function SubmissionEntry() {
   const isSentBack =
     detail.status === SubmissionStatus.SENT_BACK_BY_MANAGER ||
     detail.status === SubmissionStatus.SENT_BACK_BY_FINANCE;
+  // Awaiting this SPOC's entry/resubmission (Step 6 emphasis).
+  const pending = isActionPending(UserRole.CLINIC_SPOC, detail.status);
   const busy = saveMutation.isPending || submitMutation.isPending;
 
   return (
@@ -143,6 +153,7 @@ export function SubmissionEntry() {
           <p className="text-xl font-semibold text-foreground">{formatMonth(detail.month)}</p>
           <div className="flex items-center gap-2">
             {detail.locked && <Lock className="size-4 text-muted-foreground" />}
+            {pending && <ActionNeededBadge />}
             <Badge variant={statusBadgeVariant(detail.status)}>{statusLabel(detail.status)}</Badge>
           </div>
         </div>
@@ -153,6 +164,13 @@ export function SubmissionEntry() {
           This submission was sent back for revision. Review the comments below, update the values
           and resubmit.
         </div>
+      )}
+
+      {pending && !isSentBack && (
+        <AttentionBanner>
+          Action needed — enter this month&rsquo;s figures for every expense head and submit for
+          review.
+        </AttentionBanner>
       )}
 
       {comments.length > 0 && (
@@ -177,7 +195,7 @@ export function SubmissionEntry() {
         </section>
       )}
 
-      <div className="rounded-lg border">
+      <div className={cn('rounded-lg border', pending && attentionAccentClass)}>
         <Table>
           <TableHeader>
             <TableRow>

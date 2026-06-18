@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { NavLink, Navigate, Outlet } from 'react-router-dom';
 import { Building2, LogOut, PanelLeft } from 'lucide-react';
-import { ROLE_LABELS } from '@portal/shared';
+import { ROLE_LABELS, UserRole } from '@portal/shared';
 import { Button } from '@/components/ui/button';
 import { useUiStore } from '@/store/ui.store';
 import { useAuthStore } from '@/store/auth.store';
@@ -9,7 +9,17 @@ import { useAuthActions } from '@/auth/useAuthActions';
 import { useIdleTimer } from '@/auth/useIdleTimer';
 import { NAV_ITEMS } from '@/auth/roles';
 import { NotificationTray } from '@/components/NotificationTray';
+import { PendingCountBadge } from '@/components/attention';
+import { usePendingWork } from '@/hooks/usePendingWork';
 import { cn } from '@/lib/utils';
+
+/** The single nav item that represents each role's "work to do" surface. */
+const WORK_PATH_BY_ROLE: Partial<Record<UserRole, string>> = {
+  [UserRole.CLINIC_SPOC]: '/spoc',
+  [UserRole.CLINIC_MANAGER]: '/manager',
+  [UserRole.FINANCE_ADMIN]: '/finance',
+  [UserRole.FINANCE_MANAGER]: '/finance',
+};
 
 /**
  * Authenticated app shell: top bar + role-filtered sidebar + content outlet.
@@ -31,11 +41,16 @@ export function AuthedShell() {
   }, [logout]);
   useIdleTimer(handleIdle, authenticated);
 
+  // Count of items awaiting the signed-in user (Step 6). Hook runs before the
+  // early return; it self-disables and returns 0 when unauthenticated.
+  const pendingCount = usePendingWork();
+
   if (!authenticated) {
     return <Navigate to="/login" replace />;
   }
 
   const navItems = NAV_ITEMS.filter((item) => item.roles.includes(user.role));
+  const workPath = WORK_PATH_BY_ROLE[user.role];
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
@@ -74,12 +89,13 @@ export function AuthedShell() {
                 to={item.path}
                 className={({ isActive }) =>
                   cn(
-                    'rounded-md px-3 py-2 transition-colors hover:bg-accent hover:text-accent-foreground',
+                    'flex items-center justify-between gap-2 rounded-md px-3 py-2 transition-colors hover:bg-accent hover:text-accent-foreground',
                     isActive && 'bg-accent font-medium text-accent-foreground',
                   )
                 }
               >
-                {item.label}
+                <span>{item.label}</span>
+                {item.path === workPath && <PendingCountBadge count={pendingCount} />}
               </NavLink>
             ))}
           </nav>

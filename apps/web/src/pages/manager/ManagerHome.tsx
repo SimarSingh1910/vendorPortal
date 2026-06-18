@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { SubmissionStatus } from '@portal/shared';
+import { isActionPending, SubmissionStatus, UserRole } from '@portal/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -13,7 +13,14 @@ import {
 } from '@/components/ui/table';
 import { getOverview, getQueue } from '@/api/submissions';
 import { ClinicApprovedHistory } from '@/components/submissions/ClinicApprovedHistory';
+import {
+  ActionNeededBadge,
+  attentionAccentClass,
+  AttentionBanner,
+  PendingCountBadge,
+} from '@/components/attention';
 import { formatIST, formatMonth } from '@/lib/format';
+import { cn } from '@/lib/utils';
 
 const QUEUE_STATUSES = [SubmissionStatus.SUBMITTED, SubmissionStatus.CLINIC_MANAGER_REVIEW];
 
@@ -29,6 +36,10 @@ export function ManagerHome() {
     queryFn: () => getOverview(),
   });
 
+  const pendingCount = queue.filter((item) =>
+    isActionPending(UserRole.CLINIC_MANAGER, item.status),
+  ).length;
+
   return (
     <div className="space-y-8">
       <div className="space-y-1">
@@ -38,8 +49,19 @@ export function ManagerHome() {
         </p>
       </div>
 
+      {pendingCount > 0 && (
+        <AttentionBanner>
+          {pendingCount === 1
+            ? 'Action needed — 1 submission is waiting for your approval.'
+            : `Action needed — ${pendingCount} submissions are waiting for your approval.`}
+        </AttentionBanner>
+      )}
+
       <section className="space-y-3">
-        <h2 className="text-sm font-medium text-muted-foreground">Review queue</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-medium text-muted-foreground">Review queue</h2>
+          <PendingCountBadge count={pendingCount} />
+        </div>
         <div className="rounded-lg border">
           <Table>
             <TableHeader>
@@ -67,17 +89,21 @@ export function ManagerHome() {
               ) : (
                 queue.map((item) => {
                   const inReview = item.status === SubmissionStatus.CLINIC_MANAGER_REVIEW;
+                  const pending = isActionPending(UserRole.CLINIC_MANAGER, item.status);
                   return (
-                    <TableRow key={item.id}>
+                    <TableRow key={item.id} className={cn(pending && attentionAccentClass)}>
                       <TableCell className="font-medium">{item.clinicName}</TableCell>
                       <TableCell>{formatMonth(item.month)}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {item.submittedAt ? formatIST(item.submittedAt) : '—'}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={inReview ? 'default' : 'secondary'}>
-                          {inReview ? 'In review' : 'Submitted — waiting'}
-                        </Badge>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant={inReview ? 'default' : 'secondary'}>
+                            {inReview ? 'In review' : 'Submitted — waiting'}
+                          </Badge>
+                          {pending && <ActionNeededBadge />}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         <Button asChild size="sm" variant="outline">

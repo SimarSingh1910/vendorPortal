@@ -1,6 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { SubmissionStatus, type ClinicMonthStatus } from '@portal/shared';
+import {
+  isActionPending,
+  SubmissionStatus,
+  UserRole,
+  type ClinicMonthStatus,
+} from '@portal/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -13,7 +18,19 @@ import {
 } from '@/components/ui/table';
 import { getOverview } from '@/api/submissions';
 import { ClinicApprovedHistory } from '@/components/submissions/ClinicApprovedHistory';
+import {
+  ActionNeededBadge,
+  attentionAccentClass,
+  AttentionBanner,
+  PendingCountBadge,
+} from '@/components/attention';
 import { formatMonth, statusBadgeVariant, statusLabel } from '@/lib/format';
+import { cn } from '@/lib/utils';
+
+/** This clinic's current-month entry is still owed by the SPOC. */
+function isEntryPending(row: ClinicMonthStatus): boolean {
+  return !!row.submissionId && isActionPending(UserRole.CLINIC_SPOC, row.status);
+}
 
 /** What the SPOC can do with a clinic's current-month submission. */
 function primaryAction(row: ClinicMonthStatus): { label: string; actionable: boolean } {
@@ -38,6 +55,7 @@ export function SpocHome() {
   });
 
   const month = rows[0]?.month;
+  const pendingCount = rows.filter(isEntryPending).length;
 
   return (
     <div className="space-y-8">
@@ -49,8 +67,19 @@ export function SpocHome() {
         </p>
       </div>
 
+      {pendingCount > 0 && (
+        <AttentionBanner>
+          {pendingCount === 1
+            ? 'Action needed — 1 clinic is awaiting your data entry this month.'
+            : `Action needed — ${pendingCount} clinics are awaiting your data entry this month.`}
+        </AttentionBanner>
+      )}
+
       <section className="space-y-3">
-        <h2 className="text-sm font-medium text-muted-foreground">Current month</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-medium text-muted-foreground">Current month</h2>
+          <PendingCountBadge count={pendingCount} />
+        </div>
         <div className="rounded-lg border">
           <Table>
             <TableHeader>
@@ -76,13 +105,17 @@ export function SpocHome() {
               ) : (
                 rows.map((row) => {
                   const action = primaryAction(row);
+                  const pending = isEntryPending(row);
                   return (
-                    <TableRow key={row.clinicId}>
+                    <TableRow key={row.clinicId} className={cn(pending && attentionAccentClass)}>
                       <TableCell className="font-medium">{row.clinicName}</TableCell>
                       <TableCell>
-                        <Badge variant={statusBadgeVariant(row.status)}>
-                          {statusLabel(row.status)}
-                        </Badge>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant={statusBadgeVariant(row.status)}>
+                            {statusLabel(row.status)}
+                          </Badge>
+                          {pending && <ActionNeededBadge />}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         {action.actionable && row.submissionId ? (
