@@ -4,6 +4,7 @@ import type {
   DashboardStatusTile,
   HeadTrendPoint,
   MonthlyTotalPoint,
+  MonthwiseReport,
   SubmissionStatus,
   VarianceReport,
 } from '@portal/shared';
@@ -69,5 +70,16 @@ export async function getVariance(month?: string, clinicId?: string): Promise<Va
 
 export async function getDashboardFilters(): Promise<DashboardFilterOptions> {
   const { data } = await apiClient.get<DashboardFilterOptions>('/dashboard/filters');
+  return data;
+}
+
+/** Month-wise report for one clinic: current cycle month + `months` preceding (Step 4). */
+export async function getClinicMonthwiseReport(
+  clinicId: string,
+  months: number,
+): Promise<MonthwiseReport> {
+  const { data } = await apiClient.get<MonthwiseReport>('/dashboard/clinic-monthwise', {
+    params: { clinicId, months: String(months) },
+  });
   return data;
 }

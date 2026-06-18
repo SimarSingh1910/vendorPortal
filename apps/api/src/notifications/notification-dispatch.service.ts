@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { MonthlySubmission } from '@prisma/client';
 import { UserRole } from '@portal/shared';
+import { FINANCE_APPROVER_ROLES } from '../common/rbac.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from './notification.service';
 
@@ -71,11 +72,11 @@ export class NotificationDispatchService {
 
   /**
    * Operational flag (Step 10.4): a clinic opened with zero mapped expense heads
-   * has an empty form and cannot submit — alert every Finance Admin to map heads.
+   * has an empty form and cannot submit — alert every finance approver to map heads.
    */
   async clinicHasNoHeads(submission: SubmissionRef): Promise<void> {
     const clinic = await this.clinicName(submission.clinicId);
-    const recipients = await this.financeAdminIds();
+    const recipients = await this.financeApproverIds();
     await this.fanOut(recipients, {
       type: NotificationType.CLINIC_NO_HEADS,
       submissionId: submission.id,
@@ -112,10 +113,10 @@ export class NotificationDispatchService {
     });
   }
 
-  // ── Trigger 4: Manager approves → all Finance Admins ────────────────────────
+  // ── Trigger 4: Manager approves → all finance approvers (Admin + Manager) ───
   async managerApproved(submission: SubmissionRef): Promise<void> {
     const clinic = await this.clinicName(submission.clinicId);
-    const recipients = await this.financeAdminIds();
+    const recipients = await this.financeApproverIds();
     await this.fanOut(recipients, {
       type: NotificationType.MANAGER_APPROVED,
       submissionId: submission.id,
@@ -177,10 +178,10 @@ export class NotificationDispatchService {
     return users.map((u) => u.id);
   }
 
-  /** Every active Finance Admin (org-wide; not clinic-scoped). */
-  private async financeAdminIds(): Promise<string[]> {
+  /** Every active finance approver — Admin or Manager (org-wide; not clinic-scoped). */
+  private async financeApproverIds(): Promise<string[]> {
     const users = await this.prisma.user.findMany({
-      where: { isActive: true, role: UserRole.FINANCE_ADMIN },
+      where: { isActive: true, role: { in: [...FINANCE_APPROVER_ROLES] } },
       select: { id: true },
     });
     return users.map((u) => u.id);

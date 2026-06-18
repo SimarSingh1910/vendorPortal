@@ -26,7 +26,16 @@ import {
 } from '@/api/submissions';
 import { useAuthStore } from '@/store/auth.store';
 import { apiErrorMessage } from '@/lib/apiError';
-import { formatINR, formatIST, formatMonth, statusBadgeVariant, statusLabel } from '@/lib/format';
+import {
+  commentActionLabel,
+  commentActionVariant,
+  formatINR,
+  formatIST,
+  formatMonth,
+  statusBadgeVariant,
+  statusLabel,
+} from '@/lib/format';
+import { MonthwiseReportPanel } from '@/components/MonthwiseReportPanel';
 
 type ValueMap = Record<string, string>;
 
@@ -49,7 +58,10 @@ export function FinanceReview() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const role = useAuthStore((s) => s.user?.role);
-  const isAdmin = role === UserRole.FINANCE_ADMIN;
+  // Both finance roles have identical authority over the workflow (open, approve,
+  // unlock, value override); only user management differs (not on this screen).
+  const isFinanceApprover =
+    role === UserRole.FINANCE_ADMIN || role === UserRole.FINANCE_MANAGER;
 
   const [comment, setComment] = useState('');
   const [unlockReason, setUnlockReason] = useState('');
@@ -73,10 +85,10 @@ export function FinanceReview() {
     void qc.invalidateQueries({ queryKey: ['submissions'] });
   };
 
-  // Admin opening a clinic-approved item moves it to FINANCE_REVIEW (stamps who/when).
+  // A finance approver opening a clinic-approved item moves it to FINANCE_REVIEW (stamps who/when).
   const openedRef = useRef(false);
   useEffect(() => {
-    if (!detail || openedRef.current || !isAdmin) return;
+    if (!detail || openedRef.current || !isFinanceApprover) return;
     if (detail.status === SubmissionStatus.CLINIC_APPROVED) {
       openedRef.current = true;
       financeOpenReview(submissionId)
@@ -84,7 +96,7 @@ export function FinanceReview() {
         .catch(() => undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detail, submissionId, isAdmin]);
+  }, [detail, submissionId, isFinanceApprover]);
 
   const collectEntries = () =>
     (detail?.heads ?? [])
@@ -182,8 +194,8 @@ export function FinanceReview() {
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium">
                     {c.commentedBy.name}{' '}
-                    <Badge variant={c.action === 'SENT_BACK' ? 'secondary' : 'success'}>
-                      {c.action === 'SENT_BACK' ? 'Sent back' : 'Approved'}
+                    <Badge variant={commentActionVariant(c.action)}>
+                      {commentActionLabel(c.action)}
                     </Badge>
                   </span>
                   <span className="text-xs text-muted-foreground">{formatIST(c.createdAt)}</span>
@@ -210,7 +222,7 @@ export function FinanceReview() {
                 <TableCell className="text-muted-foreground">{head.category}</TableCell>
                 <TableCell className="font-medium">{head.name}</TableCell>
                 <TableCell className="text-right">
-                  {isAdmin ? (
+                  {isFinanceApprover ? (
                     <Input
                       type="number"
                       min="0"
@@ -234,7 +246,7 @@ export function FinanceReview() {
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      {isAdmin && (
+      {isFinanceApprover && (
         <div className="flex flex-wrap items-center gap-3">
           <Button variant="outline" disabled={busy} onClick={() => overrideMutation.mutate()}>
             {overrideMutation.isPending ? 'Saving…' : 'Save override'}
@@ -245,7 +257,7 @@ export function FinanceReview() {
         </div>
       )}
 
-      {isAdmin && detail.locked && (
+      {isFinanceApprover && detail.locked && (
         <section className="space-y-3 border-t pt-4">
           <h2 className="text-sm font-medium">Unlock for correction</h2>
           <Textarea
@@ -268,7 +280,7 @@ export function FinanceReview() {
         </section>
       )}
 
-      {isAdmin && inReview ? (
+      {isFinanceApprover && inReview ? (
         <section className="space-y-3 border-t pt-4">
           <Textarea
             placeholder="Comment (required to send back, optional when approving)…"
@@ -294,12 +306,14 @@ export function FinanceReview() {
           </div>
         </section>
       ) : (
-        !isAdmin && (
+        !isFinanceApprover && (
           <p className="text-sm text-muted-foreground">
             {detail.locked ? 'Approved and locked — read only.' : 'Read only.'}
           </p>
         )
       )}
+
+      <MonthwiseReportPanel clinicId={detail.clinicId} />
     </div>
   );
 }

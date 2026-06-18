@@ -7,6 +7,7 @@ import { ClinicScopeGuard } from '../common/guards/clinic-scope.guard';
 import { WorkflowService } from './workflow.service';
 import { SendBackDto } from './dto/send-back.dto';
 import { ApproveDto } from './dto/approve.dto';
+import { SubmitDto } from './dto/submit.dto';
 import { UnlockDto } from './dto/unlock.dto';
 
 /**
@@ -25,8 +26,12 @@ export class SubmissionWorkflowController {
   @Post('submit')
   @Roles(UserRole.CLINIC_SPOC)
   @UseGuards(ClinicScopeGuard)
-  submit(@Param('submissionId') id: string, @CurrentUser() user: RequestUser) {
-    return this.workflow.submit(id, user);
+  submit(
+    @Param('submissionId') id: string,
+    @CurrentUser() user: RequestUser,
+    @Body() dto: SubmitDto,
+  ) {
+    return this.workflow.submit(id, user, dto.comment);
   }
 
   // ── Manager ──────────────────────────────────────────────────────────────────
@@ -63,13 +68,13 @@ export class SubmissionWorkflowController {
   // ── Finance ──────────────────────────────────────────────────────────────────
 
   @Post('finance/open')
-  @Roles(UserRole.FINANCE_ADMIN)
+  @Roles(UserRole.FINANCE_ADMIN, UserRole.FINANCE_MANAGER)
   financeOpen(@Param('submissionId') id: string, @CurrentUser() user: RequestUser) {
     return this.workflow.financeOpenReview(id, user);
   }
 
   @Post('finance/approve')
-  @Roles(UserRole.FINANCE_ADMIN)
+  @Roles(UserRole.FINANCE_ADMIN, UserRole.FINANCE_MANAGER)
   financeApprove(
     @Param('submissionId') id: string,
     @CurrentUser() user: RequestUser,
@@ -79,7 +84,7 @@ export class SubmissionWorkflowController {
   }
 
   @Post('finance/send-back')
-  @Roles(UserRole.FINANCE_ADMIN)
+  @Roles(UserRole.FINANCE_ADMIN, UserRole.FINANCE_MANAGER)
   financeSendBack(
     @Param('submissionId') id: string,
     @CurrentUser() user: RequestUser,
@@ -90,7 +95,7 @@ export class SubmissionWorkflowController {
 
   /** Unlock an approved (locked) submission with a mandatory reason (Step 8.3). */
   @Post('finance/unlock')
-  @Roles(UserRole.FINANCE_ADMIN)
+  @Roles(UserRole.FINANCE_ADMIN, UserRole.FINANCE_MANAGER)
   financeUnlock(
     @Param('submissionId') id: string,
     @CurrentUser() user: RequestUser,

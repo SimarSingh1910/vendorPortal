@@ -7,11 +7,11 @@ import { ListClinicsQuery } from './dto/list-clinics.query';
 import { UpdateClinicDto } from './dto/update-clinic.dto';
 
 /**
- * Clinic master data (FR-01). Finance Admin only — the class-level @Roles is
- * enforced by the global RolesGuard, behind the global JwtAccessGuard.
+ * Clinic master data (FR-01). Finance Admin or Manager — the class-level @Roles
+ * is enforced by the global RolesGuard, behind the global JwtAccessGuard.
  */
 @Controller('clinics')
-@Roles(UserRole.FINANCE_ADMIN)
+@Roles(UserRole.FINANCE_ADMIN, UserRole.FINANCE_MANAGER)
 export class ClinicsController {
   constructor(private readonly clinics: ClinicsService) {}
 

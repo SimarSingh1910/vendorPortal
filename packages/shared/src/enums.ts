@@ -10,7 +10,7 @@
 /** The five user roles. Exactly one role per user. */
 export enum UserRole {
   FINANCE_ADMIN = 'FINANCE_ADMIN',
-  FINANCE_VIEWER = 'FINANCE_VIEWER',
+  FINANCE_MANAGER = 'FINANCE_MANAGER',
   CLINIC_MANAGER = 'CLINIC_MANAGER',
   CLINIC_SPOC = 'CLINIC_SPOC',
   CLINIC_VIEWER = 'CLINIC_VIEWER',
@@ -37,8 +37,8 @@ export enum SubmissionStatus {
   SENT_BACK_BY_FINANCE = 'SENT_BACK_BY_FINANCE',
 }
 
-/** Convenience: roles that belong to the Finance side. */
-export const FINANCE_ROLES: readonly UserRole[] = [UserRole.FINANCE_ADMIN, UserRole.FINANCE_VIEWER];
+/** Convenience: roles that belong to the Finance side (org-wide, all-clinic scope). */
+export const FINANCE_ROLES: readonly UserRole[] = [UserRole.FINANCE_ADMIN, UserRole.FINANCE_MANAGER];
 
 /** Convenience: roles scoped to one or more clinics. */
 export const CLINIC_ROLES: readonly UserRole[] = [
@@ -50,7 +50,7 @@ export const CLINIC_ROLES: readonly UserRole[] = [
 /** Human-readable labels for roles. Centralized so UIs never hard-code strings. */
 export const ROLE_LABELS: Record<UserRole, string> = {
   [UserRole.FINANCE_ADMIN]: 'Finance Admin',
-  [UserRole.FINANCE_VIEWER]: 'Finance Viewer',
+  [UserRole.FINANCE_MANAGER]: 'Finance Manager',
   [UserRole.CLINIC_MANAGER]: 'Clinic Manager',
   [UserRole.CLINIC_SPOC]: 'Clinic SPOC',
   [UserRole.CLINIC_VIEWER]: 'Clinic Viewer',

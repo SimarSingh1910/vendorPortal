@@ -6,7 +6,7 @@ import type { RequestUser } from '../auth/request-user';
 /**
  * Resolves which clinics a user may act on.
  *
- * Finance roles (FINANCE_ADMIN / FINANCE_VIEWER) have org-wide access to every
+ * Finance roles (FINANCE_ADMIN / FINANCE_MANAGER) have org-wide access to every
  * clinic; clinic-scoped roles are limited to the clinics they're assigned to
  * (carried on the access token as `clinicIds`).
  */

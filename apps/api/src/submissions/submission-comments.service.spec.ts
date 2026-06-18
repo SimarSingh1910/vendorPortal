@@ -115,9 +115,9 @@ describe('SubmissionCommentsService (Step 5.3 — comment timeline)', () => {
     const outsider = (await fx.makeUser(UserRole.CLINIC_MANAGER, [otherClinic.id])).user;
     await expectStatus(comments.listForSubmission(submission.id, outsider), 403);
 
-    // Finance viewer (org-wide, no clinic assignment) → sees it.
-    const financeViewer = (await fx.makeUser(UserRole.FINANCE_VIEWER)).user;
-    const seen = await comments.listForSubmission(submission.id, financeViewer);
+    // Finance manager (org-wide, no clinic assignment) → sees it.
+    const financeManager = (await fx.makeUser(UserRole.FINANCE_MANAGER)).user;
+    const seen = await comments.listForSubmission(submission.id, financeManager);
     expect(seen).toHaveLength(1);
 
     // Assigned SPOC of the clinic → also a relevant party.
@@ -125,6 +125,6 @@ describe('SubmissionCommentsService (Step 5.3 — comment timeline)', () => {
     expect(await comments.listForSubmission(submission.id, spoc)).toHaveLength(1);
 
     // Missing submission → 404.
-    await expectStatus(comments.listForSubmission('no-such-submission', financeViewer), 404);
+    await expectStatus(comments.listForSubmission('no-such-submission', financeManager), 404);
   });
 });

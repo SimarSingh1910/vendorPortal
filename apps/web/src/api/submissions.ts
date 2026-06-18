@@ -42,8 +42,9 @@ export async function saveEntries(
   return data;
 }
 
-export async function submitSubmission(submissionId: string): Promise<void> {
-  await apiClient.post(`/submissions/${submissionId}/submit`);
+export async function submitSubmission(submissionId: string, comment?: string): Promise<void> {
+  const trimmed = comment?.trim();
+  await apiClient.post(`/submissions/${submissionId}/submit`, trimmed ? { comment: trimmed } : {});
 }
 
 export async function getComments(submissionId: string): Promise<SubmissionCommentView[]> {

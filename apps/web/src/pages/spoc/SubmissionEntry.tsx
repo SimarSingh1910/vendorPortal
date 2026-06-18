@@ -10,6 +10,8 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Table,
   TableBody,
@@ -19,8 +21,17 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { getComments, getSubmission, saveEntries, submitSubmission } from '@/api/submissions';
+import { MonthwiseReportPanel } from '@/components/MonthwiseReportPanel';
 import { apiErrorMessage } from '@/lib/apiError';
-import { formatINR, formatIST, formatMonth, statusBadgeVariant, statusLabel } from '@/lib/format';
+import {
+  commentActionLabel,
+  commentActionVariant,
+  formatINR,
+  formatIST,
+  formatMonth,
+  statusBadgeVariant,
+  statusLabel,
+} from '@/lib/format';
 
 type ValueMap = Record<string, string>;
 
@@ -57,6 +68,7 @@ export function SubmissionEntry() {
   });
 
   const [values, setValues] = useState<ValueMap>({});
+  const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   // Seed inputs whenever the detail (re)loads.
@@ -90,10 +102,11 @@ export function SubmissionEntry() {
   const submitMutation = useMutation({
     mutationFn: async () => {
       await saveEntries(submissionId, collectEntries());
-      await submitSubmission(submissionId);
+      await submitSubmission(submissionId, note);
     },
     onSuccess: () => {
       setError(null);
+      setNote('');
       invalidate();
       navigate('/spoc');
     },
@@ -151,8 +164,8 @@ export function SubmissionEntry() {
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium">
                     {c.commentedBy.name}{' '}
-                    <Badge variant={c.action === 'SENT_BACK' ? 'secondary' : 'success'}>
-                      {c.action === 'SENT_BACK' ? 'Sent back' : 'Approved'}
+                    <Badge variant={commentActionVariant(c.action)}>
+                      {commentActionLabel(c.action)}
                     </Badge>
                   </span>
                   <span className="text-xs text-muted-foreground">{formatIST(c.createdAt)}</span>
@@ -211,6 +224,22 @@ export function SubmissionEntry() {
         </Table>
       </div>
 
+      {canEdit && (
+        <div className="space-y-1.5">
+          <Label htmlFor="submit-note">Note for reviewers (optional)</Label>
+          <Textarea
+            id="submit-note"
+            rows={3}
+            placeholder="Add a note for the manager / finance reviewer — e.g. why a head spiked or dropped this month."
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Saved to the review timeline when you submit. Leave blank for no note.
+          </p>
+        </div>
+      )}
+
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       {canEdit ? (
@@ -237,6 +266,8 @@ export function SubmissionEntry() {
             : 'This submission is under review — read only.'}
         </p>
       )}
+
+      <MonthwiseReportPanel clinicId={detail.clinicId} />
     </div>
   );
 }

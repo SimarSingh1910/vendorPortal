@@ -108,7 +108,7 @@ describe('Audit viewer + export (Step 9.2)', () => {
     expect(sheet!.getRow(1).getCell(1).value).toBe('Timestamp (IST)');
   });
 
-  it('RolesGuard blocks a non-admin on the audit endpoints (403) and allows FINANCE_ADMIN', async () => {
+  it('RolesGuard blocks clinic roles on the audit endpoints (403) and allows both finance roles', async () => {
     const guard = new RolesGuard(new Reflector());
     const ctxFor = (role: UserRole): ExecutionContext =>
       ({
@@ -117,8 +117,9 @@ describe('Audit viewer + export (Step 9.2)', () => {
         getClass: () => AuditController,
       }) as unknown as ExecutionContext;
 
-    expect(() => guard.canActivate(ctxFor(UserRole.FINANCE_VIEWER))).toThrow(ForbiddenException);
     expect(() => guard.canActivate(ctxFor(UserRole.CLINIC_MANAGER))).toThrow(ForbiddenException);
+    expect(() => guard.canActivate(ctxFor(UserRole.CLINIC_VIEWER))).toThrow(ForbiddenException);
     expect(guard.canActivate(ctxFor(UserRole.FINANCE_ADMIN))).toBe(true);
+    expect(guard.canActivate(ctxFor(UserRole.FINANCE_MANAGER))).toBe(true);
   });
 });

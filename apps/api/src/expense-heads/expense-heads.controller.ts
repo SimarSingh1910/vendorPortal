@@ -6,9 +6,9 @@ import { CreateExpenseHeadDto } from './dto/create-expense-head.dto';
 import { ListExpenseHeadsQuery } from './dto/list-expense-heads.query';
 import { UpdateExpenseHeadDto } from './dto/update-expense-head.dto';
 
-/** Expense-head master data (FR-01). Finance Admin only. */
+/** Expense-head master data (FR-01). Finance Admin or Manager. */
 @Controller('expense-heads')
-@Roles(UserRole.FINANCE_ADMIN)
+@Roles(UserRole.FINANCE_ADMIN, UserRole.FINANCE_MANAGER)
 export class ExpenseHeadsController {
   constructor(private readonly expenseHeads: ExpenseHeadsService) {}
 

@@ -1,4 +1,8 @@
-import { SubmissionStatus, SUBMISSION_STATUS_LABELS } from '@portal/shared';
+import {
+  SubmissionStatus,
+  SUBMISSION_STATUS_LABELS,
+  type SubmissionCommentAction,
+} from '@portal/shared';
 import type { BadgeProps } from '@/components/ui/badge';
 
 const inr = new Intl.NumberFormat('en-IN', {
@@ -49,5 +53,29 @@ export function statusBadgeVariant(status: SubmissionStatus): BadgeProps['varian
       return 'muted';
     default:
       return 'default';
+  }
+}
+
+/** Human label for a timeline comment's action. */
+export function commentActionLabel(action: SubmissionCommentAction): string {
+  switch (action) {
+    case 'SENT_BACK':
+      return 'Sent back';
+    case 'SUBMITTED':
+      return 'Submitted';
+    default:
+      return 'Approved';
+  }
+}
+
+/** Badge variant for a timeline comment's action. */
+export function commentActionVariant(action: SubmissionCommentAction): BadgeProps['variant'] {
+  switch (action) {
+    case 'SENT_BACK':
+      return 'secondary';
+    case 'SUBMITTED':
+      return 'default';
+    default:
+      return 'success';
   }
 }

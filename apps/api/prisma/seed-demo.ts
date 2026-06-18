@@ -11,12 +11,16 @@
  * Idempotent: it deletes its own demo data (by known names/emails) first, then
  * recreates it. The dev admin is upserted, never deleted.
  *
- * Dev passwords (DEV ONLY):
- *   admin@cpp.local          / Admin@12345    (FINANCE_ADMIN)
- *   finance.viewer@cpp.local / Viewer@12345   (FINANCE_VIEWER)
- *   manager@cpp.local        / Manager@12345  (CLINIC_MANAGER)
- *   spoc@cpp.local           / Spoc@12345     (CLINIC_SPOC)
- *   clinic.viewer@cpp.local  / Clinic@12345   (CLINIC_VIEWER)
+ * Dev passwords (DEV ONLY). Finance roles span all clinics; each clinic-role
+ * user is mapped to EXACTLY ONE clinic (Step 2). Pune uses the friendly logins;
+ * other clinics use code-suffixed emails (e.g. spoc.mum@, manager.hyd@).
+ *   admin@cpp.local           / Admin@12345    (FINANCE_ADMIN)
+ *   finance.manager@cpp.local / FinMgr@12345   (FINANCE_MANAGER)
+ *   manager@cpp.local         / Manager@12345  (CLINIC_MANAGER → Pune)
+ *   spoc@cpp.local            / Spoc@12345     (CLINIC_SPOC    → Pune)
+ *   clinic.viewer@cpp.local   / Clinic@12345   (CLINIC_VIEWER  → Pune)
+ *   spoc.<code>@cpp.local     / Spoc@12345     (per-clinic SPOC, e.g. spoc.mum@)
+ *   manager.<code>@cpp.local  / Manager@12345  (per-clinic Manager, e.g. manager.hyd@)
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -103,14 +107,40 @@ function amountFor(clinic: ClinicDef, month: string, head: HeadDef): number {
 }
 
 // ── Users ────────────────────────────────────────────────────────────────────
-interface UserDef { email: string; password: string; name: string; role: UserRole; clinics: string[] }
-const USERS: UserDef[] = [
-  { email: 'admin@cpp.local', password: 'Admin@12345', name: 'Finance Admin', role: UserRole.FINANCE_ADMIN, clinics: [] },
-  { email: 'finance.viewer@cpp.local', password: 'Viewer@12345', name: 'Finance Viewer', role: UserRole.FINANCE_VIEWER, clinics: [] },
-  { email: 'manager@cpp.local', password: 'Manager@12345', name: 'Clinic Manager', role: UserRole.CLINIC_MANAGER, clinics: ['PUN', 'MUM', 'BLR', 'HYD', 'CHE'] },
-  { email: 'spoc@cpp.local', password: 'Spoc@12345', name: 'Clinic SPOC', role: UserRole.CLINIC_SPOC, clinics: ['PUN', 'MUM', 'BLR', 'HYD', 'CHE'] },
-  { email: 'clinic.viewer@cpp.local', password: 'Clinic@12345', name: 'Clinic Viewer', role: UserRole.CLINIC_VIEWER, clinics: ['PUN', 'MUM'] },
+// Finance roles oversee every clinic and carry NO clinic assignment. Clinic
+// roles get EXACTLY ONE clinic each (Step 2) — so a clinic has its own SPOC /
+// Manager (+ a Viewer for the walkable clinic), rather than one user spanning
+// many clinics. Pune (the walkable clinic) keeps the friendly logins; other
+// clinics use code-suffixed emails. Inactive clinics keep their (deactivated)
+// staff so historical data stays attributable.
+interface UserDef {
+  email: string;
+  password: string;
+  name: string;
+  role: UserRole;
+  clinicCode?: string;
+  active?: boolean;
+}
+
+const FINANCE_USERS: UserDef[] = [
+  { email: 'admin@cpp.local', password: 'Admin@12345', name: 'Finance Admin', role: UserRole.FINANCE_ADMIN },
+  { email: 'finance.manager@cpp.local', password: 'FinMgr@12345', name: 'Finance Manager', role: UserRole.FINANCE_MANAGER },
 ];
+
+function clinicUsersFor(c: ClinicDef): UserDef[] {
+  const code = c.code.toLowerCase();
+  const friendly = c.code === 'PUN';
+  const users: UserDef[] = [
+    { email: friendly ? 'spoc@cpp.local' : `spoc.${code}@cpp.local`, password: 'Spoc@12345', name: `${c.location} SPOC`, role: UserRole.CLINIC_SPOC, clinicCode: c.code, active: c.active },
+    { email: friendly ? 'manager@cpp.local' : `manager.${code}@cpp.local`, password: 'Manager@12345', name: `${c.location} Manager`, role: UserRole.CLINIC_MANAGER, clinicCode: c.code, active: c.active },
+  ];
+  if (friendly) {
+    users.push({ email: 'clinic.viewer@cpp.local', password: 'Clinic@12345', name: `${c.location} Viewer`, role: UserRole.CLINIC_VIEWER, clinicCode: c.code, active: c.active });
+  }
+  return users;
+}
+
+const USERS: UserDef[] = [...FINANCE_USERS, ...CLINICS.flatMap(clinicUsersFor)];
 
 // Current-month status per clinic: covers every role's view + the locked /
 // sent-back examples, and leaves Pune as a DRAFT the SPOC can submit & walk.
@@ -126,15 +156,21 @@ async function main(): Promise<void> {
   const clinicNames = CLINICS.map((c) => c.name);
   const headNames = HEADS.map((h) => h.name);
   const userEmails = USERS.filter((u) => u.role !== UserRole.FINANCE_ADMIN).map((u) => u.email);
+  // Legacy demo emails no longer in USERS (e.g. the pre-Step-1 finance viewer)
+  // so re-seeding doesn't leave an orphaned account behind.
+  const legacyEmails = ['finance.viewer@cpp.local'];
 
   // ── Idempotent cleanup (also clears any earlier throwaway 'Demo '/'Perf ' data).
-  await prisma.user.deleteMany({ where: { email: { in: userEmails } } });
+  // Order matters: delete clinics first so submissions → comments / entries /
+  // snapshots cascade away (those carry User FKs); only then are the demo users
+  // safe to delete (commentedBy / enteredBy are Restrict, not Cascade).
   await prisma.clinic.deleteMany({
     where: { OR: [{ name: { in: clinicNames } }, { name: { startsWith: 'Demo ' } }, { name: { startsWith: 'Perf ' } }] },
   });
   await prisma.expenseHead.deleteMany({
     where: { OR: [{ name: { in: headNames } }, { name: { startsWith: 'Demo ' } }, { name: { startsWith: 'Perf ' } }] },
   });
+  await prisma.user.deleteMany({ where: { email: { in: [...userEmails, ...legacyEmails] } } });
   await prisma.notificationConfig.deleteMany({ where: { month: { in: MONTHS } } });
 
   // ── Clinics + heads + mappings.
@@ -156,21 +192,24 @@ async function main(): Promise<void> {
     });
   }
 
-  // ── Users (one per role) with clinic assignments.
-  const userId: Record<UserRole, string> = {} as Record<UserRole, string>;
+  // ── Users with their single clinic assignment. Track SPOC/Manager per clinic
+  // so each clinic's submissions are authored by that clinic's own staff.
+  const spocByCode: Record<string, string> = {};
+  const managerByCode: Record<string, string> = {};
+  let financeId = '';
   for (const u of USERS) {
     const passwordHash = await bcrypt.hash(u.password, ROUNDS);
-    const assignments = { create: u.clinics.map((code) => ({ clinicId: clinicId[code] })) };
+    const assignData = u.clinicCode ? [{ clinicId: clinicId[u.clinicCode] }] : [];
+    const isActive = u.active ?? true;
     const row = await prisma.user.upsert({
       where: { email: u.email },
-      update: { name: u.name, role: u.role, isActive: true, passwordHash, tokenVersion: { increment: 1 }, assignments: { deleteMany: {}, ...assignments } },
-      create: { email: u.email, name: u.name, role: u.role, isActive: true, passwordHash, assignments },
+      update: { name: u.name, role: u.role, isActive, passwordHash, tokenVersion: { increment: 1 }, assignments: { deleteMany: {}, create: assignData } },
+      create: { email: u.email, name: u.name, role: u.role, isActive, passwordHash, assignments: { create: assignData } },
     });
-    userId[u.role] = row.id;
+    if (u.role === UserRole.CLINIC_SPOC && u.clinicCode) spocByCode[u.clinicCode] = row.id;
+    if (u.role === UserRole.CLINIC_MANAGER && u.clinicCode) managerByCode[u.clinicCode] = row.id;
+    if (u.role === UserRole.FINANCE_ADMIN) financeId = row.id;
   }
-  const spocId = userId[UserRole.CLINIC_SPOC];
-  const managerId = userId[UserRole.CLINIC_MANAGER];
-  const financeId = userId[UserRole.FINANCE_ADMIN];
 
   // ── Per-cycle notification config (variance threshold drives BR-12 alerts).
   for (const month of [PRIOR, CUR]) {
@@ -208,7 +247,7 @@ async function main(): Promise<void> {
     }
     if (status === SubmissionStatus.CLINIC_MANAGER_REVIEW) {
       data.reviewStartedAt = daysAgo(2);
-      data.reviewStartedById = managerId;
+      data.reviewStartedById = managerByCode[c.code];
     }
     if (status === SubmissionStatus.FINANCE_REVIEW) {
       data.reviewStartedAt = daysAgo(2);
@@ -238,8 +277,8 @@ async function main(): Promise<void> {
             submissionId: sub.id,
             snapshotId: snap.id,
             amount: amountFor(c, month, head),
-            enteredById: spocId,
-            lastModifiedById: spocId,
+            enteredById: spocByCode[c.code],
+            lastModifiedById: spocByCode[c.code],
           },
         });
       }
@@ -250,7 +289,7 @@ async function main(): Promise<void> {
         data: {
           submissionId: sub.id,
           comment: 'Equipment maintenance looks high vs last month — please double-check the vendor invoice and resubmit.',
-          commentedById: managerId,
+          commentedById: managerByCode[c.code],
           roleAtTime: UserRole.CLINIC_MANAGER,
           action: CommentAction.SENT_BACK,
         },
@@ -286,9 +325,13 @@ async function main(): Promise<void> {
   console.log('✔ Demo seed complete');
   console.log(`  months: ${MONTHS.join(', ')} (current = ${CUR})`);
   console.log(`  ${counts.clinics} clinics, ${counts.heads} heads, ${counts.submissions} submissions, ${counts.entries} entries`);
-  console.log('  Logins (dev):');
-  for (const u of USERS) console.log(`    ${u.role.padEnd(15)} ${u.email}  /  ${u.password}`);
-  console.log('  Walkable: SPOC opens Pune (DRAFT) -> submit -> Manager approves -> Finance approves & locks.');
+  console.log('  Logins (dev) — finance roles span all clinics; clinic roles map to one clinic:');
+  for (const u of USERS) {
+    const where = u.clinicCode ? ` [${u.clinicCode}]` : '';
+    const inactive = u.active === false ? ' (inactive)' : '';
+    console.log(`    ${u.role.padEnd(15)} ${u.email.padEnd(28)} /  ${u.password}${where}${inactive}`);
+  }
+  console.log('  Walkable: spoc@ opens Pune (DRAFT) -> submit -> manager@ approves -> Finance approves & locks.');
   console.log('  Variance: Equipment Maintenance spikes at Mumbai this month -> flagged on the Finance dashboard.');
 }
 

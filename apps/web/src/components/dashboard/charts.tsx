@@ -10,7 +10,12 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import type { ClinicTotalPoint, HeadTrendPoint, MonthlyTotalPoint } from '@portal/shared';
+import type {
+  ClinicTotalPoint,
+  HeadTrendPoint,
+  MonthlyTotalPoint,
+  MonthwiseReport,
+} from '@portal/shared';
 import { formatINR } from '@/lib/format';
 
 /** Distinct, reasonably colour-blind-friendly series colours. */
@@ -126,6 +131,40 @@ export function HeadTrendCharts({ data }: { data: HeadTrendPoint[] }) {
           </LineChart>
         </ResponsiveContainer>
       </div>
+    </div>
+  );
+}
+
+/** Month-wise clinic report as per-head lines over the window (Step 4 panel chart view). */
+export function MonthwiseChart({ report }: { report: MonthwiseReport }) {
+  if (report.rows.length === 0) return <Empty label="No figures recorded in this window yet." />;
+  // One recharts row per month; a numeric column per head (null gaps → 0 for plotting).
+  const rows = report.months.map((month, i) => {
+    const row: Record<string, number | string> = { month };
+    for (const head of report.rows) row[head.expenseHeadName] = Number(head.values[i] ?? 0);
+    return row;
+  });
+  return (
+    <div className="h-72 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="month" tickFormatter={shortMonth} fontSize={12} />
+          <YAxis tickFormatter={compactINR} fontSize={12} width={70} />
+          <Tooltip formatter={moneyTooltip} labelFormatter={(l) => shortMonth(String(l))} />
+          <Legend />
+          {report.rows.map((head, i) => (
+            <Line
+              key={head.expenseHeadId}
+              type="monotone"
+              dataKey={head.expenseHeadName}
+              stroke={PALETTE[i % PALETTE.length]}
+              strokeWidth={2}
+              dot={false}
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   );
 }

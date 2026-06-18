@@ -1,12 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
+  DEFAULT_MONTHWISE_PRESET,
   SubmissionStatus,
   type ClinicTotalPoint,
   type DashboardFilterOptions,
   type DashboardStatusTile,
   type HeadTrendPoint,
   type MonthlyTotalPoint,
+  type MonthwiseReport,
+  type MonthwiseReportRow,
   type VarianceReport,
   type VarianceRow,
 } from '@portal/shared';
@@ -259,6 +262,94 @@ export class DashboardService {
       GROUP BY s.expenseHeadId
     `);
     return new Map(rows.map((r) => [r.expenseHeadId, { name: r.expenseHeadName, total: String(r.total) }]));
+  }
+
+  // ── Month-wise clinic report (Step 4) ───────────────────────────────────────
+  /**
+   * Month-wise report for ONE clinic: the current cycle month plus `preceding`
+   * prior months, side by side. Reuses the Phase 11 entry aggregation. Access is
+   * the caller's exactly — clinic roles only their own clinic (via
+   * accessibleClinicIds), finance roles any clinic; a clinic id outside scope is
+   * rejected (403). Months with no data render as null (blank), never an error.
+   * This is a READ — no audit row.
+   */
+  async clinicMonthwise(
+    user: RequestUser,
+    clinicId: string,
+    preceding: number = DEFAULT_MONTHWISE_PRESET,
+    cycleMonth?: string,
+  ): Promise<MonthwiseReport> {
+    const accessible = await this.scope.accessibleClinicIds(user);
+    if (!clinicId || !accessible.includes(clinicId)) {
+      throw new ForbiddenException('Clinic not in your accessible scope');
+    }
+    const clinic = await this.prisma.clinic.findUnique({
+      where: { id: clinicId },
+      select: { id: true, name: true },
+    });
+    if (!clinic) throw new NotFoundException('Clinic not found');
+
+    const current = cycleMonth ?? currentMonthIST();
+    const count = Math.min(Math.max(Math.trunc(preceding) || DEFAULT_MONTHWISE_PRESET, 1), 24);
+    // Oldest → current (current last), always count + 1 months — independent of
+    // whether data exists, so the current month is always a column.
+    const months: string[] = [];
+    for (let i = count; i >= 0; i -= 1) months.push(shiftMonth(current, -i));
+    const from = months[0];
+
+    const rows = await this.prisma.$queryRaw<
+      Array<{ month: string; expenseHeadId: string; expenseHeadName: string; total: string }>
+    >(Prisma.sql`
+      SELECT m.month AS month, s.expenseHeadId AS expenseHeadId,
+             MAX(e.name) AS expenseHeadName, CAST(SUM(p.amount) AS CHAR) AS total
+      FROM provisionentry p
+      JOIN submissionexpenseheadsnapshot s ON s.id = p.snapshotId
+      JOIN monthlysubmission m ON m.id = p.submissionId
+      JOIN expensehead e ON e.id = s.expenseHeadId
+      ${this.entryWhere([clinicId], { from, to: current })}
+      GROUP BY m.month, s.expenseHeadId
+    `);
+
+    // Pivot (month, head) → grid. Heads appearing in ANY window month get a row;
+    // gaps stay null.
+    const monthIndex = new Map(months.map((mo, i) => [mo, i]));
+    const heads = new Map<string, { name: string; values: (string | null)[] }>();
+    for (const r of rows) {
+      let head = heads.get(r.expenseHeadId);
+      if (!head) {
+        head = { name: r.expenseHeadName, values: months.map(() => null) };
+        heads.set(r.expenseHeadId, head);
+      }
+      const idx = monthIndex.get(r.month);
+      if (idx !== undefined) head.values[idx] = String(r.total);
+    }
+
+    const reportRows: MonthwiseReportRow[] = [...heads.entries()]
+      .map(([expenseHeadId, h]) => ({ expenseHeadId, expenseHeadName: h.name, values: h.values }))
+      .sort((a, b) => a.expenseHeadName.localeCompare(b.expenseHeadName));
+
+    // Per-month total = sum of that column's non-null cells (exact, via cents).
+    const totals: (string | null)[] = months.map((_, i) => {
+      let present = false;
+      let cents = 0;
+      for (const row of reportRows) {
+        const v = row.values[i];
+        if (v !== null) {
+          present = true;
+          cents += Math.round(Number(v) * 100);
+        }
+      }
+      return present ? (cents / 100).toFixed(2) : null;
+    });
+
+    return {
+      clinicId: clinic.id,
+      clinicName: clinic.name,
+      currentMonth: current,
+      months,
+      rows: reportRows,
+      totals,
+    };
   }
 
   // ── Filter dropdown options (scoped) ────────────────────────────────────────

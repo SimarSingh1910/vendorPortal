@@ -6,8 +6,8 @@ import { SchedulerService } from './scheduler.service';
 import { OpenCycleDto } from './dto/open-cycle.dto';
 
 /**
- * Admin cycle controls (Step 10.4). Finance Admin only (global RolesGuard → 403
- * otherwise). The manual "open now / re-run" endpoint is what lets the full
+ * Admin cycle controls (Step 10.4). Finance Admin or Manager (global RolesGuard
+ * → 403 otherwise). The manual "open now / re-run" endpoint is what lets the full
  * SPOC → Manager → Finance flow be exercised in the browser before or independent
  * of the cron. Idempotent: opening an already-open cycle creates nothing new and
  * re-notifies no one.

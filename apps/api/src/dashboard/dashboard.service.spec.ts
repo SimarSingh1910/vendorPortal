@@ -1,4 +1,6 @@
 import { Test, type TestingModule } from '@nestjs/testing';
+import { Reflector } from '@nestjs/core';
+import { ForbiddenException, type ExecutionContext } from '@nestjs/common';
 import { SubmissionStatus, UserRole } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClinicScopeService } from '../common/clinic-scope.service';
@@ -6,8 +8,10 @@ import { ClinicExpenseHeadsService } from '../clinic-expense-heads/clinic-expens
 import { AuditService } from '../audit/audit.service';
 import { CycleService } from '../submissions/cycle.service';
 import { WorkflowService } from '../submissions/workflow.service';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import { DashboardService } from './dashboard.service';
-import { makeFixtures, type Fixtures } from '../../test/fixtures';
+import { DashboardController } from './dashboard.controller';
+import { makeFixtures, type Fixtures, expectStatus } from '../../test/fixtures';
 import { resetDb } from '../../test/reset';
 import type { RequestUser } from '../auth/request-user';
 
@@ -200,6 +204,79 @@ describe('DashboardService (Phase 11, FR-07)', () => {
     expect(nonMatching).toEqual([]);
   });
 
+  // ── Step 4 — month-wise clinic report ───────────────────────────────────────
+
+  it('month-wise report: window = current + N preceding (chronological, current last) with gaps as null', async () => {
+    const clinic = await fx.makeClinic({ name: 'Reportee' });
+    const head = await fx.makeExpenseHead({ name: 'Rent' });
+    await fx.mapHeads(clinic.id, [head.id]);
+    // Data in Apr/May/Jun; March is a gap. Current cycle month pinned to 2026-06.
+    await enter(clinic.id, '2026-04', head.id, 400);
+    await enter(clinic.id, '2026-05', head.id, 500);
+    await enter(clinic.id, '2026-06', head.id, 600);
+
+    const r3 = await dashboard.clinicMonthwise(finance, clinic.id, 3, '2026-06');
+    expect(r3.currentMonth).toBe('2026-06');
+    expect(r3.months).toEqual(['2026-03', '2026-04', '2026-05', '2026-06']);
+    expect(r3.rows).toHaveLength(1);
+    expect(r3.rows[0]).toMatchObject({ expenseHeadName: 'Rent' });
+    expect(r3.rows[0].values).toEqual([null, '400.00', '500.00', '600.00']); // March gap → null
+    expect(r3.totals).toEqual([null, '400.00', '500.00', '600.00']);
+
+    // "Last 1" preset → just the prior month + current.
+    const r1 = await dashboard.clinicMonthwise(finance, clinic.id, 1, '2026-06');
+    expect(r1.months).toEqual(['2026-05', '2026-06']);
+    expect(r1.rows[0].values).toEqual(['500.00', '600.00']);
+  });
+
+  it('month-wise report: current month with no data still appears as a (blank) column', async () => {
+    const clinic = await fx.makeClinic();
+    const head = await fx.makeExpenseHead();
+    await fx.mapHeads(clinic.id, [head.id]);
+    await enter(clinic.id, '2026-05', head.id, 500); // only the prior month has data
+
+    const r = await dashboard.clinicMonthwise(finance, clinic.id, 1, '2026-06');
+    expect(r.months).toEqual(['2026-05', '2026-06']);
+    expect(r.rows[0].values).toEqual(['500.00', null]); // current month blank, no error
+    expect(r.totals).toEqual(['500.00', null]);
+  });
+
+  it('month-wise report: clinic role gets its own clinic but is rejected (403) for another', async () => {
+    const mine = await fx.makeClinic({ name: 'Mine' });
+    const other = await fx.makeClinic({ name: 'Other' });
+    const head = await fx.makeExpenseHead();
+    await fx.mapHeads(mine.id, [head.id]);
+    await fx.mapHeads(other.id, [head.id]);
+    await enter(mine.id, '2026-06', head.id, 100);
+    await enter(other.id, '2026-06', head.id, 999);
+
+    const spoc = (await fx.makeUser(UserRole.CLINIC_SPOC, [mine.id])).user;
+    const manager = (await fx.makeUser(UserRole.CLINIC_MANAGER, [mine.id])).user;
+
+    const own = await dashboard.clinicMonthwise(spoc, mine.id, 1, '2026-06');
+    expect(own.clinicName).toBe('Mine');
+    expect(own.rows[0].values.at(-1)).toBe('100.00');
+
+    // Either clinic role requesting a clinic outside their scope → 403.
+    await expectStatus(dashboard.clinicMonthwise(spoc, other.id, 1, '2026-06'), 403);
+    await expectStatus(dashboard.clinicMonthwise(manager, other.id, 1, '2026-06'), 403);
+
+    // Finance sees any clinic.
+    const fin = await dashboard.clinicMonthwise(finance, other.id, 1, '2026-06');
+    expect(fin.rows[0].values.at(-1)).toBe('999.00');
+  });
+
+  it('month-wise report is a READ — writes no audit row', async () => {
+    const clinic = await fx.makeClinic();
+    const head = await fx.makeExpenseHead();
+    await fx.mapHeads(clinic.id, [head.id]);
+    await enter(clinic.id, '2026-06', head.id, 100);
+
+    const before = await prisma.auditLog.count();
+    await dashboard.clinicMonthwise(finance, clinic.id, 3, '2026-06');
+    expect(await prisma.auditLog.count()).toBe(before);
+  });
+
   /** Set a specific head's amount for an already-open cycle month. */
   async function enterHead(clinicId: string, month: string, expenseHeadId: string, amount: number) {
     const sub = await prisma.monthlySubmission.findUniqueOrThrow({
@@ -212,4 +289,29 @@ describe('DashboardService (Phase 11, FR-07)', () => {
       data: { submissionId: sub.id, snapshotId: snap.id, amount, enteredById: spocId, lastModifiedById: spocId },
     });
   }
+});
+
+describe('clinic-monthwise endpoint authorization (Step 4)', () => {
+  const guard = new RolesGuard(new Reflector());
+  const ctx = (role: UserRole): ExecutionContext =>
+    ({
+      switchToHttp: () => ({ getRequest: () => ({ user: { role } }) }),
+      getHandler: () => DashboardController.prototype.clinicMonthwise,
+      getClass: () => DashboardController,
+    }) as unknown as ExecutionContext;
+
+  it('allows the edit/review roles (SPOC, Clinic Manager, Finance Admin, Finance Manager)', () => {
+    for (const r of [
+      UserRole.CLINIC_SPOC,
+      UserRole.CLINIC_MANAGER,
+      UserRole.FINANCE_ADMIN,
+      UserRole.FINANCE_MANAGER,
+    ]) {
+      expect(guard.canActivate(ctx(r))).toBe(true);
+    }
+  });
+
+  it('excludes CLINIC_VIEWER (403)', () => {
+    expect(() => guard.canActivate(ctx(UserRole.CLINIC_VIEWER))).toThrow(ForbiddenException);
+  });
 });

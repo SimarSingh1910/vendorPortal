@@ -22,7 +22,16 @@ import {
   managerSendBack,
 } from '@/api/submissions';
 import { apiErrorMessage } from '@/lib/apiError';
-import { formatINR, formatIST, formatMonth, statusBadgeVariant, statusLabel } from '@/lib/format';
+import {
+  commentActionLabel,
+  commentActionVariant,
+  formatINR,
+  formatIST,
+  formatMonth,
+  statusBadgeVariant,
+  statusLabel,
+} from '@/lib/format';
+import { MonthwiseReportPanel } from '@/components/MonthwiseReportPanel';
 
 export function ManagerReview() {
   const { submissionId = '' } = useParams();
@@ -116,8 +125,8 @@ export function ManagerReview() {
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium">
                     {c.commentedBy.name}{' '}
-                    <Badge variant={c.action === 'SENT_BACK' ? 'secondary' : 'success'}>
-                      {c.action === 'SENT_BACK' ? 'Sent back' : 'Approved'}
+                    <Badge variant={commentActionVariant(c.action)}>
+                      {commentActionLabel(c.action)}
                     </Badge>
                   </span>
                   <span className="text-xs text-muted-foreground">{formatIST(c.createdAt)}</span>
@@ -183,6 +192,8 @@ export function ManagerReview() {
           This submission is {statusLabel(detail.status).toLowerCase()} — no action available.
         </p>
       )}
+
+      <MonthwiseReportPanel clinicId={detail.clinicId} />
     </div>
   );
 }

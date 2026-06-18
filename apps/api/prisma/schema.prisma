@@ -34,7 +34,7 @@ datasource db {
 
 enum UserRole {
   FINANCE_ADMIN
-  FINANCE_VIEWER
+  FINANCE_MANAGER
   CLINIC_MANAGER
   CLINIC_SPOC
   CLINIC_VIEWER
@@ -55,6 +55,7 @@ enum SubmissionStatus {
 enum CommentAction {
   SENT_BACK
   APPROVED
+  SUBMITTED
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -101,6 +101,56 @@ describe('WorkflowService (Step 5.2 — state machine + transition guards)', () 
     expect(s.lockedAt).not.toBeNull();
   });
 
+  // ── Step 3 — optional SPOC note on submit ───────────────────────────────────
+
+  it('submit with a note writes exactly one SUBMITTED comment (authored by the SPOC) and no extra audit row', async () => {
+    const { clinic, submission } = await openWithHeads(2);
+    const spoc = (await fx.makeUser(UserRole.CLINIC_SPOC, [clinic.id])).user;
+    await fx.valueAllHeads(submission.id, { enteredById: spoc.id });
+
+    await workflow.submit(submission.id, spoc, '  Rent spiked due to the lease renewal.  ');
+    expect((await reload(submission.id)).status).toBe(SubmissionStatus.SUBMITTED);
+
+    const comments = await prisma.submissionComment.findMany({ where: { submissionId: submission.id } });
+    expect(comments).toHaveLength(1);
+    expect(comments[0]).toMatchObject({
+      action: CommentAction.SUBMITTED,
+      commentedById: spoc.id,
+      roleAtTime: UserRole.CLINIC_SPOC,
+      comment: 'Rent spiked due to the lease renewal.', // trimmed
+    });
+
+    // SUBMIT still audits exactly once — the comment is timeline data, not audit.
+    const audits = await prisma.auditLog.findMany({
+      where: { entityId: submission.id, action: 'SUBMISSION_SUBMIT' },
+    });
+    expect(audits).toHaveLength(1);
+  });
+
+  it('submit without a note writes no comment row (and still audits the submit)', async () => {
+    const { clinic, submission } = await openWithHeads(1);
+    const spoc = (await fx.makeUser(UserRole.CLINIC_SPOC, [clinic.id])).user;
+    await fx.valueAllHeads(submission.id, { enteredById: spoc.id });
+
+    await workflow.submit(submission.id, spoc); // no note
+    expect((await reload(submission.id)).status).toBe(SubmissionStatus.SUBMITTED);
+
+    expect(await prisma.submissionComment.count({ where: { submissionId: submission.id } })).toBe(0);
+    const audits = await prisma.auditLog.findMany({
+      where: { entityId: submission.id, action: 'SUBMISSION_SUBMIT' },
+    });
+    expect(audits).toHaveLength(1);
+  });
+
+  it('an all-whitespace note is treated as empty — no comment row', async () => {
+    const { clinic, submission } = await openWithHeads(1);
+    const spoc = (await fx.makeUser(UserRole.CLINIC_SPOC, [clinic.id])).user;
+    await fx.valueAllHeads(submission.id, { enteredById: spoc.id });
+
+    await workflow.submit(submission.id, spoc, '   ');
+    expect(await prisma.submissionComment.count({ where: { submissionId: submission.id } })).toBe(0);
+  });
+
   it('BR-03: submit fails (422) with an unvalued head; BR-07: succeeds when every head valued including 0', async () => {
     // BR-03 negative — one head left blank.
     const a = await openWithHeads(3);

@@ -122,17 +122,18 @@ export interface MappedExpenseHead {
 // ── Submission comments / timeline (Phase 5) ─────────────────────────────────
 
 /**
- * The two reviewer actions a comment can accompany. DB-local (mirrors the
- * Prisma `CommentAction` enum); kept here so the web timeline can type-check
- * without importing from the API.
+ * The actions a comment can accompany. DB-local (mirrors the Prisma
+ * `CommentAction` enum); kept here so the web timeline can type-check without
+ * importing from the API. SUBMITTED is the optional note a SPOC may attach when
+ * submitting (Step 3).
  */
-export type SubmissionCommentAction = 'SENT_BACK' | 'APPROVED';
+export type SubmissionCommentAction = 'SENT_BACK' | 'APPROVED' | 'SUBMITTED';
 
 /**
  * A comment as shown on a submission's review timeline. Send-backs always carry
- * one (mandatory); approvals may. `roleAtTime` is the commenter's role when the
- * action happened, frozen so the timeline reads correctly even if the user's
- * role later changes.
+ * one (mandatory); approvals and submissions may. `roleAtTime` is the
+ * commenter's role when the action happened, frozen so the timeline reads
+ * correctly even if the user's role later changes.
  */
 export interface SubmissionCommentView {
   id: string;
@@ -328,6 +329,38 @@ export interface VarianceReport {
   /** From NotificationConfig.varianceThresholdPercent for `month`; null if unset. */
   thresholdPercent: string | null;
   rows: VarianceRow[];
+}
+
+// ── Month-wise clinic report (Phase / Step 4) ────────────────────────────────
+
+/** Allowed month-window presets: the count of PRECEDING months (current is always added). */
+export const MONTHWISE_PRESETS = [1, 3, 6, 12] as const;
+export type MonthwisePreset = (typeof MONTHWISE_PRESETS)[number];
+export const DEFAULT_MONTHWISE_PRESET: MonthwisePreset = 3;
+
+/**
+ * One expense head's figures across the report window. `values` is aligned to
+ * `MonthwiseReport.months`; an entry is null when that month has no data for the
+ * head (a gap renders as blank, never an error).
+ */
+export interface MonthwiseReportRow {
+  expenseHeadId: string;
+  expenseHeadName: string;
+  values: (string | null)[]; // DECIMAL(14,2) as string, or null per month
+}
+
+/**
+ * A reusable month-wise report for a single clinic: the current cycle month plus
+ * N preceding months side by side. `months` is chronological (oldest first,
+ * current last); `currentMonth` flags which column is the live cycle.
+ */
+export interface MonthwiseReport {
+  clinicId: string;
+  clinicName: string;
+  currentMonth: string; // YYYY-MM, always the last entry in `months`
+  months: string[]; // chronological YYYY-MM, current month last
+  rows: MonthwiseReportRow[];
+  totals: (string | null)[]; // per-month totals aligned to `months`; null when empty
 }
 
 /** Dropdown options for the dashboard filters, scoped to the caller. */

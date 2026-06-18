@@ -5,6 +5,8 @@ import { getHeadTrends, getMonthlyTotals, getStatusTracker } from '@/api/dashboa
 import { getOverview } from '@/api/submissions';
 import { StatusTiles } from '@/components/dashboard/StatusTiles';
 import { HeadTrendCharts, MonthlyTotalsChart } from '@/components/dashboard/charts';
+import { ChartTableView } from '@/components/dashboard/ChartTableView';
+import { HeadTrendTable, MonthlyTotalsTable, StatusTable } from '@/components/dashboard/dataTables';
 import { ClinicApprovedHistory } from '@/components/submissions/ClinicApprovedHistory';
 import { useAuthStore } from '@/store/auth.store';
 
@@ -48,7 +50,10 @@ export function ClinicDashboard() {
         {tilesLoading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : (
-          <StatusTiles tiles={tiles} />
+          <ChartTableView
+            chart={<StatusTiles tiles={tiles} />}
+            table={<StatusTable tiles={tiles} />}
+          />
         )}
       </section>
 
@@ -58,7 +63,10 @@ export function ClinicDashboard() {
           <CardDescription>Your clinic’s total provision over the last months.</CardDescription>
         </CardHeader>
         <CardContent>
-          <MonthlyTotalsChart data={monthly} />
+          <ChartTableView
+            chart={<MonthlyTotalsChart data={monthly} />}
+            table={<MonthlyTotalsTable data={monthly} />}
+          />
         </CardContent>
       </Card>
 
@@ -68,7 +76,10 @@ export function ClinicDashboard() {
           <CardDescription>Per-head totals across the recent months.</CardDescription>
         </CardHeader>
         <CardContent>
-          <HeadTrendCharts data={headTrends} />
+          <ChartTableView
+            chart={<HeadTrendCharts data={headTrends} />}
+            table={<HeadTrendTable data={headTrends} />}
+          />
         </CardContent>
       </Card>
 

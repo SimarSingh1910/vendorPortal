@@ -5,10 +5,10 @@ import { NotificationConfigService } from './notification-config.service';
 import { NotificationConfigDto } from './dto/notification-config.dto';
 
 /**
- * Per-cycle notification config (Step 10.1). Finance Admin only.
+ * Per-cycle notification config (Step 10.1). Finance Admin or Manager.
  */
 @Controller('notification-config')
-@Roles(UserRole.FINANCE_ADMIN)
+@Roles(UserRole.FINANCE_ADMIN, UserRole.FINANCE_MANAGER)
 export class NotificationConfigController {
   constructor(private readonly config: NotificationConfigService) {}
 

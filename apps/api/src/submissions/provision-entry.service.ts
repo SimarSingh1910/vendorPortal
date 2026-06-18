@@ -8,12 +8,12 @@ import {
 import {
   AuditAction,
   SubmissionStatus,
-  UserRole,
   type ProvisionEntryInput,
   type SubmissionDetail,
 } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClinicScopeService } from '../common/clinic-scope.service';
+import { FINANCE_APPROVER_ROLES } from '../common/rbac.constants';
 import { AuditService } from '../audit/audit.service';
 import type { RequestUser } from '../auth/request-user';
 import { WorkflowService, isSpocEditable } from './workflow.service';
@@ -22,17 +22,19 @@ import { SubmissionsService } from './submissions.service';
 const isLocked = (status: SubmissionStatus): boolean => status === SubmissionStatus.FINANCE_APPROVED;
 
 /**
- * Provision data entry (Phase 6) + lock enforcement & Finance-Admin override
+ * Provision data entry (Phase 6) + lock enforcement & finance override
  * (Phase 8, BR-08). Two write paths share this service:
  *
  *  - SPOC: partial upsert while the submission is SPOC-actionable; moves it to
  *    DRAFT via the state machine. Editing a locked submission → 403; editing in
  *    any other non-actionable state → 409.
- *  - FINANCE_ADMIN: may edit at ANY status (including FINANCE_APPROVED/locked)
- *    WITHOUT changing the status, and every such edit writes an audit entry.
+ *  - Finance approver (Admin or Manager): may edit at ANY status (including
+ *    FINANCE_APPROVED/locked) WITHOUT changing the status, and every such edit
+ *    writes an audit entry.
  *
- * Manager/Viewer never reach this service (route is SPOC + FINANCE_ADMIN only),
- * but the lock check below is role-based so it holds even if called directly.
+ * Clinic Manager/Viewer never reach this service (route is SPOC + finance
+ * approvers only), but the lock check below is role-based so it holds even if
+ * called directly.
  */
 @Injectable()
 export class ProvisionEntryService {
@@ -61,23 +63,23 @@ export class ProvisionEntryService {
     }
 
     const status = submission.status as SubmissionStatus;
-    const isAdmin = user.role === UserRole.FINANCE_ADMIN;
+    const isFinanceOverride = FINANCE_APPROVER_ROLES.includes(user.role);
 
     // Lock enforcement: a FINANCE_APPROVED submission is editable only by a
-    // Finance Admin (BR-08). Everyone else → 403.
-    if (isLocked(status) && !isAdmin) {
+    // finance approver (Admin or Manager) as an override (BR-08). Everyone else → 403.
+    if (isLocked(status) && !isFinanceOverride) {
       throw new ForbiddenException('This submission is locked');
     }
     // Non-admins may only edit in SPOC-actionable states.
-    if (!isAdmin && !isSpocEditable(status)) {
+    if (!isFinanceOverride && !isSpocEditable(status)) {
       throw new ConflictException(`Cannot edit a submission in ${status}`);
     }
 
     if (items.length > 0) {
-      await this.applyEntries(submissionId, user, items, isAdmin, submission.clinicId);
+      await this.applyEntries(submissionId, user, items, isFinanceOverride, submission.clinicId);
     }
 
-    if (isAdmin) {
+    if (isFinanceOverride) {
       // Override edits never change the workflow status (a locked item stays
       // locked); the change is captured by the audit entry written above.
     } else {
@@ -93,7 +95,7 @@ export class ProvisionEntryService {
     submissionId: string,
     user: RequestUser,
     items: ProvisionEntryInput[],
-    isAdmin: boolean,
+    isFinanceOverride: boolean,
     clinicId: string,
   ): Promise<void> {
     const snaps = await this.prisma.submissionExpenseHeadSnapshot.findMany({
@@ -133,7 +135,7 @@ export class ProvisionEntryService {
     // SAVE_DRAFT transition it triggers is intentionally NOT audited, avoiding a
     // double row); a Finance Admin's BR-08 override is PROVISION_EDIT_OVERRIDE.
     await this.audit.record({
-      action: isAdmin ? AuditAction.PROVISION_EDIT_OVERRIDE : AuditAction.PROVISION_SAVE,
+      action: isFinanceOverride ? AuditAction.PROVISION_EDIT_OVERRIDE : AuditAction.PROVISION_SAVE,
       entityType: 'MonthlySubmission',
       entityId: submissionId,
       clinicId,

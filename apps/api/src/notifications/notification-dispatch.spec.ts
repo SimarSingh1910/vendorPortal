@@ -102,18 +102,18 @@ describe('NotificationDispatchService (Step 10.3 triggers)', () => {
     expect(emailSend).toHaveBeenCalledTimes(1);
   });
 
-  it('zero mapped heads → every Finance Admin (not Finance Viewer)', async () => {
+  it('zero mapped heads → every active finance approver (Admin + Manager)', async () => {
     const clinic = await makeClinic();
-    const admin1 = await makeUser(UserRole.FINANCE_ADMIN);
-    const admin2 = await makeUser(UserRole.FINANCE_ADMIN);
+    const admin = await makeUser(UserRole.FINANCE_ADMIN);
+    const financeManager = await makeUser(UserRole.FINANCE_MANAGER);
     await makeUser(UserRole.FINANCE_ADMIN, { active: false }); // decoy: inactive
-    await makeUser(UserRole.FINANCE_VIEWER); // decoy: read-only finance
+    await makeUser(UserRole.CLINIC_MANAGER, { clinicId: clinic.id }); // decoy: clinic role
     const sub = await makeSubmission(clinic.id);
 
     await dispatch.clinicHasNoHeads(sub);
 
     const rows = await delivered();
-    expect(rows.map((r) => r.email).sort()).toEqual([admin1.email, admin2.email].sort());
+    expect(rows.map((r) => r.email).sort()).toEqual([admin.email, financeManager.email].sort());
     expect(rows.every((r) => r.type === NotificationType.CLINIC_NO_HEADS)).toBe(true);
   });
 
@@ -128,17 +128,18 @@ describe('NotificationDispatchService (Step 10.3 triggers)', () => {
     expect((await delivered()).map((r) => r.email)).toEqual([mgr.email]);
   });
 
-  it('Trigger 4: Manager approves → all Finance Admins', async () => {
+  it('Trigger 4: Manager approves → all finance approvers (Admin + Manager)', async () => {
     const clinic = await makeClinic();
     const admin = await makeUser(UserRole.FINANCE_ADMIN);
+    const financeManager = await makeUser(UserRole.FINANCE_MANAGER);
     await makeUser(UserRole.CLINIC_MANAGER, { clinicId: clinic.id }); // decoy
     const sub = await makeSubmission(clinic.id);
 
     await dispatch.managerApproved(sub);
 
     const rows = await delivered();
-    expect(rows.map((r) => r.email)).toEqual([admin.email]);
-    expect(rows[0].type).toBe(NotificationType.MANAGER_APPROVED);
+    expect(rows.map((r) => r.email).sort()).toEqual([admin.email, financeManager.email].sort());
+    expect(rows.every((r) => r.type === NotificationType.MANAGER_APPROVED)).toBe(true);
   });
 
   it('Trigger 5: Manager sends back → SPOC(s) with the comment text', async () => {

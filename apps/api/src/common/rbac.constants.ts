@@ -15,12 +15,21 @@ export const DATA_ENTRY_ROLES: readonly UserRole[] = [UserRole.CLINIC_SPOC];
 /** First-level (clinic) approver roles. */
 export const CLINIC_APPROVER_ROLES: readonly UserRole[] = [UserRole.CLINIC_MANAGER];
 
-/** Finance-level approver / unlock roles. */
-export const FINANCE_APPROVER_ROLES: readonly UserRole[] = [UserRole.FINANCE_ADMIN];
+/**
+ * Finance-level approver / unlock roles. FINANCE_ADMIN and FINANCE_MANAGER have
+ * identical authority over the data/workflow (final approval, unlock, value
+ * override, master data); the only difference is user management, which stays
+ * FINANCE_ADMIN-only and is gated separately on the users controller.
+ */
+export const FINANCE_APPROVER_ROLES: readonly UserRole[] = [
+  UserRole.FINANCE_ADMIN,
+  UserRole.FINANCE_MANAGER,
+];
 
 /**
  * Statuses in which a submission is locked from edits.
- * Only FINANCE_ADMIN may unlock FINANCE_APPROVED (with an audited reason).
+ * A finance approver (Admin or Manager) may unlock FINANCE_APPROVED (with an
+ * audited reason).
  */
 export const LOCKED_STATUSES: readonly SubmissionStatus[] = [SubmissionStatus.FINANCE_APPROVED];
 

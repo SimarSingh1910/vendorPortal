@@ -28,6 +28,14 @@ import {
   HeadTrendCharts,
   MonthlyTotalsChart,
 } from '@/components/dashboard/charts';
+import { ChartTableView } from '@/components/dashboard/ChartTableView';
+import {
+  ClinicTotalsTable,
+  HeadTrendTable,
+  MonthlyTotalsTable,
+  StatusTable,
+  VarianceTable,
+} from '@/components/dashboard/dataTables';
 import { formatINR, formatMonth } from '@/lib/format';
 
 /** Current cost-provision month (YYYY-MM) in IST. */
@@ -228,7 +236,10 @@ export function FinanceDashboard() {
         {tilesLoading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : (
-          <StatusTiles tiles={tiles} />
+          <ChartTableView
+            chart={<StatusTiles tiles={tiles} />}
+            table={<StatusTable tiles={tiles} />}
+          />
         )}
       </section>
 
@@ -252,24 +263,38 @@ export function FinanceDashboard() {
                   : `${alerts.length} head(s) flagged.`}
             </CardDescription>
           </CardHeader>
-          {alerts.length > 0 && (
-            <CardContent className="space-y-2">
-              {alerts.map((row) => (
-                <div
-                  key={row.expenseHeadId}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm"
-                >
-                  <span className="font-medium">{row.expenseHeadName}</span>
-                  <span className="flex items-center gap-3 text-muted-foreground">
-                    <span>{formatINR(row.prior)} → {formatINR(row.current)}</span>
-                    <Badge variant="secondary">
-                      {row.deviationPercent != null
-                        ? `${Number(row.deviationPercent) > 0 ? '+' : ''}${row.deviationPercent}%`
-                        : 'no prior baseline'}
-                    </Badge>
-                  </span>
-                </div>
-              ))}
+          {variance && variance.rows.length > 0 && (
+            <CardContent>
+              <ChartTableView
+                chart={
+                  alerts.length > 0 ? (
+                    <div className="space-y-2">
+                      {alerts.map((row) => (
+                        <div
+                          key={row.expenseHeadId}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm"
+                        >
+                          <span className="font-medium">{row.expenseHeadName}</span>
+                          <span className="flex items-center gap-3 text-muted-foreground">
+                            <span>{formatINR(row.prior)} → {formatINR(row.current)}</span>
+                            <Badge variant="secondary">
+                              {row.deviationPercent != null
+                                ? `${Number(row.deviationPercent) > 0 ? '+' : ''}${row.deviationPercent}%`
+                                : 'no prior baseline'}
+                            </Badge>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No heads breached the threshold this month. Switch to the table to see every
+                      head’s movement.
+                    </p>
+                  )
+                }
+                table={<VarianceTable report={variance} />}
+              />
             </CardContent>
           )}
         </Card>
@@ -285,7 +310,10 @@ export function FinanceDashboard() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <MonthlyTotalsChart data={monthly} />
+          <ChartTableView
+            chart={<MonthlyTotalsChart data={monthly} />}
+            table={<MonthlyTotalsTable data={monthly} />}
+          />
         </CardContent>
       </Card>
 
@@ -296,7 +324,10 @@ export function FinanceDashboard() {
           <CardDescription>Per-head totals across the selected months (bar &amp; line).</CardDescription>
         </CardHeader>
         <CardContent>
-          <HeadTrendCharts data={headTrends} />
+          <ChartTableView
+            chart={<HeadTrendCharts data={headTrends} />}
+            table={<HeadTrendTable data={headTrends} />}
+          />
         </CardContent>
       </Card>
 
@@ -307,7 +338,10 @@ export function FinanceDashboard() {
           <CardDescription>Total provision per clinic over the selected range.</CardDescription>
         </CardHeader>
         <CardContent>
-          <ClinicTotalsChart data={clinicTotals} />
+          <ChartTableView
+            chart={<ClinicTotalsChart data={clinicTotals} />}
+            table={<ClinicTotalsTable data={clinicTotals} />}
+          />
         </CardContent>
       </Card>
     </div>

@@ -36,7 +36,6 @@ import {
   updateUser,
   type CreateUserInput,
 } from '@/api/users';
-import { cn } from '@/lib/utils';
 
 const FILTERS: { value: ActiveFilter; label: string }[] = [
   { value: 'active', label: 'Active' },
@@ -87,8 +86,8 @@ export function UsersAdmin() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Users &amp; access</h1>
           <p className="text-sm text-muted-foreground">
-            Create users, assign one role, and map clinic-scoped users to clinics. Changes take
-            effect immediately. Finance Admin only.
+            Create users, assign one role, and map each clinic-scoped user to exactly one clinic.
+            Changes take effect immediately. Finance Admin only.
           </p>
         </div>
         <Button onClick={openAdd}>
@@ -117,7 +116,7 @@ export function UsersAdmin() {
               <TableHead>Name</TableHead>
               <TableHead>Email</TableHead>
               <TableHead>Role</TableHead>
-              <TableHead>Clinics</TableHead>
+              <TableHead>Clinic</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -208,7 +207,8 @@ function UserFormDialog({ open, onOpenChange, editing, clinics, onSaved }: UserF
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<UserRole>(UserRole.CLINIC_SPOC);
-  const [clinicIds, setClinicIds] = useState<Set<string>>(new Set());
+  // Exactly one clinic per clinic-role user (Step 2); finance roles carry none.
+  const [clinicId, setClinicId] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -219,18 +219,19 @@ function UserFormDialog({ open, onOpenChange, editing, clinics, onSaved }: UserF
       setName(editing.name);
       setEmail(editing.email);
       setRole(editing.role);
-      setClinicIds(new Set(editing.clinicIds));
+      // A legacy multi-clinic user pre-selects its first clinic; saving reconciles it to one.
+      setClinicId(editing.clinicIds[0] ?? '');
     } else {
       setName('');
       setEmail('');
       setRole(UserRole.CLINIC_SPOC);
-      setClinicIds(new Set());
+      setClinicId('');
     }
   }, [open, editing]);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const clinics = isClinicRole(role) ? [...clinicIds] : [];
+      const clinics = isClinicRole(role) && clinicId ? [clinicId] : [];
       if (editing) {
         return updateUser(editing.id, {
           name,
@@ -259,16 +260,9 @@ function UserFormDialog({ open, onOpenChange, editing, clinics, onSaved }: UserF
     if (!editing && password.length < 8) return setError('Password must be at least 8 characters.');
     if (editing && password && password.length < 8)
       return setError('Password must be at least 8 characters.');
+    if (isClinicRole(role) && !clinicId)
+      return setError('Select exactly one clinic for clinic-scoped roles.');
     saveMutation.mutate();
-  }
-
-  function toggleClinic(id: string) {
-    setClinicIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
   }
 
   return (
@@ -328,31 +322,29 @@ function UserFormDialog({ open, onOpenChange, editing, clinics, onSaved }: UserF
 
           {isClinicRole(role) ? (
             <div className="space-y-1.5">
-              <Label>Assigned clinics</Label>
+              <Label htmlFor="u-clinic">Assigned clinic</Label>
               {clinics.length === 0 ? (
                 <p className="text-xs text-muted-foreground">No active clinics to assign.</p>
               ) : (
-                <div className="max-h-40 overflow-auto rounded-md border divide-y">
-                  {clinics.map((c) => (
-                    <label
-                      key={c.id}
-                      className={cn(
-                        'flex cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-muted/40',
-                        clinicIds.has(c.id) && 'bg-muted/30',
-                      )}
-                    >
-                      <input
-                        type="checkbox"
-                        className="size-4"
-                        checked={clinicIds.has(c.id)}
-                        onChange={() => toggleClinic(c.id)}
-                        data-testid={`clinic-${c.id}`}
-                      />
-                      <span>{c.name}</span>
-                      <span className="text-muted-foreground">{c.location}</span>
-                    </label>
-                  ))}
-                </div>
+                <>
+                  <select
+                    id="u-clinic"
+                    className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    value={clinicId}
+                    onChange={(e) => setClinicId(e.target.value)}
+                    data-testid="clinic-select"
+                  >
+                    <option value="">Select a clinic…</option>
+                    {clinics.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} — {c.location}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    Clinic-scoped users are assigned to exactly one clinic.
+                  </p>
+                </>
               )}
             </div>
           ) : (

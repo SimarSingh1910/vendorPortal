@@ -13,6 +13,7 @@ import type { MonthlySubmission } from '@prisma/client';
 import { AuditAction, SubmissionStatus, UserRole } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClinicScopeService } from '../common/clinic-scope.service';
+import { FINANCE_APPROVER_ROLES } from '../common/rbac.constants';
 import { AuditService } from '../audit/audit.service';
 import { NotificationDispatchService } from '../notifications/notification-dispatch.service';
 import type { RequestUser } from '../auth/request-user';
@@ -95,6 +96,9 @@ export class WorkflowService {
       to: S.SUBMITTED,
       roles: [UserRole.CLINIC_SPOC],
       requiresAllValued: true,
+      // An optional SPOC note (e.g. to explain a spike/drop). Not required; when
+      // present the engine writes one timeline comment in the submit transaction.
+      commentAction: CommentAction.SUBMITTED,
       stamp: (now) => ({ submittedAt: now }),
     },
     [WorkflowAction.MANAGER_OPEN_REVIEW]: {
@@ -120,13 +124,13 @@ export class WorkflowService {
     [WorkflowAction.FINANCE_OPEN_REVIEW]: {
       from: [S.CLINIC_APPROVED],
       to: S.FINANCE_REVIEW,
-      roles: [UserRole.FINANCE_ADMIN],
+      roles: [...FINANCE_APPROVER_ROLES],
       stamp: (now, userId) => ({ reviewStartedAt: now, reviewStartedById: userId }),
     },
     [WorkflowAction.FINANCE_APPROVE]: {
       from: [S.FINANCE_REVIEW],
       to: S.FINANCE_APPROVED,
-      roles: [UserRole.FINANCE_ADMIN],
+      roles: [...FINANCE_APPROVER_ROLES],
       commentAction: CommentAction.APPROVED,
       // FINANCE_APPROVED == locked.
       stamp: (now) => ({ approvedByFinanceAt: now, lockedAt: now }),
@@ -134,7 +138,7 @@ export class WorkflowService {
     [WorkflowAction.FINANCE_SEND_BACK]: {
       from: [S.FINANCE_REVIEW],
       to: S.SENT_BACK_BY_FINANCE,
-      roles: [UserRole.FINANCE_ADMIN],
+      roles: [...FINANCE_APPROVER_ROLES],
       requiresComment: true,
       commentAction: CommentAction.SENT_BACK,
     },
@@ -158,9 +162,9 @@ export class WorkflowService {
     return this.run(WorkflowAction.SAVE_DRAFT, submissionId, user);
   }
 
-  /** SPOC: submit for manager review (requires BR-03). */
-  submit(submissionId: string, user: RequestUser): Promise<MonthlySubmission> {
-    return this.run(WorkflowAction.SUBMIT, submissionId, user);
+  /** SPOC: submit for manager review (requires BR-03). Optional note → timeline. */
+  submit(submissionId: string, user: RequestUser, comment?: string): Promise<MonthlySubmission> {
+    return this.run(WorkflowAction.SUBMIT, submissionId, user, comment);
   }
 
   /** Manager: open a submitted item (stamps reviewStartedAt/ById). */
@@ -208,10 +212,10 @@ export class WorkflowService {
 
   /**
    * Unlock a FINANCE_APPROVED submission for correction (FR-06, Step 8.3). Finance
-   * Admin only; a non-empty reason is mandatory. Moves it back to FINANCE_REVIEW,
-   * clears lockedAt, stores the reason on the submission, and audit-logs the
-   * unlock (actor + timestamp). The admin then corrects (override edit) and
-   * re-approves to re-lock.
+   * approvers (Admin or Manager) only; a non-empty reason is mandatory. Moves it
+   * back to FINANCE_REVIEW, clears lockedAt, stores the reason on the submission,
+   * and audit-logs the unlock (actor + timestamp). The approver then corrects
+   * (override edit) and re-approves to re-lock.
    */
   async financeUnlock(
     submissionId: string,
@@ -225,8 +229,8 @@ export class WorkflowService {
     if (!submission) {
       throw new NotFoundException('Submission not found');
     }
-    if (user.role !== UserRole.FINANCE_ADMIN) {
-      throw new ForbiddenException('Only a Finance Admin can unlock a submission');
+    if (!FINANCE_APPROVER_ROLES.includes(user.role)) {
+      throw new ForbiddenException('Only Finance (Admin or Manager) can unlock a submission');
     }
     if (!this.scope.canAccessClinic(user, submission.clinicId)) {
       throw new ForbiddenException('Clinic not in your accessible scope');

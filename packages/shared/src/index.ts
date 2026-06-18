@@ -13,6 +13,9 @@ export {
 
 export { AuditAction } from './audit-actions';
 
+// Runtime constants from types.ts (values, not types).
+export { MONTHWISE_PRESETS, DEFAULT_MONTHWISE_PRESET } from './types';
+
 export type {
   HealthResponse,
   JwtClaims,
@@ -45,4 +48,7 @@ export type {
   VarianceRow,
   VarianceReport,
   DashboardFilterOptions,
+  MonthwisePreset,
+  MonthwiseReportRow,
+  MonthwiseReport,
 } from './types';

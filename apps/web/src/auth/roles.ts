@@ -1,9 +1,15 @@
 import { UserRole } from '@portal/shared';
 
+/**
+ * Finance staff with full powers. FINANCE_ADMIN and FINANCE_MANAGER share every
+ * finance screen; only FINANCE_ADMIN additionally sees User Management.
+ */
+const FINANCE_FULL: UserRole[] = [UserRole.FINANCE_ADMIN, UserRole.FINANCE_MANAGER];
+
 /** Where each role lands after login / when hitting the app root. */
 export const ROLE_HOME: Record<UserRole, string> = {
   [UserRole.FINANCE_ADMIN]: '/finance',
-  [UserRole.FINANCE_VIEWER]: '/finance',
+  [UserRole.FINANCE_MANAGER]: '/finance',
   [UserRole.CLINIC_MANAGER]: '/manager',
   [UserRole.CLINIC_SPOC]: '/spoc',
   [UserRole.CLINIC_VIEWER]: '/viewer',
@@ -24,18 +30,14 @@ export interface NavItem {
  * the backend independently enforces access; hiding is purely UX).
  */
 export const NAV_ITEMS: NavItem[] = [
-  { path: '/finance', label: 'Finance', roles: [UserRole.FINANCE_ADMIN, UserRole.FINANCE_VIEWER] },
-  {
-    path: '/finance/dashboard',
-    label: 'Dashboard',
-    roles: [UserRole.FINANCE_ADMIN, UserRole.FINANCE_VIEWER],
-  },
-  { path: '/admin/clinics', label: 'Clinics', roles: [UserRole.FINANCE_ADMIN] },
-  { path: '/admin/expense-heads', label: 'Expense Heads', roles: [UserRole.FINANCE_ADMIN] },
-  { path: '/admin/mappings', label: 'Mappings', roles: [UserRole.FINANCE_ADMIN] },
+  { path: '/finance', label: 'Finance', roles: FINANCE_FULL },
+  { path: '/finance/dashboard', label: 'Dashboard', roles: FINANCE_FULL },
+  { path: '/admin/clinics', label: 'Clinics', roles: FINANCE_FULL },
+  { path: '/admin/expense-heads', label: 'Expense Heads', roles: FINANCE_FULL },
+  { path: '/admin/mappings', label: 'Mappings', roles: FINANCE_FULL },
   { path: '/admin/users', label: 'Users', roles: [UserRole.FINANCE_ADMIN] },
-  { path: '/admin/notifications', label: 'Notification Config', roles: [UserRole.FINANCE_ADMIN] },
-  { path: '/admin/audit', label: 'Audit Log', roles: [UserRole.FINANCE_ADMIN] },
+  { path: '/admin/notifications', label: 'Notification Config', roles: FINANCE_FULL },
+  { path: '/admin/audit', label: 'Audit Log', roles: FINANCE_FULL },
   { path: '/manager', label: 'Clinic Manager', roles: [UserRole.CLINIC_MANAGER] },
   { path: '/spoc', label: 'Data Entry', roles: [UserRole.CLINIC_SPOC] },
   {
@@ -48,15 +50,15 @@ export const NAV_ITEMS: NavItem[] = [
 
 /** Allowed roles per protected route path (single source for router + guard). */
 export const ROUTE_ROLES: Record<string, UserRole[]> = {
-  '/finance': [UserRole.FINANCE_ADMIN, UserRole.FINANCE_VIEWER],
-  '/finance/dashboard': [UserRole.FINANCE_ADMIN, UserRole.FINANCE_VIEWER],
-  '/finance/submissions': [UserRole.FINANCE_ADMIN, UserRole.FINANCE_VIEWER],
-  '/admin/clinics': [UserRole.FINANCE_ADMIN],
-  '/admin/expense-heads': [UserRole.FINANCE_ADMIN],
-  '/admin/mappings': [UserRole.FINANCE_ADMIN],
+  '/finance': FINANCE_FULL,
+  '/finance/dashboard': FINANCE_FULL,
+  '/finance/submissions': FINANCE_FULL,
+  '/admin/clinics': FINANCE_FULL,
+  '/admin/expense-heads': FINANCE_FULL,
+  '/admin/mappings': FINANCE_FULL,
   '/admin/users': [UserRole.FINANCE_ADMIN],
-  '/admin/notifications': [UserRole.FINANCE_ADMIN],
-  '/admin/audit': [UserRole.FINANCE_ADMIN],
+  '/admin/notifications': FINANCE_FULL,
+  '/admin/audit': FINANCE_FULL,
   '/manager': [UserRole.CLINIC_MANAGER],
   '/manager/submissions': [UserRole.CLINIC_MANAGER],
   '/spoc': [UserRole.CLINIC_SPOC],

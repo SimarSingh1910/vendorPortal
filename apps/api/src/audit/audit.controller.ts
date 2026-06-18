@@ -7,11 +7,11 @@ import { AuditExportService } from './audit-export.service';
 import { AuditQueryDto } from './dto/audit-query.dto';
 
 /**
- * Audit viewer + export (Phase 9.2). Finance Admin only — the class-level
+ * Audit viewer + export (Phase 9.2). Finance Admin or Manager — the class-level
  * @Roles is enforced by the global RolesGuard behind the global JwtAccessGuard.
  */
 @Controller('audit')
-@Roles(UserRole.FINANCE_ADMIN)
+@Roles(UserRole.FINANCE_ADMIN, UserRole.FINANCE_MANAGER)
 export class AuditController {
   constructor(
     private readonly query: AuditQueryService,

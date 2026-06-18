@@ -5,11 +5,11 @@ import { ClinicExpenseHeadsService } from './clinic-expense-heads.service';
 import { SetMappingsDto } from './dto/set-mappings.dto';
 
 /**
- * Clinic ↔ expense-head mapping (FR-01). Finance Admin only.
+ * Clinic ↔ expense-head mapping (FR-01). Finance Admin or Manager.
  * A head applies to a clinic ONLY if explicitly mapped here and active.
  */
 @Controller('clinics/:clinicId/expense-heads')
-@Roles(UserRole.FINANCE_ADMIN)
+@Roles(UserRole.FINANCE_ADMIN, UserRole.FINANCE_MANAGER)
 export class ClinicExpenseHeadsController {
   constructor(private readonly mappings: ClinicExpenseHeadsService) {}
 

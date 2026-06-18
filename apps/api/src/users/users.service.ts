@@ -45,9 +45,38 @@ export class UsersService {
     return (CLINIC_ROLES as readonly UserRole[]).includes(role);
   }
 
-  /** Finance roles never carry clinic assignments; clinic roles get the deduped set. */
-  private normalizeClinicIds(role: UserRole, clinicIds: string[] = []): string[] {
-    return this.isClinicRole(role) ? [...new Set(clinicIds)] : [];
+  /**
+   * Resolve and validate the clinic assignment for a user (Step 2 — exactly one
+   * clinic per clinic-role user; none for finance roles):
+   *  - Finance roles oversee every clinic and must carry NO assignment. An
+   *    explicit non-empty clinic list is rejected (400); an omitted/empty list
+   *    resolves to none (so promoting a clinic user to finance clears it).
+   *  - Clinic roles (Manager / SPOC / Viewer) must resolve to exactly ONE clinic
+   *    (0 or >1 → 400). On update, an omitted list falls back to the current
+   *    assignment so a legacy multi-clinic row is surfaced as an error rather
+   *    than silently trimmed.
+   * Note: one clinic per user, but a clinic may still have many users.
+   */
+  private resolveClinicIds(
+    role: UserRole,
+    provided: string[] | undefined,
+    current?: string[],
+  ): string[] {
+    if (!this.isClinicRole(role)) {
+      if (provided && provided.length > 0) {
+        throw new BadRequestException(
+          'Finance-role users oversee all clinics and cannot be assigned to a clinic',
+        );
+      }
+      return [];
+    }
+    const target = [...new Set(provided ?? current ?? [])];
+    if (target.length !== 1) {
+      throw new BadRequestException(
+        'Clinic Manager, SPOC and Viewer users must be assigned to exactly one clinic',
+      );
+    }
+    return target;
   }
 
   private async assertClinicsExist(clinicIds: string[]): Promise<void> {
@@ -82,7 +111,7 @@ export class UsersService {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (existing) throw new ConflictException('Email already in use');
 
-    const clinicIds = this.normalizeClinicIds(dto.role, dto.clinicIds);
+    const clinicIds = this.resolveClinicIds(dto.role, dto.clinicIds);
     await this.assertClinicsExist(clinicIds);
     const passwordHash = await this.auth.hashPassword(dto.password);
 
@@ -126,7 +155,7 @@ export class UsersService {
     let targetClinicIds = currentClinicIds;
     let assignmentsTouched = false;
     if (dto.clinicIds !== undefined || roleChanged) {
-      targetClinicIds = this.normalizeClinicIds(newRole, dto.clinicIds ?? currentClinicIds);
+      targetClinicIds = this.resolveClinicIds(newRole, dto.clinicIds, currentClinicIds);
       await this.assertClinicsExist(targetClinicIds);
       assignmentsTouched = true;
     }
