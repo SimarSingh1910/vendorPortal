@@ -137,14 +137,14 @@ export function SubmissionEntry() {
         </Link>
       </Button>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">{detail.clinicName}</h1>
-          <p className="text-sm text-muted-foreground">{formatMonth(detail.month)}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {detail.locked && <Lock className="size-4 text-muted-foreground" />}
-          <Badge variant={statusBadgeVariant(detail.status)}>{statusLabel(detail.status)}</Badge>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight">{detail.clinicName}</h1>
+        <div className="flex flex-col items-end gap-1">
+          <p className="text-xl font-semibold text-foreground">{formatMonth(detail.month)}</p>
+          <div className="flex items-center gap-2">
+            {detail.locked && <Lock className="size-4 text-muted-foreground" />}
+            <Badge variant={statusBadgeVariant(detail.status)}>{statusLabel(detail.status)}</Badge>
+          </div>
         </div>
       </div>
 
