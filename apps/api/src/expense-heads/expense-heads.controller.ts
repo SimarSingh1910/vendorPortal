@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { UserRole } from '@portal/shared';
+import { PortalTab, UserRole } from '@portal/shared';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { RequireTab } from '../auth/decorators/require-tab.decorator';
 import { ExpenseHeadsService } from './expense-heads.service';
 import { CreateExpenseHeadDto } from './dto/create-expense-head.dto';
 import { ListExpenseHeadsQuery } from './dto/list-expense-heads.query';
@@ -13,6 +14,7 @@ import { UpdateExpenseHeadDto } from './dto/update-expense-head.dto';
  */
 @Controller('expense-heads')
 @Roles(UserRole.FINANCE_ADMIN, UserRole.FINANCE_MANAGER)
+@RequireTab(PortalTab.CLINIC)
 export class ExpenseHeadsController {
   constructor(private readonly expenseHeads: ExpenseHeadsService) {}
 

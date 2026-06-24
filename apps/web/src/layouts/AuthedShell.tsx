@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { NavLink, Navigate, Outlet } from 'react-router-dom';
+import { NavLink, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { Building2, LogOut, PanelLeft } from 'lucide-react';
 import { ROLE_LABELS, UserRole } from '@portal/shared';
 import { Button } from '@/components/ui/button';
@@ -7,8 +7,9 @@ import { useUiStore } from '@/store/ui.store';
 import { useAuthStore } from '@/store/auth.store';
 import { useAuthActions } from '@/auth/useAuthActions';
 import { useIdleTimer } from '@/auth/useIdleTimer';
-import { NAV_ITEMS } from '@/auth/roles';
+import { NAV_ITEMS, tabForPath } from '@/auth/roles';
 import { NotificationTray } from '@/components/NotificationTray';
+import { TabSwitch } from '@/components/TabSwitch';
 import { PendingCountBadge } from '@/components/attention';
 import { usePendingWork } from '@/hooks/usePendingWork';
 import { cn } from '@/lib/utils';
@@ -31,6 +32,7 @@ export function AuthedShell() {
   const { sidebarOpen, toggleSidebar } = useUiStore();
   const status = useAuthStore((s) => s.status);
   const user = useAuthStore((s) => s.user);
+  const location = useLocation();
   const { logout } = useAuthActions();
 
   const authenticated = status === 'authenticated' && !!user;
@@ -49,7 +51,12 @@ export function AuthedShell() {
     return <Navigate to="/login" replace />;
   }
 
-  const navItems = NAV_ITEMS.filter((item) => item.roles.includes(user.role));
+  // Sidebar shows items for the active tab only (the tab switch moves between
+  // tabs); within a tab they're further filtered to the user's role.
+  const activeTab = tabForPath(location.pathname);
+  const navItems = NAV_ITEMS.filter(
+    (item) => item.tab === activeTab && item.roles.includes(user.role),
+  );
   const workPath = WORK_PATH_BY_ROLE[user.role];
 
   return (
@@ -61,6 +68,9 @@ export function AuthedShell() {
         <div className="flex items-center gap-2 font-semibold">
           <Building2 className="text-primary" />
           <span>Cost Provision Portal</span>
+        </div>
+        <div className="ml-6">
+          <TabSwitch />
         </div>
         <div className="ml-auto flex items-center gap-4">
           <NotificationTray />

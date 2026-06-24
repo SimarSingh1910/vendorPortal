@@ -18,6 +18,7 @@ import { FinanceHome } from '@/pages/finance/FinanceHome';
 import { FinanceReview } from '@/pages/finance/FinanceReview';
 import { FinanceDashboard } from '@/pages/finance/FinanceDashboard';
 import { ClinicDashboard } from '@/pages/clinic/ClinicDashboard';
+import { CorporateHome } from '@/pages/corporate/CorporateHome';
 import { useAuthStore } from '@/store/auth.store';
 
 /** Root: send authenticated users to their role home, everyone else to login. */
@@ -159,6 +160,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute allowedRoles={ROUTE_ROLES['/viewer']}>
             <RoleHome />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate']}>
+            <CorporateHome />
           </ProtectedRoute>
         ),
       },

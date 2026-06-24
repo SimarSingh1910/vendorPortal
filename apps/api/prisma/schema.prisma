@@ -34,10 +34,16 @@ datasource db {
 
 enum UserRole {
   FINANCE_ADMIN
+  // Clinic tab
   FINANCE_MANAGER
   CLINIC_MANAGER
   CLINIC_SPOC
   CLINIC_VIEWER
+  // Corporate tab (Corporate Provisions module). FINANCE_ADMIN spans both tabs;
+  // CORP_FINANCE_MANAGER is DISTINCT from the clinic FINANCE_MANAGER.
+  CORP_FINANCE_MANAGER
+  DEPT_SPOC
+  DEPT_VIEWER
 }
 
 enum SubmissionStatus {

@@ -4,10 +4,16 @@
 // the CJS output statically analyzable for both Nest (tsc) and Vite (rollup).
 export {
   UserRole,
+  PortalTab,
   SubmissionStatus,
   FINANCE_ROLES,
   CLINIC_ROLES,
+  CORPORATE_ROLES,
+  ROLE_TABS,
+  tabsForRole,
+  roleCanAccessTab,
   ROLE_LABELS,
+  TAB_LABELS,
   SUBMISSION_STATUS_LABELS,
 } from './enums';
 

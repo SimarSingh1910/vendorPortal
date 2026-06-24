@@ -1,6 +1,7 @@
 import { Body, Controller, Param, Put, UseGuards } from '@nestjs/common';
-import { UserRole } from '@portal/shared';
+import { PortalTab, UserRole } from '@portal/shared';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { RequireTab } from '../auth/decorators/require-tab.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { RequestUser } from '../auth/request-user';
 import { ClinicScopeGuard } from '../common/guards/clinic-scope.guard';
@@ -22,6 +23,7 @@ import { SaveEntriesDto } from './dto/save-entries.dto';
   UserRole.FINANCE_ADMIN,
   UserRole.FINANCE_MANAGER,
 )
+@RequireTab(PortalTab.CLINIC)
 @UseGuards(ClinicScopeGuard)
 export class ProvisionEntryController {
   constructor(private readonly entries: ProvisionEntryService) {}
