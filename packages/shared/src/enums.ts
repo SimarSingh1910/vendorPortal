@@ -61,6 +61,37 @@ export enum SubmissionStatus {
   SENT_BACK_BY_FINANCE = 'SENT_BACK_BY_FINANCE',
 }
 
+/**
+ * Corporate department classification. SHARED_COST_POOL is the single Sec 24
+ * department carrying an HCL Avitas allocation %; STANDARD and INTERNAL_BU are
+ * ordinary corporate/HQ departments.
+ */
+export enum CorpDepartmentType {
+  STANDARD = 'STANDARD',
+  INTERNAL_BU = 'INTERNAL_BU',
+  SHARED_COST_POOL = 'SHARED_COST_POOL',
+}
+
+/**
+ * Corporate submission lifecycle (per department, per month YYYY-MM) — a 2-level
+ * workflow with no intermediate approver (distinct from the clinic 9-state one):
+ *
+ *   NOT_STARTED -> DRAFT -> SUBMITTED -> FINANCE_MANAGER_REVIEW
+ *     -> FINANCE_APPROVED (locked)
+ *
+ * SENT_BACK_TO_SPOC returns the submission straight to the Dept SPOC; resubmit
+ * goes back to SUBMITTED. FINANCE_MANAGER_REVIEW here is a workflow STATE,
+ * unrelated to the CORP_FINANCE_MANAGER role name.
+ */
+export enum CorpSubmissionStatus {
+  NOT_STARTED = 'NOT_STARTED',
+  DRAFT = 'DRAFT',
+  SUBMITTED = 'SUBMITTED',
+  FINANCE_MANAGER_REVIEW = 'FINANCE_MANAGER_REVIEW',
+  FINANCE_APPROVED = 'FINANCE_APPROVED',
+  SENT_BACK_TO_SPOC = 'SENT_BACK_TO_SPOC',
+}
+
 /** Convenience: roles that belong to the Finance side (org-wide, all-clinic scope). */
 export const FINANCE_ROLES: readonly UserRole[] = [UserRole.FINANCE_ADMIN, UserRole.FINANCE_MANAGER];
 

@@ -6,6 +6,8 @@ export {
   UserRole,
   PortalTab,
   SubmissionStatus,
+  CorpDepartmentType,
+  CorpSubmissionStatus,
   FINANCE_ROLES,
   CLINIC_ROLES,
   CORPORATE_ROLES,

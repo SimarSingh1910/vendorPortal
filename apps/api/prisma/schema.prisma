@@ -21,8 +21,8 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
-  url      = env("DATABASE_URL")
+  provider          = "mysql"
+  url               = env("DATABASE_URL")
   // Dedicated shadow DB so the restricted `cpp` user can run `migrate dev`
   // without global CREATE DATABASE privileges. See apps/api/.env.
   shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
@@ -63,6 +63,23 @@ enum CommentAction {
   APPROVED
   SUBMITTED
   RECALLED
+}
+
+// Corporate Provisions module enums (mirror @portal/shared).
+
+enum CorpDepartmentType {
+  STANDARD
+  INTERNAL_BU
+  SHARED_COST_POOL
+}
+
+enum CorpSubmissionStatus {
+  NOT_STARTED
+  DRAFT
+  SUBMITTED
+  FINANCE_MANAGER_REVIEW
+  FINANCE_APPROVED
+  SENT_BACK_TO_SPOC
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -145,6 +162,13 @@ model User {
   auditLogs                AuditLog[]
   notifications            Notification[]
 
+  // Corporate module back-relations.
+  departmentAssignments  UserDepartmentAssignment[]
+  corpEnteredProvisions  CorpProvisionEntry[]       @relation("CorpEnteredBy")
+  corpModifiedProvisions CorpProvisionEntry[]       @relation("CorpLastModifiedBy")
+  corpComments           CorpSubmissionComment[]
+  sec24AllocationConfigs Sec24AllocationConfig[]
+
   @@index([role])
   @@index([isActive])
 }
@@ -169,14 +193,14 @@ model UserClinicAssignment {
 /// to the successor). On logout / role change / deactivation, rows are revoked so
 /// the matching refresh token can no longer mint access tokens.
 model RefreshToken {
-  id        String    @id @default(cuid()) // also the JWT `jti`
-  userId    String
-  tokenHash String    @db.VarChar(64) // hex SHA-256 of the signed token
-  expiresAt DateTime
-  revokedAt DateTime?
+  id           String    @id @default(cuid()) // also the JWT `jti`
+  userId       String
+  tokenHash    String    @db.VarChar(64) // hex SHA-256 of the signed token
+  expiresAt    DateTime
+  revokedAt    DateTime?
   /// id of the token that replaced this one on rotation (audit/reuse-detection).
   replacedById String?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -290,12 +314,12 @@ model SubmissionComment {
 /// Append-only audit trail. Never updated or deleted. Enforced in application
 /// code today; DB-level BEFORE UPDATE/DELETE triggers are added in the audit step.
 model AuditLog {
-  id         String   @id @default(cuid())
-  entityType String
-  entityId   String
-  action     String
-  oldValue   Json?
-  newValue   Json?
+  id            String   @id @default(cuid())
+  entityType    String
+  entityId      String
+  action        String
+  oldValue      Json?
+  newValue      Json?
   // Nullable so SYSTEM actions (e.g. the scheduler opening a cycle) can be
   // recorded with no actor / no client IP.
   performedById String?
@@ -304,7 +328,7 @@ model AuditLog {
   /// Denormalized clinic for FR-09 clinic-scoped audit search — set when the
   /// action concerns a clinic or a clinic-scoped submission. No FK (append-only
   /// search field; clinics are deactivated, never deleted).
-  clinicId String?
+  clinicId      String?
 
   performedBy User? @relation(fields: [performedById], references: [id])
 
@@ -345,4 +369,183 @@ model NotificationConfig {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Corporate Provisions module (Corporate tab). All tables are corp_-prefixed and
+// hold data SEPARATE from the clinic tab; only the shared User / AuditLog are
+// reused. Audit reuses the append-only AuditLog (no corp audit table). Money is
+// @db.Decimal(14,2); percentages @db.Decimal(5,2); months are VARCHAR(7) YYYY-MM.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Corporate/HQ department (master). Exactly one department is SHARED_COST_POOL
+/// (the Sec 24 pool carrying an HCL Avitas allocation %). Deactivated, not
+/// deleted — history is retained (BR-C10).
+model CorpDepartment {
+  id        String             @id @default(cuid())
+  name      String
+  type      CorpDepartmentType @default(STANDARD)
+  isActive  Boolean            @default(true)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  expenseHeads CorpExpenseHead[]
+  budgetCodes  CorpBudgetCode[]
+  submissions  CorpMonthlySubmission[]
+  assignments  UserDepartmentAssignment[]
+
+  @@index([isActive])
+  @@index([type])
+  @@map("corp_departments")
+}
+
+/// Expense head, scoped to ONE department (NOT shared across departments, unlike
+/// the clinic ExpenseHead). Deactivation retains history.
+model CorpExpenseHead {
+  id           String   @id @default(cuid())
+  departmentId String
+  name         String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  department CorpDepartment       @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  entries    CorpProvisionEntry[]
+
+  @@index([departmentId])
+  @@index([isActive])
+  @@map("corp_expense_heads")
+}
+
+/// Per-department budget code (master). Every provision line must pick one of its
+/// department's active codes (BR-C01/BR-C02). No free text.
+model CorpBudgetCode {
+  id           String   @id @default(cuid())
+  departmentId String
+  code         String   @db.VarChar(64)
+  description  String?  @db.Text
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  department CorpDepartment       @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  entries    CorpProvisionEntry[]
+
+  @@unique([departmentId, code])
+  @@index([departmentId])
+  @@index([isActive])
+  @@map("corp_budget_codes")
+}
+
+/// Sec 24 shared-cost-pool allocation %. APPEND-ONLY (BR-C06): every change is a
+/// NEW row; rows are never updated. The currently-effective % is the latest row
+/// (by effectiveFromMonth / setAt). No default exists until the first row is set
+/// (BR-C03/BR-C04).
+model Sec24AllocationConfig {
+  id                 String   @id @default(cuid())
+  allocationPct      Decimal  @db.Decimal(5, 2)
+  setById            String
+  setAt              DateTime @default(now())
+  effectiveFromMonth String   @db.VarChar(7) // YYYY-MM
+  notes              String?  @db.Text
+
+  setBy User @relation(fields: [setById], references: [id])
+
+  @@index([setById])
+  @@index([effectiveFromMonth])
+  @@map("sec24_allocation_config")
+}
+
+/// One submission per department per month (YYYY-MM). 2-level workflow; locks on
+/// FINANCE_APPROVED. On approval the active Sec 24 % is snapshotted into
+/// sec24PctSnapshot (BR-C05) so history stays stable if the % later changes.
+model CorpMonthlySubmission {
+  id           String               @id @default(cuid())
+  departmentId String
+  month        String               @db.VarChar(7) // YYYY-MM
+  status       CorpSubmissionStatus @default(NOT_STARTED)
+
+  submittedAt       DateTime?
+  financeApprovedAt DateTime?
+  lockedAt          DateTime?
+  sec24PctSnapshot  Decimal?  @db.Decimal(5, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  department CorpDepartment          @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  entries    CorpProvisionEntry[]
+  comments   CorpSubmissionComment[]
+
+  @@unique([departmentId, month])
+  @@index([departmentId])
+  @@index([month])
+  @@index([status])
+  @@map("corp_monthly_submissions")
+}
+
+/// A single provision line: one (submission, expense head) pair, with a MANDATORY
+/// budget code. hclAvitasShare is populated only for the Sec 24 pool (amount ×
+/// allocation% / 100); null until a % is set / for non-pool departments.
+model CorpProvisionEntry {
+  id             String   @id @default(cuid())
+  submissionId   String
+  expenseHeadId  String
+  budgetCodeId   String
+  amount         Decimal  @db.Decimal(14, 2)
+  hclAvitasShare Decimal? @db.Decimal(14, 2)
+
+  enteredById String
+  enteredAt   DateTime @default(now())
+
+  lastModifiedById String
+  lastModifiedAt   DateTime @updatedAt
+
+  submission     CorpMonthlySubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  expenseHead    CorpExpenseHead       @relation(fields: [expenseHeadId], references: [id])
+  budgetCode     CorpBudgetCode        @relation(fields: [budgetCodeId], references: [id])
+  enteredBy      User                  @relation("CorpEnteredBy", fields: [enteredById], references: [id])
+  lastModifiedBy User                  @relation("CorpLastModifiedBy", fields: [lastModifiedById], references: [id])
+
+  // One entry per (submission, expense head) — SPOC fills every active head once.
+  @@unique([submissionId, expenseHeadId])
+  @@index([submissionId])
+  @@index([expenseHeadId])
+  @@index([budgetCodeId])
+  @@map("corp_provision_entries")
+}
+
+/// Comment/audit-style timeline entry on a corporate submission (send-back
+/// reasons, approvals, etc.). Reuses the shared CommentAction vocabulary.
+model CorpSubmissionComment {
+  id            String        @id @default(cuid())
+  submissionId  String
+  comment       String        @db.Text
+  commentedById String
+  roleAtTime    UserRole
+  action        CommentAction
+  createdAt     DateTime      @default(now())
+
+  submission  CorpMonthlySubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  commentedBy User                  @relation(fields: [commentedById], references: [id])
+
+  @@index([submissionId])
+  @@index([commentedById])
+  @@map("corp_submission_comments")
+}
+
+/// Maps department-scoped users (Dept SPOC/Viewer) to the departments they cover.
+/// Unlike clinic assignments, a corporate user MAY hold MULTIPLE departments.
+model UserDepartmentAssignment {
+  id           String @id @default(cuid())
+  userId       String
+  departmentId String
+
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department CorpDepartment @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, departmentId])
+  @@index([userId])
+  @@index([departmentId])
+  @@map("user_department_assignments")
 }
