@@ -56,6 +56,7 @@ enum CommentAction {
   SENT_BACK
   APPROVED
   SUBMITTED
+  RECALLED
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -241,6 +242,9 @@ model ProvisionEntry {
   // Unique so each snapshot head holds at most one entry (true 1:1 with snapshot).
   snapshotId   String   @unique
   amount       Decimal  @db.Decimal(14, 2)
+  // Optional SPOC line-item note explaining this head's value (e.g. a spike/drop).
+  // One nullable note per head per submission; set only by the SPOC while editable.
+  note         String?  @db.Text
   enteredById  String
   enteredAt    DateTime @default(now())
 

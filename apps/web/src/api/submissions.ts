@@ -47,6 +47,12 @@ export async function submitSubmission(submissionId: string, comment?: string): 
   await apiClient.post(`/submissions/${submissionId}/submit`, trimmed ? { comment: trimmed } : {});
 }
 
+/** SPOC: recall their own submission back to DRAFT (optional reason → timeline). */
+export async function recallSubmission(submissionId: string, reason?: string): Promise<void> {
+  const trimmed = reason?.trim();
+  await apiClient.post(`/submissions/${submissionId}/recall`, trimmed ? { reason: trimmed } : {});
+}
+
 export async function getComments(submissionId: string): Promise<SubmissionCommentView[]> {
   const { data } = await apiClient.get<SubmissionCommentView[]>(
     `/submissions/${submissionId}/comments`,

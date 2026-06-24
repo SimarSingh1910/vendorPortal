@@ -9,7 +9,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { ClinicScopeService } from '../common/clinic-scope.service';
 import type { RequestUser } from '../auth/request-user';
-import { isSpocEditable } from './workflow.service';
+import { canSpocRecall, isSpocEditable } from './workflow.service';
 
 const isLocked = (status: SubmissionStatus): boolean => status === SubmissionStatus.FINANCE_APPROVED;
 
@@ -147,7 +147,9 @@ export class SubmissionsService {
     }
 
     const status = submission.status as SubmissionStatus;
-    const canEdit = user.role === UserRole.CLINIC_SPOC && isSpocEditable(status);
+    const isSpoc = user.role === UserRole.CLINIC_SPOC;
+    const canEdit = isSpoc && isSpocEditable(status);
+    const canRecall = isSpoc && canSpocRecall(status);
 
     return {
       id: submission.id,
@@ -157,6 +159,7 @@ export class SubmissionsService {
       status,
       locked: isLocked(status),
       canEdit,
+      canRecall,
       submittedAt: submission.submittedAt?.toISOString() ?? null,
       reviewStartedAt: submission.reviewStartedAt?.toISOString() ?? null,
       reviewStartedByName: submission.reviewStartedBy?.name ?? null,
@@ -167,6 +170,7 @@ export class SubmissionsService {
         name: snap.expenseHeadNameAtSnapshot,
         category: snap.expenseHeadCategoryAtSnapshot,
         amount: snap.entry ? snap.entry.amount.toFixed(2) : null,
+        note: snap.entry?.note ?? null,
       })),
     };
   }

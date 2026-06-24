@@ -125,9 +125,10 @@ export interface MappedExpenseHead {
  * The actions a comment can accompany. DB-local (mirrors the Prisma
  * `CommentAction` enum); kept here so the web timeline can type-check without
  * importing from the API. SUBMITTED is the optional note a SPOC may attach when
- * submitting (Step 3).
+ * submitting (Step 3); RECALLED is the optional reason a SPOC may attach when
+ * recalling a submission back to DRAFT.
  */
-export type SubmissionCommentAction = 'SENT_BACK' | 'APPROVED' | 'SUBMITTED';
+export type SubmissionCommentAction = 'SENT_BACK' | 'APPROVED' | 'SUBMITTED' | 'RECALLED';
 
 /**
  * A comment as shown on a submission's review timeline. Send-backs always carry
@@ -185,6 +186,8 @@ export interface ProvisionHeadRow {
   name: string;
   category: string;
   amount: string | null;
+  /** Optional SPOC line-item note for this head (e.g. why it spiked/dropped); null when none. */
+  note: string | null;
 }
 
 /** Full provision form / read-only detail for a single submission. */
@@ -197,6 +200,11 @@ export interface SubmissionDetail {
   locked: boolean;
   /** True only when the viewer is a SPOC and the status still permits editing. */
   canEdit: boolean;
+  /**
+   * True only when the viewer is the owning SPOC and the submission can still be
+   * recalled (submitted but not yet finance-locked). Drives the "Recall" action.
+   */
+  canRecall: boolean;
   submittedAt: string | null; // ISO-8601
   reviewStartedAt: string | null; // ISO-8601 — stamped when a reviewer opens it
   reviewStartedByName: string | null;
@@ -209,6 +217,8 @@ export interface SubmissionDetail {
 export interface ProvisionEntryInput {
   snapshotId: string;
   amount: number;
+  /** Optional SPOC note for this head; blank/whitespace is stored as null. */
+  note?: string;
 }
 
 // ── Notification config (Phase 10.1) ─────────────────────────────────────────
@@ -311,13 +321,18 @@ export interface ClinicTotalPoint {
  * One expense head's month-on-month variance (BR-12). `deviationPercent` is the
  * signed % change vs the prior month, or null when there is no prior baseline
  * (prior total was zero/absent). `flagged` is true when the deviation breaches
- * the configured threshold.
+ * the configured threshold. `ytdAverage` is the fiscal-year-to-date average
+ * monthly value for this head — the FY-to-date total (April → current month
+ * inclusive; India FY runs Apr–Mar) divided by the number of FY months elapsed,
+ * with missing months counted as 0 in both — so in April it equals the current
+ * month.
  */
 export interface VarianceRow {
   expenseHeadId: string;
   expenseHeadName: string;
   current: string; // DECIMAL(14,2) as string
   prior: string | null; // DECIMAL(14,2) as string
+  ytdAverage: string; // FY-to-date average monthly value, DECIMAL(14,2) as string
   deviationPercent: string | null; // signed %, 2dp; null = no prior baseline
   flagged: boolean;
 }

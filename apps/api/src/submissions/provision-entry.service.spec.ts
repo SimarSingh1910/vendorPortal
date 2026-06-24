@@ -246,4 +246,102 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
     const outsideManager = (await fx.makeUser(UserRole.CLINIC_MANAGER, [otherClinic.id])).user;
     await expectStatus(entries.saveEntries(submission.id, outsideManager, []), 403);
   });
+
+  // ── SPOC per-expense-head notes ──────────────────────────────────────────────
+
+  it('persists a SPOC note with the entry, returns it in detail, and clearing it stores null', async () => {
+    const { submission, spoc, snapshotIds } = await setup(2);
+
+    const saved = await entries.saveEntries(submission.id, spoc, [
+      { snapshotId: snapshotIds[0], amount: 500, note: '  spiked due to new equipment  ' },
+      { snapshotId: snapshotIds[1], amount: 100 }, // no note → null
+    ]);
+    // Stored trimmed; a head saved without a note stays null.
+    expect(saved.heads.find((h) => h.snapshotId === snapshotIds[0])!.note).toBe(
+      'spiked due to new equipment',
+    );
+    expect(saved.heads.find((h) => h.snapshotId === snapshotIds[1])!.note).toBeNull();
+
+    // Persisted: a fresh read returns the note.
+    const refetched = await submissions.getDetail(submission.id, spoc);
+    expect(refetched.heads.find((h) => h.snapshotId === snapshotIds[0])!.note).toBe(
+      'spiked due to new equipment',
+    );
+
+    // Clearing it (whitespace-only) stores null and leaves the amount intact.
+    const cleared = await entries.saveEntries(submission.id, spoc, [
+      { snapshotId: snapshotIds[0], amount: 500, note: '   ' },
+    ]);
+    const h0 = cleared.heads.find((h) => h.snapshotId === snapshotIds[0])!;
+    expect(h0.note).toBeNull();
+    expect(h0.amount).toBe('500.00');
+  });
+
+  it('a SPOC note is editable only while SPOC-editable; once submitted the SPOC is rejected (409)', async () => {
+    const { submission, spoc, snapshotIds } = await setup(1);
+
+    // Editable (DRAFT after first save): note persists.
+    const draft = await entries.saveEntries(submission.id, spoc, [
+      { snapshotId: snapshotIds[0], amount: 10, note: 'editable note' },
+    ]);
+    expect(draft.status).toBe(SubmissionStatus.DRAFT);
+    expect(draft.heads[0].note).toBe('editable note');
+
+    // Once submitted, the SPOC can no longer save (note included or not).
+    await workflow.submit(submission.id, spoc);
+    await expectStatus(
+      entries.saveEntries(submission.id, spoc, [
+        { snapshotId: snapshotIds[0], amount: 10, note: 'too late' },
+      ]),
+      409,
+    );
+    // The note from the editable state is unchanged.
+    expect((await submissions.getDetail(submission.id, spoc)).heads[0].note).toBe('editable note');
+  });
+
+  it('reviewers receive the SPOC note in detail; a value override leaves the note untouched', async () => {
+    const { clinic, submission, spoc, snapshotIds } = await setup(1);
+    await entries.saveEntries(submission.id, spoc, [
+      { snapshotId: snapshotIds[0], amount: 700, note: 'rent revised in lease renewal' },
+    ]);
+    await workflow.submit(submission.id, spoc);
+
+    const manager = (await fx.makeUser(UserRole.CLINIC_MANAGER, [clinic.id])).user;
+    const finance = (await fx.makeUser(UserRole.FINANCE_ADMIN)).user;
+
+    // Both reviewer roles see the SPOC's note in submission detail.
+    expect((await submissions.getDetail(submission.id, manager)).heads[0].note).toBe(
+      'rent revised in lease renewal',
+    );
+    expect((await submissions.getDetail(submission.id, finance)).heads[0].note).toBe(
+      'rent revised in lease renewal',
+    );
+
+    // The note is SPOC-owned: a manager value override (even passing a note) doesn't change it.
+    await runWithRequestContext({ user: { id: manager.id } }, () =>
+      entries.saveEntries(submission.id, manager, [
+        { snapshotId: snapshotIds[0], amount: 1234, note: 'manager attempt' },
+      ]),
+    );
+    const after = await submissions.getDetail(submission.id, manager);
+    expect(after.heads[0].amount).toBe('1234.00'); // value overridden
+    expect(after.heads[0].note).toBe('rent revised in lease renewal'); // note preserved
+  });
+
+  it('saving a note records no audit row beyond the single PROVISION_SAVE', async () => {
+    const { submission, spoc, snapshotIds } = await setup(1);
+
+    await entries.saveEntries(submission.id, spoc, [
+      { snapshotId: snapshotIds[0], amount: 50, note: 'just a note' },
+    ]);
+
+    const provisionAudits = await prisma.auditLog.findMany({
+      where: {
+        entityId: submission.id,
+        action: { in: ['PROVISION_SAVE', 'MANAGER_PROVISION_OVERRIDE', 'PROVISION_EDIT_OVERRIDE'] },
+      },
+    });
+    expect(provisionAudits).toHaveLength(1);
+    expect(provisionAudits[0].action).toBe('PROVISION_SAVE');
+  });
 });

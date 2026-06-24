@@ -1,11 +1,12 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 import { CommentAction } from '@prisma/client';
-import { SubmissionStatus, UserRole } from '@portal/shared';
+import { AuditAction, SubmissionStatus, UserRole } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClinicScopeService } from '../common/clinic-scope.service';
 import { ClinicExpenseHeadsService } from '../clinic-expense-heads/clinic-expense-heads.service';
 import { CycleService } from './cycle.service';
 import { WorkflowService } from './workflow.service';
+import { SubmissionsService } from './submissions.service';
 import { AuditService } from '../audit/audit.service';
 import { runWithRequestContext } from '../audit/request-context';
 import { makeFixtures, type Fixtures, expectStatus } from '../../test/fixtures';
@@ -18,6 +19,7 @@ describe('WorkflowService (Step 5.2 — state machine + transition guards)', () 
   let prisma: PrismaService;
   let cycle: CycleService;
   let workflow: WorkflowService;
+  let submissions: SubmissionsService;
   let fx: Fixtures;
 
   beforeAll(async () => {
@@ -28,6 +30,7 @@ describe('WorkflowService (Step 5.2 — state machine + transition guards)', () 
         ClinicExpenseHeadsService,
         CycleService,
         WorkflowService,
+        SubmissionsService,
         AuditService,
       ],
     }).compile();
@@ -35,6 +38,7 @@ describe('WorkflowService (Step 5.2 — state machine + transition guards)', () 
     prisma = moduleRef.get(PrismaService);
     cycle = moduleRef.get(CycleService);
     workflow = moduleRef.get(WorkflowService);
+    submissions = moduleRef.get(SubmissionsService);
     fx = makeFixtures({ prisma, cycle, workflow });
   });
 
@@ -331,5 +335,147 @@ describe('WorkflowService (Step 5.2 — state machine + transition guards)', () 
     // A non-admin can never unlock → 403 (role checked before status).
     const manager = (await fx.makeUser(UserRole.CLINIC_MANAGER, [clinic.id])).user;
     await expectStatus(workflow.financeUnlock(submission.id, manager, 'reason'), 403);
+  });
+
+  // ── SPOC recall/revoke (back to DRAFT before finance lock) ──────────────────
+
+  // Every recallable state → DRAFT, entries preserved & editable again, exactly
+  // one SUBMISSION_RECALLED audit row (actor = SPOC), prior review stamps cleared.
+  const RECALLABLE = [
+    SubmissionStatus.SUBMITTED,
+    SubmissionStatus.CLINIC_MANAGER_REVIEW,
+    SubmissionStatus.CLINIC_APPROVED,
+    SubmissionStatus.FINANCE_REVIEW,
+  ];
+  it.each(RECALLABLE)('SPOC recalls from %s → DRAFT, entries preserved, one audit row', async (from) => {
+    const { submission } = await openWithHeads(2);
+    const { spoc } = await fx.driveToStatus(submission.id, from);
+    const entriesBefore = await prisma.provisionEntry.count({ where: { submissionId: submission.id } });
+    expect(entriesBefore).toBe(2);
+
+    await runWithRequestContext({ user: { id: spoc.id }, ip: '203.0.113.7' }, () =>
+      workflow.recall(submission.id, spoc, 'Recalled to fix a data-entry error'),
+    );
+
+    const s = await reload(submission.id);
+    expect(s.status).toBe(SubmissionStatus.DRAFT);
+    // Stale review/approval metadata wiped so the resubmission is fresh.
+    expect(s.submittedAt).toBeNull();
+    expect(s.reviewStartedAt).toBeNull();
+    expect(s.reviewStartedById).toBeNull();
+    expect(s.approvedByManagerAt).toBeNull();
+
+    // Entries preserved and the form is editable again for the SPOC.
+    expect(await prisma.provisionEntry.count({ where: { submissionId: submission.id } })).toBe(2);
+    const detail = await submissions.getDetail(submission.id, spoc);
+    expect(detail.canEdit).toBe(true);
+    expect(detail.canRecall).toBe(false); // DRAFT is no longer recallable
+
+    // Exactly one audit row, named SUBMISSION_RECALLED, attributed to the SPOC.
+    const audits = await prisma.auditLog.findMany({
+      where: { entityId: submission.id, action: AuditAction.SUBMISSION_RECALLED },
+    });
+    expect(audits).toHaveLength(1);
+    expect(audits[0].performedById).toBe(spoc.id);
+    expect(audits[0].clinicId).toBe(submission.clinicId);
+    expect(audits[0].oldValue).toEqual({ status: from });
+    expect(audits[0].newValue).toEqual({ status: SubmissionStatus.DRAFT });
+
+    // The optional reason landed on the timeline as one RECALLED comment.
+    const comments = await prisma.submissionComment.findMany({
+      where: { submissionId: submission.id, action: CommentAction.RECALLED },
+    });
+    expect(comments).toHaveLength(1);
+    expect(comments[0].comment).toBe('Recalled to fix a data-entry error');
+    expect(comments[0].roleAtTime).toBe(UserRole.CLINIC_SPOC);
+  });
+
+  it('recall without a reason writes no comment row (and still audits the recall once)', async () => {
+    const { submission } = await openWithHeads(1);
+    const { spoc } = await fx.driveToStatus(submission.id, SubmissionStatus.SUBMITTED);
+
+    await workflow.recall(submission.id, spoc); // no reason
+    expect((await reload(submission.id)).status).toBe(SubmissionStatus.DRAFT);
+    expect(await prisma.submissionComment.count({ where: { submissionId: submission.id } })).toBe(0);
+    expect(
+      await prisma.auditLog.count({
+        where: { entityId: submission.id, action: AuditAction.SUBMISSION_RECALLED },
+      }),
+    ).toBe(1);
+  });
+
+  it('rejects recall once FINANCE_APPROVED/locked (409)', async () => {
+    const { submission } = await openWithHeads(1);
+    const { spoc } = await fx.driveToStatus(submission.id, SubmissionStatus.FINANCE_APPROVED);
+    await expectStatus(workflow.recall(submission.id, spoc), 409);
+    expect((await reload(submission.id)).status).toBe(SubmissionStatus.FINANCE_APPROVED);
+  });
+
+  it('rejects a non-SPOC role (403) and another clinic’s SPOC (403)', async () => {
+    const { clinic, submission } = await openWithHeads(1);
+    const { manager } = await fx.driveToStatus(submission.id, SubmissionStatus.SUBMITTED);
+
+    // Manager of the same clinic cannot recall (role check before state).
+    await expectStatus(workflow.recall(submission.id, manager), 403);
+
+    // A SPOC scoped to a different clinic cannot recall this one (scope → 403).
+    const otherClinic = await fx.makeClinic();
+    const otherSpoc = (await fx.makeUser(UserRole.CLINIC_SPOC, [otherClinic.id])).user;
+    await expectStatus(workflow.recall(submission.id, otherSpoc), 403);
+
+    // Untouched by the rejected attempts.
+    expect((await reload(submission.id)).status).toBe(SubmissionStatus.SUBMITTED);
+    expect(clinic.id).toBeDefined();
+  });
+
+  it('recall vs finance-finalize race: exactly one wins, recall loses cleanly (409) if finalized first', async () => {
+    // Finalize-then-recall: finance locks it first → the SPOC recall loses (409).
+    const a = await openWithHeads(1);
+    const actorsA = await fx.driveToStatus(a.submission.id, SubmissionStatus.FINANCE_REVIEW);
+    await workflow.financeApprove(a.submission.id, actorsA.finance);
+    await expectStatus(workflow.recall(a.submission.id, actorsA.spoc), 409);
+    expect((await reload(a.submission.id)).status).toBe(SubmissionStatus.FINANCE_APPROVED);
+
+    // Recall-then-finalize: the SPOC recalls first → finance's approve loses (409).
+    const b = await openWithHeads(1);
+    const actorsB = await fx.driveToStatus(b.submission.id, SubmissionStatus.FINANCE_REVIEW);
+    await workflow.recall(b.submission.id, actorsB.spoc);
+    await expectStatus(workflow.financeApprove(b.submission.id, actorsB.finance), 409);
+    expect((await reload(b.submission.id)).status).toBe(SubmissionStatus.DRAFT);
+  });
+
+  it('after recall the item leaves both review queues and a re-submit re-flows through manager → finance', async () => {
+    const { clinic, submission } = await openWithHeads(1);
+    const { spoc, manager, finance } = await fx.driveToStatus(
+      submission.id,
+      SubmissionStatus.FINANCE_REVIEW,
+    );
+
+    await workflow.recall(submission.id, spoc);
+
+    // Gone from the manager queue (SUBMITTED/MANAGER_REVIEW) and the finance queue
+    // (CLINIC_APPROVED/FINANCE_REVIEW) — both filter by status.
+    const managerQueue = await submissions.listQueue(manager, {
+      statuses: [SubmissionStatus.SUBMITTED, SubmissionStatus.CLINIC_MANAGER_REVIEW],
+    });
+    const financeQueue = await submissions.listQueue(finance, {
+      statuses: [SubmissionStatus.CLINIC_APPROVED, SubmissionStatus.FINANCE_REVIEW],
+    });
+    expect(managerQueue.find((q) => q.id === submission.id)).toBeUndefined();
+    expect(financeQueue.find((q) => q.id === submission.id)).toBeUndefined();
+
+    // Re-submit re-flows fully through Manager → Finance with fresh stamps.
+    await workflow.submit(submission.id, spoc);
+    let s = await reload(submission.id);
+    expect(s.status).toBe(SubmissionStatus.SUBMITTED);
+    expect(s.submittedAt).not.toBeNull(); // stamped fresh on resubmit
+
+    await workflow.managerOpenReview(submission.id, manager);
+    await workflow.managerApprove(submission.id, manager);
+    await workflow.financeOpenReview(submission.id, finance);
+    s = await reload(submission.id);
+    expect(s.status).toBe(SubmissionStatus.FINANCE_REVIEW);
+    expect(s.reviewStartedById).toBe(finance.id);
+    expect(clinic.id).toBeDefined();
   });
 });

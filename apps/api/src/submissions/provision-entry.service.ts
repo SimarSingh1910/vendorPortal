@@ -143,17 +143,28 @@ export class ProvisionEntryService {
       select: { snapshotId: true, amount: true },
     });
 
+    // Only the SPOC owns the per-head note; manager/finance value overrides leave
+    // the existing note untouched (don't include it in their upsert). Blank or
+    // whitespace-only notes are stored as null (never empty strings).
+    const writesNote = kind === 'spoc';
+    const noteOf = (item: ProvisionEntryInput): string | null => item.note?.trim() || null;
+
     await this.prisma.$transaction(
       items.map((item) =>
         this.prisma.provisionEntry.upsert({
           where: { snapshotId: item.snapshotId },
-          update: { amount: item.amount, lastModifiedById: user.id },
+          update: {
+            amount: item.amount,
+            lastModifiedById: user.id,
+            ...(writesNote ? { note: noteOf(item) } : {}),
+          },
           create: {
             submissionId,
             snapshotId: item.snapshotId,
             amount: item.amount,
             enteredById: user.id,
             lastModifiedById: user.id,
+            ...(writesNote ? { note: noteOf(item) } : {}),
           },
         }),
       ),

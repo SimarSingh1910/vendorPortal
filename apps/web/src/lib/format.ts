@@ -63,6 +63,8 @@ export function commentActionLabel(action: SubmissionCommentAction): string {
       return 'Sent back';
     case 'SUBMITTED':
       return 'Submitted';
+    case 'RECALLED':
+      return 'Recalled';
     default:
       return 'Approved';
   }
@@ -75,6 +77,8 @@ export function commentActionVariant(action: SubmissionCommentAction): BadgeProp
       return 'secondary';
     case 'SUBMITTED':
       return 'default';
+    case 'RECALLED':
+      return 'muted';
     default:
       return 'success';
   }

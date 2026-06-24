@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { Download, FileText } from 'lucide-react';
 import { SubmissionStatus, SUBMISSION_STATUS_LABELS } from '@portal/shared';
@@ -23,20 +23,17 @@ import {
   type DashboardFilter,
 } from '@/api/dashboard';
 import { StatusTiles } from '@/components/dashboard/StatusTiles';
-import {
-  ClinicTotalsChart,
-  HeadTrendCharts,
-  MonthlyTotalsChart,
-} from '@/components/dashboard/charts';
+import { ClinicTotalsChart, MonthlyTotalsChart } from '@/components/dashboard/charts';
 import { ChartTableView } from '@/components/dashboard/ChartTableView';
+import { HeadTrendBlock } from '@/components/dashboard/HeadTrendBlock';
 import {
   ClinicTotalsTable,
-  HeadTrendTable,
   MonthlyTotalsTable,
   StatusTable,
   VarianceTable,
 } from '@/components/dashboard/dataTables';
 import { formatINR, formatMonth } from '@/lib/format';
+import { buildHeadColorMap, headColor } from '@/lib/chartColors';
 
 /** Current cost-provision month (YYYY-MM) in IST. */
 function currentMonth(): string {
@@ -132,6 +129,11 @@ export function FinanceDashboard() {
   });
 
   const alerts = variance?.rows.filter((r) => r.flagged) ?? [];
+
+  // Master head→colour map (built from the full in-scope head list) so every
+  // chart colours a head identically and a filtered head keeps its colour.
+  const colorMap = useMemo(() => buildHeadColorMap(options?.expenseHeads ?? []), [options]);
+  const colorOf = useMemo(() => (id: string) => headColor(colorMap, id), [colorMap]);
 
   return (
     <div className="space-y-8">
@@ -324,10 +326,7 @@ export function FinanceDashboard() {
           <CardDescription>Per-head totals across the selected months (bar &amp; line).</CardDescription>
         </CardHeader>
         <CardContent>
-          <ChartTableView
-            chart={<HeadTrendCharts data={headTrends} />}
-            table={<HeadTrendTable data={headTrends} />}
-          />
+          <HeadTrendBlock data={headTrends} colorOf={colorOf} />
         </CardContent>
       </Card>
 

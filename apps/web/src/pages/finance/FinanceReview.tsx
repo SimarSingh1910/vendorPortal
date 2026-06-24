@@ -200,7 +200,7 @@ export function FinanceReview() {
                   </span>
                   <span className="text-xs text-muted-foreground">{formatIST(c.createdAt)}</span>
                 </div>
-                <p className="mt-1 whitespace-pre-wrap text-muted-foreground">{c.comment}</p>
+                <p className="mt-1 whitespace-pre-wrap text-base text-foreground">{c.comment}</p>
               </li>
             ))}
           </ul>
@@ -219,9 +219,16 @@ export function FinanceReview() {
           <TableBody>
             {detail.heads.map((head) => (
               <TableRow key={head.snapshotId}>
-                <TableCell className="text-muted-foreground">{head.category}</TableCell>
-                <TableCell className="font-medium">{head.name}</TableCell>
-                <TableCell className="text-right">
+                <TableCell className="align-top text-muted-foreground">{head.category}</TableCell>
+                <TableCell className="align-top font-medium">
+                  <div>{head.name}</div>
+                  {head.note && (
+                    <p className="mt-1 whitespace-pre-wrap text-xs font-normal text-muted-foreground">
+                      <span className="font-medium">SPOC note:</span> {head.note}
+                    </p>
+                  )}
+                </TableCell>
+                <TableCell className="align-top text-right">
                   {isFinanceApprover ? (
                     <Input
                       type="number"

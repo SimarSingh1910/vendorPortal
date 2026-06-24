@@ -8,6 +8,7 @@ import { WorkflowService } from './workflow.service';
 import { SendBackDto } from './dto/send-back.dto';
 import { ApproveDto } from './dto/approve.dto';
 import { SubmitDto } from './dto/submit.dto';
+import { RecallDto } from './dto/recall.dto';
 import { UnlockDto } from './dto/unlock.dto';
 
 /**
@@ -32,6 +33,18 @@ export class SubmissionWorkflowController {
     @Body() dto: SubmitDto,
   ) {
     return this.workflow.submit(id, user, dto.comment);
+  }
+
+  /** SPOC: recall their own submission back to DRAFT (optional reason). */
+  @Post('recall')
+  @Roles(UserRole.CLINIC_SPOC)
+  @UseGuards(ClinicScopeGuard)
+  recall(
+    @Param('submissionId') id: string,
+    @CurrentUser() user: RequestUser,
+    @Body() dto: RecallDto,
+  ) {
+    return this.workflow.recall(id, user, dto.reason);
   }
 
   // ── Manager ──────────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { MonthlySubmission } from '@prisma/client';
-import { UserRole } from '@portal/shared';
+import { SubmissionStatus, UserRole } from '@portal/shared';
 import { FINANCE_APPROVER_ROLES } from '../common/rbac.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from './notification.service';
@@ -14,6 +14,7 @@ export const NotificationType = {
   CLINIC_NO_HEADS: 'CLINIC_NO_HEADS',
   PRE_CUTOFF_REMINDER: 'PRE_CUTOFF_REMINDER',
   SUBMISSION_SUBMITTED: 'SUBMISSION_SUBMITTED',
+  SUBMISSION_RECALLED: 'SUBMISSION_RECALLED',
   MANAGER_APPROVED: 'MANAGER_APPROVED',
   MANAGER_SENT_BACK: 'MANAGER_SENT_BACK',
   FINANCE_APPROVED: 'FINANCE_APPROVED',
@@ -110,6 +111,26 @@ export class NotificationDispatchService {
       submissionId: submission.id,
       message: `${clinic}'s ${submission.month} submission has been submitted and is awaiting your review.`,
       emailSubject: `${EMAIL_PREFIX} — ${clinic} ${submission.month} awaiting your review`,
+    });
+  }
+
+  // ── Trigger 3b: SPOC recalls → whoever currently held it (Manager OR Finance) ─
+  async recalled(submission: SubmissionRef, fromStatus: SubmissionStatus): Promise<void> {
+    const clinic = await this.clinicName(submission.clinicId);
+    // A submission sits in exactly one queue, keyed by where it had reached: the
+    // clinic Manager (SUBMITTED / CLINIC_MANAGER_REVIEW) or Finance once it had
+    // been clinic-approved (CLINIC_APPROVED / FINANCE_REVIEW).
+    const withFinance =
+      fromStatus === SubmissionStatus.CLINIC_APPROVED ||
+      fromStatus === SubmissionStatus.FINANCE_REVIEW;
+    const recipients = withFinance
+      ? await this.financeApproverIds()
+      : await this.clinicUserIds(submission.clinicId, [UserRole.CLINIC_MANAGER]);
+    await this.fanOut(recipients, {
+      type: NotificationType.SUBMISSION_RECALLED,
+      submissionId: submission.id,
+      message: `${clinic}'s ${submission.month} submission was recalled by the SPOC for corrections and is no longer awaiting your review.`,
+      emailSubject: `${EMAIL_PREFIX} — ${clinic} ${submission.month} recalled by SPOC`,
     });
   }
 

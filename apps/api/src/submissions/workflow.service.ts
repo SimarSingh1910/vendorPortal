@@ -34,6 +34,24 @@ export function isSpocEditable(status: SubmissionStatus): boolean {
 }
 
 /**
+ * The states from which the owning SPOC may RECALL their submission back to
+ * DRAFT — any time after it leaves their hands but before Finance locks it
+ * (permissive window). FINANCE_APPROVED is deliberately excluded: once locked,
+ * only a Finance unlock applies.
+ */
+export const SPOC_RECALLABLE: SubmissionStatus[] = [
+  S.SUBMITTED,
+  S.CLINIC_MANAGER_REVIEW,
+  S.CLINIC_APPROVED,
+  S.FINANCE_REVIEW,
+];
+
+/** True when the owning SPOC may still recall this submission. */
+export function canSpocRecall(status: SubmissionStatus): boolean {
+  return SPOC_RECALLABLE.includes(status);
+}
+
+/**
  * Every workflow action the engine understands. Each maps 1:1 to a controller
  * route; the action name never crosses the API boundary as input, so it stays a
  * backend-local vocabulary (no shared enum needed).
@@ -41,6 +59,7 @@ export function isSpocEditable(status: SubmissionStatus): boolean {
 export enum WorkflowAction {
   SAVE_DRAFT = 'SAVE_DRAFT',
   SUBMIT = 'SUBMIT',
+  RECALL = 'RECALL',
   MANAGER_OPEN_REVIEW = 'MANAGER_OPEN_REVIEW',
   MANAGER_APPROVE = 'MANAGER_APPROVE',
   MANAGER_SEND_BACK = 'MANAGER_SEND_BACK',
@@ -64,6 +83,17 @@ interface TransitionDef {
   commentAction?: CommentAction;
   /** Extra fields to stamp on the submission (review/approval/lock timestamps). */
   stamp?: (now: Date, userId: string) => Prisma.MonthlySubmissionUncheckedUpdateInput;
+  /**
+   * Override the audit action name (default `SUBMISSION_<ACTION>`). Used by RECALL
+   * to record the dedicated, shared SUBMISSION_RECALLED name.
+   */
+  auditAction?: string;
+  /**
+   * Override the 409 message used both when the current status is out of the
+   * from-set and when the conditional update loses a concurrency race. Lets a
+   * transition speak in its own terms (e.g. "can no longer be recalled").
+   */
+  conflictMessage?: string;
 }
 
 /**
@@ -100,6 +130,27 @@ export class WorkflowService {
       // present the engine writes one timeline comment in the submit transaction.
       commentAction: CommentAction.SUBMITTED,
       stamp: (now) => ({ submittedAt: now }),
+    },
+    [WorkflowAction.RECALL]: {
+      from: SPOC_RECALLABLE,
+      to: S.DRAFT,
+      roles: [UserRole.CLINIC_SPOC],
+      // Distinct, shared audit name (one row) instead of the dynamic default.
+      auditAction: AuditAction.SUBMISSION_RECALLED,
+      conflictMessage: 'This submission can no longer be recalled',
+      // An optional SPOC reason → one RECALLED timeline comment (like SUBMIT).
+      commentAction: CommentAction.RECALLED,
+      // Recall makes the cycle fresh again: wipe every prior review/approval
+      // stamp so the re-submission re-flows through Manager → Finance from
+      // scratch (entries are preserved; only workflow metadata is reset).
+      stamp: () => ({
+        submittedAt: null,
+        reviewStartedAt: null,
+        reviewStartedById: null,
+        approvedByManagerAt: null,
+        approvedByFinanceAt: null,
+        lockedAt: null,
+      }),
     },
     [WorkflowAction.MANAGER_OPEN_REVIEW]: {
       from: [S.SUBMITTED],
@@ -165,6 +216,17 @@ export class WorkflowService {
   /** SPOC: submit for manager review (requires BR-03). Optional note → timeline. */
   submit(submissionId: string, user: RequestUser, comment?: string): Promise<MonthlySubmission> {
     return this.run(WorkflowAction.SUBMIT, submissionId, user, comment);
+  }
+
+  /**
+   * SPOC: recall/revoke their own submission back to DRAFT to fix mistakes, any
+   * time before Finance locks it. Entries are preserved and become editable
+   * again; prior review stamps are cleared so the re-submission is treated as
+   * fresh. Optional reason → one RECALLED timeline comment. The conditional
+   * update means a recall that races a finance-finalize loses cleanly (409).
+   */
+  recall(submissionId: string, user: RequestUser, reason?: string): Promise<MonthlySubmission> {
+    return this.run(WorkflowAction.RECALL, submissionId, user, reason);
   }
 
   /** Manager: open a submitted item (stamps reviewStartedAt/ById). */
@@ -304,7 +366,7 @@ export class WorkflowService {
     // (a) current status allows it.
     if (!def.from.includes(submission.status as SubmissionStatus)) {
       throw new ConflictException(
-        `Action not allowed from status ${submission.status}`,
+        def.conflictMessage ?? `Action not allowed from status ${submission.status}`,
       );
     }
 
@@ -331,7 +393,9 @@ export class WorkflowService {
         data,
       });
       if (result.count === 0) {
-        throw new ConflictException('Submission changed state concurrently; retry');
+        throw new ConflictException(
+          def.conflictMessage ?? 'Submission changed state concurrently; retry',
+        );
       }
 
       if (def.commentAction && trimmedComment) {
@@ -353,7 +417,7 @@ export class WorkflowService {
     // accompanies is audited once by ProvisionEntryService (no double row).
     if (action !== WorkflowAction.SAVE_DRAFT) {
       await this.audit.record({
-        action: `SUBMISSION_${action}`,
+        action: def.auditAction ?? `SUBMISSION_${action}`,
         entityType: 'MonthlySubmission',
         entityId: submissionId,
         clinicId: submission.clinicId,
@@ -362,7 +426,7 @@ export class WorkflowService {
       });
     }
 
-    await this.notify(action, updated, trimmedComment);
+    await this.notify(action, updated, fromStatus, trimmedComment);
     return updated;
   }
 
@@ -377,6 +441,7 @@ export class WorkflowService {
   private async notify(
     action: WorkflowAction,
     submission: MonthlySubmission,
+    fromStatus: SubmissionStatus,
     comment?: string,
   ): Promise<void> {
     if (!this.dispatch) return;
@@ -384,6 +449,10 @@ export class WorkflowService {
       switch (action) {
         case WorkflowAction.SUBMIT:
           await this.dispatch.submitted(submission);
+          break;
+        case WorkflowAction.RECALL:
+          // Tell whoever currently held it (Manager or Finance) it's withdrawn.
+          await this.dispatch.recalled(submission, fromStatus);
           break;
         case WorkflowAction.MANAGER_APPROVE:
           await this.dispatch.managerApproved(submission);

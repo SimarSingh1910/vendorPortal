@@ -168,6 +168,7 @@ export function VarianceTable({ report }: { report: VarianceReport }) {
           <TableRow>
             <TableHead>Expense head</TableHead>
             <TableHead className="text-right">Prior</TableHead>
+            <TableHead className="text-right">YTD avg</TableHead>
             <TableHead className="text-right">Current</TableHead>
             <TableHead className="text-right">Deviation</TableHead>
             <TableHead className="text-right">Flagged</TableHead>
@@ -180,6 +181,7 @@ export function VarianceTable({ report }: { report: VarianceReport }) {
               <TableCell className="text-right tabular-nums">
                 {r.prior != null ? formatINR(r.prior) : <span className="text-muted-foreground">—</span>}
               </TableCell>
+              <TableCell className="text-right tabular-nums">{formatINR(r.ytdAverage)}</TableCell>
               <TableCell className="text-right tabular-nums">{formatINR(r.current)}</TableCell>
               <TableCell className="text-right tabular-nums">
                 {r.deviationPercent != null ? (

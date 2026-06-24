@@ -28,6 +28,23 @@ function shiftMonth(month: string, delta: number): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+/**
+ * April (YYYY-04) of the fiscal year containing `month`. India FY runs Apr–Mar,
+ * so Apr–Dec belong to FY starting this calendar year; Jan–Mar to the prior one.
+ */
+function fiscalYearStart(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  const startYear = m >= 4 ? y : y - 1;
+  return `${startYear}-04`;
+}
+
+/** Count of months in the inclusive range [from, to] (both YYYY-MM). */
+function monthsBetweenInclusive(from: string, to: string): number {
+  const [fy, fm] = from.split('-').map(Number);
+  const [ty, tm] = to.split('-').map(Number);
+  return (ty - fy) * 12 + (tm - fm) + 1;
+}
+
 interface DashboardFilters {
   clinicId?: string;
   expenseHeadId?: string;
@@ -197,9 +214,16 @@ export class DashboardService {
       return { month: m, priorMonth, thresholdPercent, rows: [] };
     }
 
-    const [current, prior] = await Promise.all([
+    // YTD average = fiscal-year-to-date total per head (FY start April → the
+    // selected month inclusive) divided by the number of FY months elapsed.
+    // Reuses the same entry aggregation, just over a month range; missing months
+    // contribute 0 to the sum but still count toward the elapsed-month divisor.
+    const fyStart = fiscalYearStart(m);
+    const fyMonths = monthsBetweenInclusive(fyStart, m);
+    const [current, prior, ytdSum] = await Promise.all([
       this.headTotalsForMonth(clinicIds, m),
       this.headTotalsForMonth(clinicIds, priorMonth),
+      this.headTotalsForRange(clinicIds, fyStart, m),
     ]);
 
     const headIds = new Set<string>([...current.keys(), ...prior.keys()]);
@@ -210,6 +234,9 @@ export class DashboardService {
       const name = cur?.name ?? pri?.name ?? id;
       const curNum = cur ? Number(cur.total) : 0;
       const priNum = pri ? Number(pri.total) : null;
+      // Missing FY months count as 0 in the sum; the divisor is the elapsed FY
+      // months (so a head with no FY-to-date entries averages 0.00).
+      const ytdAverageNum = Number(ytdSum.get(id) ?? 0) / fyMonths;
 
       let deviationPercent: string | null = null;
       let flagged = false;
@@ -228,6 +255,7 @@ export class DashboardService {
         expenseHeadName: name,
         current: curNum.toFixed(2),
         prior: pri ? String(pri.total) : null,
+        ytdAverage: ytdAverageNum.toFixed(2),
         deviationPercent,
         flagged,
       });
@@ -262,6 +290,28 @@ export class DashboardService {
       GROUP BY s.expenseHeadId
     `);
     return new Map(rows.map((r) => [r.expenseHeadId, { name: r.expenseHeadName, total: String(r.total) }]));
+  }
+
+  /**
+   * Per-head totals summed over an inclusive month range [from, to] for the given
+   * clinics. Same entry aggregation as headTotalsForMonth, just bounded by a
+   * range — used for the fiscal-year-to-date column. Returns head id → total
+   * string; heads with no entries in the window simply don't appear (→ 0).
+   */
+  private async headTotalsForRange(
+    clinicIds: string[],
+    from: string,
+    to: string,
+  ): Promise<Map<string, string>> {
+    const rows = await this.prisma.$queryRaw<Array<{ expenseHeadId: string; total: string }>>(Prisma.sql`
+      SELECT s.expenseHeadId AS expenseHeadId, CAST(SUM(p.amount) AS CHAR) AS total
+      FROM provisionentry p
+      JOIN submissionexpenseheadsnapshot s ON s.id = p.snapshotId
+      JOIN monthlysubmission m ON m.id = p.submissionId
+      WHERE m.clinicId IN (${Prisma.join(clinicIds)}) AND m.month >= ${from} AND m.month <= ${to}
+      GROUP BY s.expenseHeadId
+    `);
+    return new Map(rows.map((r) => [r.expenseHeadId, String(r.total)]));
   }
 
   // ── Month-wise clinic report (Step 4) ───────────────────────────────────────

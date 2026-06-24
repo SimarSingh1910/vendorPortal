@@ -15,6 +15,12 @@ export const AuditAction = {
    * PROVISION_EDIT_OVERRIDE; records old->new, actor, clinicId). */
   MANAGER_PROVISION_OVERRIDE: 'MANAGER_PROVISION_OVERRIDE',
   UNLOCK: 'UNLOCK',
+  /**
+   * SPOC recalls/revokes their own not-yet-finalized submission back to DRAFT.
+   * The one SUBMISSION_<ACTION> transition enumerated here (the rest are dynamic):
+   * the engine stamps this exact name so the viewer can filter recalls.
+   */
+  SUBMISSION_RECALLED: 'SUBMISSION_RECALLED',
 
   CLINIC_CREATE: 'CLINIC_CREATE',
   CLINIC_UPDATE: 'CLINIC_UPDATE',

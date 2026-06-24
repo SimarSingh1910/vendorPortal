@@ -50,17 +50,21 @@ export function ViewToggle({
  */
 export function ChartTableView({
   defaultView = 'chart',
+  controls,
   chart,
   table,
 }: {
   defaultView?: ChartTableViewMode;
+  /** Optional extra controls (e.g. a filter dropdown) shown to the left of the toggle. */
+  controls?: ReactNode;
   chart: ReactNode;
   table: ReactNode;
 }) {
   const [view, setView] = useState<ChartTableViewMode>(defaultView);
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {controls}
         <ViewToggle view={view} onChange={setView} />
       </div>
       {view === 'chart' ? chart : table}

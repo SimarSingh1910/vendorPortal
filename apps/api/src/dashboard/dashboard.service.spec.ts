@@ -164,6 +164,58 @@ describe('DashboardService (Phase 11, FR-07)', () => {
     expect(report.rows[0].expenseHeadName).toBe('Spiker');
   });
 
+  it('variance returns fiscal-year-to-date AVERAGE per head: FY total ÷ elapsed FY months, missing months as 0', async () => {
+    const clinic = await fx.makeClinic();
+    const rent = await fx.makeExpenseHead({ name: 'Rent' });
+    const adhoc = await fx.makeExpenseHead({ name: 'Adhoc' });
+    await fx.mapHeads(clinic.id, [rent.id, adhoc.id]);
+
+    // FY 2026-27 starts 2026-04. As of June, 3 FY months have elapsed (Apr–Jun).
+    // Rent valued every month; Adhoc skips May (→ 0 in both sum and that month).
+    await cycle.openClinicCycle(clinic.id, '2026-04');
+    await enterHead(clinic.id, '2026-04', rent.id, 1000);
+    await enterHead(clinic.id, '2026-04', adhoc.id, 500);
+    await cycle.openClinicCycle(clinic.id, '2026-05');
+    await enterHead(clinic.id, '2026-05', rent.id, 2000);
+    await cycle.openClinicCycle(clinic.id, '2026-06');
+    await enterHead(clinic.id, '2026-06', rent.id, 3000);
+    await enterHead(clinic.id, '2026-06', adhoc.id, 1500);
+
+    const report = await dashboard.variance(finance, '2026-06');
+    const rentRow = report.rows.find((r) => r.expenseHeadName === 'Rent')!;
+    const adhocRow = report.rows.find((r) => r.expenseHeadName === 'Adhoc')!;
+
+    // Average over the 3 elapsed FY months (missing months counted as 0).
+    expect(rentRow.ytdAverage).toBe('2000.00'); // (1000 + 2000 + 3000) / 3
+    expect(adhocRow.ytdAverage).toBe('666.67'); // (500 + 0 + 1500) / 3, rounded
+
+    // Prior / Current / Deviation unchanged by the YTD-average addition.
+    expect(rentRow.prior).toBe('2000.00'); // May
+    expect(rentRow.current).toBe('3000.00'); // Jun
+    expect(rentRow.deviationPercent).toBe('50.00');
+  });
+
+  it('YTD average in April equals the current month only — the prior fiscal year is excluded', async () => {
+    const clinic = await fx.makeClinic();
+    const rent = await fx.makeExpenseHead({ name: 'Rent' });
+    await fx.mapHeads(clinic.id, [rent.id]);
+
+    // March 2026 belongs to the PREVIOUS fiscal year; April 2026 starts the new one.
+    await cycle.openClinicCycle(clinic.id, '2026-03');
+    await enterHead(clinic.id, '2026-03', rent.id, 9999);
+    await cycle.openClinicCycle(clinic.id, '2026-04');
+    await enterHead(clinic.id, '2026-04', rent.id, 700);
+
+    const report = await dashboard.variance(finance, '2026-04');
+    const rentRow = report.rows.find((r) => r.expenseHeadName === 'Rent')!;
+
+    expect(report.priorMonth).toBe('2026-03');
+    expect(rentRow.current).toBe('700.00');
+    // March (prior FY) is excluded; only 1 FY month has elapsed, so the average
+    // equals the current month.
+    expect(rentRow.ytdAverage).toBe('700.00');
+  });
+
   it('scopes results to a clinic role’s assigned clinics', async () => {
     const mine = await fx.makeClinic({ name: 'Mine' });
     const other = await fx.makeClinic({ name: 'Other' });

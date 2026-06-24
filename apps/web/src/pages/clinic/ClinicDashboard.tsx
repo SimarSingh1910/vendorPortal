@@ -1,13 +1,21 @@
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { UserRole } from '@portal/shared';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { getHeadTrends, getMonthlyTotals, getStatusTracker } from '@/api/dashboard';
+import {
+  getDashboardFilters,
+  getHeadTrends,
+  getMonthlyTotals,
+  getStatusTracker,
+} from '@/api/dashboard';
 import { getOverview } from '@/api/submissions';
 import { StatusTiles } from '@/components/dashboard/StatusTiles';
-import { HeadTrendCharts, MonthlyTotalsChart } from '@/components/dashboard/charts';
+import { MonthlyTotalsChart } from '@/components/dashboard/charts';
 import { ChartTableView } from '@/components/dashboard/ChartTableView';
-import { HeadTrendTable, MonthlyTotalsTable, StatusTable } from '@/components/dashboard/dataTables';
+import { HeadTrendBlock } from '@/components/dashboard/HeadTrendBlock';
+import { MonthlyTotalsTable, StatusTable } from '@/components/dashboard/dataTables';
 import { ClinicApprovedHistory } from '@/components/submissions/ClinicApprovedHistory';
+import { buildHeadColorMap, headColor } from '@/lib/chartColors';
 import { useAuthStore } from '@/store/auth.store';
 
 /**
@@ -35,6 +43,15 @@ export function ClinicDashboard() {
     queryKey: ['submissions', 'overview'],
     queryFn: () => getOverview(),
   });
+  const { data: options } = useQuery({
+    queryKey: ['dashboard', 'filters'],
+    queryFn: getDashboardFilters,
+  });
+
+  // Same master head→colour map as the finance dashboard, so a head keeps one
+  // colour everywhere (filter options return the full in-scope head list).
+  const colorMap = useMemo(() => buildHeadColorMap(options?.expenseHeads ?? []), [options]);
+  const colorOf = useMemo(() => (id: string) => headColor(colorMap, id), [colorMap]);
 
   return (
     <div className="space-y-8">
@@ -76,10 +93,7 @@ export function ClinicDashboard() {
           <CardDescription>Per-head totals across the recent months.</CardDescription>
         </CardHeader>
         <CardContent>
-          <ChartTableView
-            chart={<HeadTrendCharts data={headTrends} />}
-            table={<HeadTrendTable data={headTrends} />}
-          />
+          <HeadTrendBlock data={headTrends} colorOf={colorOf} />
         </CardContent>
       </Card>
 
