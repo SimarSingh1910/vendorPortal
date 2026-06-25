@@ -11,6 +11,8 @@ import { AuthModule } from './auth/auth.module';
 import { ClinicsModule } from './clinics/clinics.module';
 import { ExpenseHeadsModule } from './expense-heads/expense-heads.module';
 import { ClinicExpenseHeadsModule } from './clinic-expense-heads/clinic-expense-heads.module';
+import { CorpDepartmentsModule } from './corp-departments/corp-departments.module';
+import { CorpExpenseHeadsModule } from './corp-expense-heads/corp-expense-heads.module';
 import { UsersModule } from './users/users.module';
 import { SubmissionsModule } from './submissions/submissions.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -37,6 +39,8 @@ import { ExportModule } from './export/export.module';
     ClinicsModule,
     ExpenseHeadsModule,
     ClinicExpenseHeadsModule,
+    CorpDepartmentsModule,
+    CorpExpenseHeadsModule,
     UsersModule,
     SubmissionsModule,
     NotificationsModule,

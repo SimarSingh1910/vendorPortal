@@ -31,6 +31,18 @@ export const AuditAction = {
   EXPENSE_HEAD_UPDATE: 'EXPENSE_HEAD_UPDATE',
   EXPENSE_HEAD_SET_ACTIVE: 'EXPENSE_HEAD_SET_ACTIVE',
 
+  // Corporate Provisions masters (Corporate tab). Departments and their
+  // dept-specific expense heads are Finance-Admin CRUD; every mutation records
+  // one row. Corporate masters are NOT clinic-scoped, so their audit rows carry
+  // no clinicId.
+  CORP_DEPARTMENT_CREATE: 'CORP_DEPARTMENT_CREATE',
+  CORP_DEPARTMENT_UPDATE: 'CORP_DEPARTMENT_UPDATE',
+  CORP_DEPARTMENT_SET_ACTIVE: 'CORP_DEPARTMENT_SET_ACTIVE',
+
+  CORP_EXPENSE_HEAD_CREATE: 'CORP_EXPENSE_HEAD_CREATE',
+  CORP_EXPENSE_HEAD_UPDATE: 'CORP_EXPENSE_HEAD_UPDATE',
+  CORP_EXPENSE_HEAD_SET_ACTIVE: 'CORP_EXPENSE_HEAD_SET_ACTIVE',
+
   USER_CREATE: 'USER_CREATE',
   USER_UPDATE: 'USER_UPDATE',
   USER_SET_ACTIVE: 'USER_SET_ACTIVE',
