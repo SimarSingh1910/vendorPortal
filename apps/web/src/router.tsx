@@ -19,6 +19,10 @@ import { FinanceReview } from '@/pages/finance/FinanceReview';
 import { FinanceDashboard } from '@/pages/finance/FinanceDashboard';
 import { ClinicDashboard } from '@/pages/clinic/ClinicDashboard';
 import { CorporateHome } from '@/pages/corporate/CorporateHome';
+import { CorpSubmissionEntry } from '@/pages/corporate/CorpSubmissionEntry';
+import { CorpReviewQueue } from '@/pages/corporate/CorpReviewQueue';
+import { CorpReview } from '@/pages/corporate/CorpReview';
+import { CorporateDashboard } from '@/pages/corporate/CorporateDashboard';
 import { useAuthStore } from '@/store/auth.store';
 
 /** Root: send authenticated users to their role home, everyone else to login. */
@@ -168,6 +172,38 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate']}>
             <CorporateHome />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/submissions/:submissionId',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/submissions']}>
+            <CorpSubmissionEntry />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/review',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/review']}>
+            <CorpReviewQueue />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/review/:submissionId',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/review']}>
+            <CorpReview />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/dashboard',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/dashboard']}>
+            <CorporateDashboard />
           </ProtectedRoute>
         ),
       },

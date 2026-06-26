@@ -18,6 +18,12 @@ const CORP_VISIBLE: UserRole[] = [
   UserRole.DEPT_VIEWER,
 ];
 
+/** Corporate approvers — the review/approve/unlock side (org-wide scope). */
+const CORP_APPROVER: UserRole[] = [UserRole.FINANCE_ADMIN, UserRole.CORP_FINANCE_MANAGER];
+
+/** Department users who enter/view a department's provision form. */
+const CORP_DEPT_USERS: UserRole[] = [UserRole.DEPT_SPOC, UserRole.DEPT_VIEWER];
+
 /** Landing path for the Corporate tab (placeholder until corporate screens land). */
 export const CORPORATE_HOME = '/corporate';
 
@@ -87,8 +93,10 @@ export const NAV_ITEMS: NavItem[] = [
     tab: PortalTab.CLINIC,
   },
   { path: '/viewer', label: 'Clinic View', roles: [UserRole.CLINIC_VIEWER], tab: PortalTab.CLINIC },
-  // Corporate tab (Corporate Provisions module) — placeholder until its screens land.
-  { path: CORPORATE_HOME, label: 'Corporate Home', roles: CORP_VISIBLE, tab: PortalTab.CORPORATE },
+  // Corporate tab (Corporate Provisions module).
+  { path: CORPORATE_HOME, label: 'Departments', roles: CORP_VISIBLE, tab: PortalTab.CORPORATE },
+  { path: '/corporate/review', label: 'Review Queue', roles: CORP_APPROVER, tab: PortalTab.CORPORATE },
+  { path: '/corporate/dashboard', label: 'Dashboard', roles: CORP_VISIBLE, tab: PortalTab.CORPORATE },
 ];
 
 /** Allowed roles per protected route path (single source for router + guard). */
@@ -110,4 +118,7 @@ export const ROUTE_ROLES: Record<string, UserRole[]> = {
   '/viewer': [UserRole.CLINIC_VIEWER],
   // Corporate tab — visible to corporate roles + the cross-tab FINANCE_ADMIN.
   [CORPORATE_HOME]: CORP_VISIBLE,
+  '/corporate/submissions': CORP_DEPT_USERS,
+  '/corporate/review': CORP_APPROVER,
+  '/corporate/dashboard': CORP_VISIBLE,
 };
