@@ -6,6 +6,7 @@ import { TabGuard } from '../auth/guards/tab.guard';
 import { CorpSubmissionWorkflowController } from './corp-submission-workflow.controller';
 import { CorpProvisionEntryController } from './corp-provision-entry.controller';
 import { CorpSubmissionsController } from './corp-submissions.controller';
+import { Sec24AllocationController } from './sec24-allocation.controller';
 
 /**
  * Phase C2 — RBAC at the API edge for the corporate submission surface.
@@ -41,6 +42,8 @@ describe('Corporate submission RBAC (Phase C2)', () => {
     ['read.overview', CorpSubmissionsController.prototype.overview, CorpSubmissionsController],
     ['read.queue', CorpSubmissionsController.prototype.reviewQueue, CorpSubmissionsController],
     ['read.detail', CorpSubmissionsController.prototype.detail, CorpSubmissionsController],
+    ['sec24.set', Sec24AllocationController.prototype.set, Sec24AllocationController],
+    ['sec24.history', Sec24AllocationController.prototype.history, Sec24AllocationController],
   ];
 
   const clinicRoles = [
@@ -99,5 +102,17 @@ describe('Corporate submission RBAC (Phase C2)', () => {
     expect(() =>
       roles.canActivate(ctx(UserRole.CORP_FINANCE_MANAGER, W.submit, CorpSubmissionWorkflowController)),
     ).toThrow(ForbiddenException);
+  });
+
+  // ── RolesGuard: Finance-Admin-only Sec 24 config ───────────────────────────────
+
+  it('Sec 24 allocation config is Finance-Admin only; CORP_FINANCE_MANAGER/SPOC/Viewer are 403', () => {
+    const set = Sec24AllocationController.prototype.set;
+    expect(roles.canActivate(ctx(UserRole.FINANCE_ADMIN, set, Sec24AllocationController))).toBe(true);
+    for (const role of [UserRole.CORP_FINANCE_MANAGER, UserRole.DEPT_SPOC, UserRole.DEPT_VIEWER]) {
+      expect(() => roles.canActivate(ctx(role, set, Sec24AllocationController))).toThrow(
+        ForbiddenException,
+      );
+    }
   });
 });

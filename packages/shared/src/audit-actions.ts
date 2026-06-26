@@ -64,6 +64,12 @@ export const AuditAction = {
   CORP_PROVISION_EDIT_OVERRIDE: 'CORP_PROVISION_EDIT_OVERRIDE',
   CORP_UNLOCK: 'CORP_UNLOCK',
 
+  // Sec 24 shared-cost-pool allocation % (Step C3.1). APPEND-ONLY (BR-C06): every
+  // change is a new sec24_allocation_config row, so the audit records the before
+  // (previously-effective %) and after for each set. Not department-scoped (one
+  // global pool), so the row carries no clinicId.
+  CORP_SEC24_PCT_SET: 'CORP_SEC24_PCT_SET',
+
   USER_CREATE: 'USER_CREATE',
   USER_UPDATE: 'USER_UPDATE',
   USER_SET_ACTIVE: 'USER_SET_ACTIVE',

@@ -8,11 +8,12 @@ import {
 } from '@nestjs/common';
 import { Prisma, CommentAction } from '@prisma/client';
 import type { CorpMonthlySubmission } from '@prisma/client';
-import { AuditAction, CorpSubmissionStatus, UserRole } from '@portal/shared';
+import { AuditAction, CorpDepartmentType, CorpSubmissionStatus, UserRole } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CORP_FINANCE_APPROVER_ROLES } from '../common/rbac.constants';
 import { CorpDepartmentScopeService } from './corp-department-scope.service';
+import { Sec24AllocationService } from './sec24-allocation.service';
 import type { RequestUser } from '../auth/request-user';
 
 const S = CorpSubmissionStatus;
@@ -130,6 +131,7 @@ export class CorpWorkflowService {
     private readonly prisma: PrismaService,
     private readonly scope: CorpDepartmentScopeService,
     private readonly audit: AuditService,
+    private readonly sec24: Sec24AllocationService,
   ) {}
 
   // ── Public action surface (one method per route) ────────────────────────────
@@ -227,7 +229,7 @@ export class CorpWorkflowService {
 
     const submission = await this.prisma.corpMonthlySubmission.findUnique({
       where: { id: submissionId },
-      select: { id: true, departmentId: true, status: true },
+      select: { id: true, departmentId: true, month: true, status: true },
     });
     if (!submission) {
       throw new NotFoundException('Submission not found');
@@ -257,10 +259,27 @@ export class CorpWorkflowService {
       await this.assertAllHeadsValued(submissionId);
     }
 
+    // BR-C05: approving the single Sec 24 SHARED_COST_POOL department snapshots the
+    // active allocation % onto the submission (stable history even if the % later
+    // changes) and freezes each line's HCL Avitas share from that %. Resolved here,
+    // applied atomically inside the approve transaction below. null when no % is
+    // set yet — amounts were still allowed, the share just stays "—" (BR-C03/C04).
+    let sec24Snapshot: { pct: Prisma.Decimal | null } | null = null;
+    if (action === CorpWorkflowAction.APPROVE) {
+      const department = await this.prisma.corpDepartment.findUnique({
+        where: { id: submission.departmentId },
+        select: { type: true },
+      });
+      if (department?.type === CorpDepartmentType.SHARED_COST_POOL) {
+        sec24Snapshot = { pct: await this.sec24.activePctForMonth(submission.month) };
+      }
+    }
+
     const now = new Date();
     const data: Prisma.CorpMonthlySubmissionUncheckedUpdateInput = {
       status: def.to,
       ...(def.stamp ? def.stamp(now) : {}),
+      ...(sec24Snapshot ? { sec24PctSnapshot: sec24Snapshot.pct } : {}),
     };
 
     const fromStatus = submission.status as CorpSubmissionStatus;
@@ -288,6 +307,20 @@ export class CorpWorkflowService {
         });
       }
 
+      // Freeze each line's HCL Avitas share from the snapshot % (atomic with lock).
+      if (sec24Snapshot) {
+        const entries = await tx.corpProvisionEntry.findMany({
+          where: { submissionId },
+          select: { id: true, amount: true },
+        });
+        for (const entry of entries) {
+          await tx.corpProvisionEntry.update({
+            where: { id: entry.id },
+            data: { hclAvitasShare: this.sec24.computeShare(entry.amount, sec24Snapshot.pct) },
+          });
+        }
+      }
+
       return tx.corpMonthlySubmission.findUniqueOrThrow({ where: { id: submissionId } });
     });
 
@@ -299,7 +332,12 @@ export class CorpWorkflowService {
         entityType: 'CorpMonthlySubmission',
         entityId: submissionId,
         oldValue: { status: fromStatus },
-        newValue: { status: def.to },
+        newValue: {
+          status: def.to,
+          ...(sec24Snapshot
+            ? { sec24PctSnapshot: sec24Snapshot.pct ? sec24Snapshot.pct.toFixed(2) : null }
+            : {}),
+        },
       });
     }
 

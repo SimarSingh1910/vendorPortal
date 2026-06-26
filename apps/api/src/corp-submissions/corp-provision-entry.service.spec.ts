@@ -8,6 +8,7 @@ import { CorpDepartmentScopeService } from './corp-department-scope.service';
 import { CorpWorkflowService } from './corp-workflow.service';
 import { CorpSubmissionsService } from './corp-submissions.service';
 import { CorpProvisionEntryService } from './corp-provision-entry.service';
+import { Sec24AllocationService } from './sec24-allocation.service';
 import { makeCorpFixtures, type CorpFixtures } from '../../test/corp-fixtures';
 import { resetDb } from '../../test/reset';
 import { expectStatus } from '../../test/fixtures';
@@ -38,6 +39,7 @@ describe('CorpProvisionEntryService (Steps C2.2/C2.3 — entry + override)', () 
         CorpWorkflowService,
         CorpSubmissionsService,
         CorpProvisionEntryService,
+        Sec24AllocationService,
       ],
     }).compile();
     prisma = moduleRef.get(PrismaService);

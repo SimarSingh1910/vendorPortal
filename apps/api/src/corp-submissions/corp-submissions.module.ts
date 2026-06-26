@@ -6,9 +6,11 @@ import { CorpWorkflowService } from './corp-workflow.service';
 import { CorpProvisionEntryService } from './corp-provision-entry.service';
 import { CorpSubmissionsService } from './corp-submissions.service';
 import { CorpSubmissionCommentsService } from './corp-submission-comments.service';
+import { Sec24AllocationService } from './sec24-allocation.service';
 import { CorpSubmissionWorkflowController } from './corp-submission-workflow.controller';
 import { CorpProvisionEntryController } from './corp-provision-entry.controller';
 import { CorpSubmissionsController } from './corp-submissions.controller';
+import { Sec24AllocationController } from './sec24-allocation.controller';
 
 /**
  * Corporate submission workflow engine (Phase C2). Step C2.1 ships cycle opening +
@@ -24,6 +26,7 @@ import { CorpSubmissionsController } from './corp-submissions.controller';
     CorpSubmissionWorkflowController,
     CorpProvisionEntryController,
     CorpSubmissionsController,
+    Sec24AllocationController,
   ],
   providers: [
     CorpCycleService,
@@ -32,7 +35,8 @@ import { CorpSubmissionsController } from './corp-submissions.controller';
     CorpProvisionEntryService,
     CorpSubmissionsService,
     CorpSubmissionCommentsService,
+    Sec24AllocationService,
   ],
-  exports: [CorpCycleService, CorpWorkflowService],
+  exports: [CorpCycleService, CorpWorkflowService, Sec24AllocationService],
 })
 export class CorpSubmissionsModule {}

@@ -45,6 +45,8 @@ export type {
   CorpBudgetCodeOption,
   CorpProvisionHeadRow,
   CorpSubmissionDetail,
+  Sec24AllocationConfigView,
+  Sec24AllocationInput,
   MappedExpenseHead,
   AdminUser,
   SubmissionCommentAction,

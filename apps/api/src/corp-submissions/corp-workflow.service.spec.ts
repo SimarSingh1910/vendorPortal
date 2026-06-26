@@ -6,6 +6,7 @@ import { CorpExpenseHeadsService } from '../corp-expense-heads/corp-expense-head
 import { CorpCycleService } from './corp-cycle.service';
 import { CorpDepartmentScopeService } from './corp-department-scope.service';
 import { CorpWorkflowService } from './corp-workflow.service';
+import { Sec24AllocationService } from './sec24-allocation.service';
 import { makeCorpFixtures, type CorpFixtures } from '../../test/corp-fixtures';
 import { resetDb } from '../../test/reset';
 import { expectStatus } from '../../test/fixtures';
@@ -34,6 +35,7 @@ describe('CorpWorkflowService (Steps C2.2/C2.3 — corporate state machine)', ()
         CorpCycleService,
         CorpDepartmentScopeService,
         CorpWorkflowService,
+        Sec24AllocationService,
       ],
     }).compile();
     prisma = moduleRef.get(PrismaService);

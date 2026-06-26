@@ -1,5 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import {
+  CorpDepartmentType,
   CorpSubmissionStatus,
   UserRole,
   type CorpDepartmentMonthStatus,
@@ -9,6 +11,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CORP_FINANCE_APPROVER_ROLES } from '../common/rbac.constants';
 import { CorpDepartmentScopeService } from './corp-department-scope.service';
+import { Sec24AllocationService } from './sec24-allocation.service';
 import type { RequestUser } from '../auth/request-user';
 import { isCorpLocked, isCorpReviewEditable, isCorpSpocEditable } from './corp-workflow.service';
 
@@ -23,6 +26,7 @@ export class CorpSubmissionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly scope: CorpDepartmentScopeService,
+    private readonly sec24: Sec24AllocationService,
   ) {}
 
   /**
@@ -133,7 +137,7 @@ export class CorpSubmissionsService {
     const submission = await this.prisma.corpMonthlySubmission.findUnique({
       where: { id: submissionId },
       include: {
-        department: { select: { name: true } },
+        department: { select: { name: true, type: true } },
         snapshots: {
           include: { entry: true },
           orderBy: { expenseHeadNameAtSnapshot: 'asc' },
@@ -157,6 +161,19 @@ export class CorpSubmissionsService {
     const isSpoc = user.role === UserRole.DEPT_SPOC;
     const isApprover = (CORP_FINANCE_APPROVER_ROLES as readonly UserRole[]).includes(user.role);
 
+    // Sec 24 share: the % applied is the FROZEN snapshot once approved, else the
+    // currently-active % for the month (real-time, BR-C04); null until ever set
+    // (BR-C03 → "—"). Share is computed from that % so already-entered amounts
+    // start showing a share the moment a % is set, without a re-save.
+    const isPool = submission.department.type === CorpDepartmentType.SHARED_COST_POOL;
+    let resolvedPct: Prisma.Decimal | null = null;
+    if (isPool) {
+      resolvedPct =
+        status === CorpSubmissionStatus.FINANCE_APPROVED && submission.sec24PctSnapshot !== null
+          ? submission.sec24PctSnapshot
+          : await this.sec24.activePctForMonth(submission.month);
+    }
+
     return {
       id: submission.id,
       departmentId: submission.departmentId,
@@ -168,6 +185,8 @@ export class CorpSubmissionsService {
       canReview: isApprover && isCorpReviewEditable(status),
       submittedAt: submission.submittedAt?.toISOString() ?? null,
       financeApprovedAt: submission.financeApprovedAt?.toISOString() ?? null,
+      isSharedCostPool: isPool,
+      sec24AllocationPct: resolvedPct ? resolvedPct.toFixed(2) : null,
       budgetCodes: budgetCodes.map((b) => ({ id: b.id, code: b.code, description: b.description })),
       heads: submission.snapshots.map((snap) => ({
         snapshotId: snap.id,
@@ -175,7 +194,10 @@ export class CorpSubmissionsService {
         name: snap.expenseHeadNameAtSnapshot,
         budgetCodeId: snap.entry?.budgetCodeId ?? null,
         amount: snap.entry ? snap.entry.amount.toFixed(2) : null,
-        hclAvitasShare: snap.entry?.hclAvitasShare ? snap.entry.hclAvitasShare.toFixed(2) : null,
+        hclAvitasShare:
+          isPool && resolvedPct !== null && snap.entry
+            ? this.sec24.computeShare(snap.entry.amount, resolvedPct)!.toFixed(2)
+            : null,
       })),
     };
   }

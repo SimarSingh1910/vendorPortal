@@ -310,9 +310,39 @@ export interface CorpSubmissionDetail {
   canReview: boolean;
   submittedAt: string | null; // ISO-8601
   financeApprovedAt: string | null; // ISO-8601
+  /** True for the single Sec 24 SHARED_COST_POOL department (drives the HCL Avitas share column). */
+  isSharedCostPool: boolean;
+  /**
+   * The Sec 24 allocation % applied to this submission as a DECIMAL(5,2) string:
+   * the frozen snapshot once approved, else the currently-active % for the month;
+   * null until a % has ever been set (BR-C03/C04 → the UI shows "—").
+   */
+  sec24AllocationPct: string | null;
   /** The department's ACTIVE budget codes — the per-line dropdown source (BR-C02). */
   budgetCodes: CorpBudgetCodeOption[];
   heads: CorpProvisionHeadRow[];
+}
+
+// ── Sec 24 shared-cost-pool allocation (Phase C3) ────────────────────────────
+
+/**
+ * One append-only Sec 24 allocation-% row (BR-C06): every change is a NEW row,
+ * never an update. The currently-effective % is the latest applicable row.
+ */
+export interface Sec24AllocationConfigView {
+  id: string;
+  allocationPct: string; // DECIMAL(5,2) string
+  effectiveFromMonth: string; // YYYY-MM
+  notes: string | null;
+  setAt: string; // ISO-8601
+  setBy: { id: string; name: string };
+}
+
+/** Finance-Admin input to append a new Sec 24 allocation % (BR-C06). */
+export interface Sec24AllocationInput {
+  allocationPct: number;
+  effectiveFromMonth: string; // YYYY-MM
+  notes?: string;
 }
 
 // ── Notification config (Phase 10.1) ─────────────────────────────────────────
