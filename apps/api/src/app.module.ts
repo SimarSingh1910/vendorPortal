@@ -13,6 +13,7 @@ import { ExpenseHeadsModule } from './expense-heads/expense-heads.module';
 import { ClinicExpenseHeadsModule } from './clinic-expense-heads/clinic-expense-heads.module';
 import { CorpDepartmentsModule } from './corp-departments/corp-departments.module';
 import { CorpExpenseHeadsModule } from './corp-expense-heads/corp-expense-heads.module';
+import { CorpBudgetCodesModule } from './corp-budget-codes/corp-budget-codes.module';
 import { UsersModule } from './users/users.module';
 import { SubmissionsModule } from './submissions/submissions.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -41,6 +42,7 @@ import { ExportModule } from './export/export.module';
     ClinicExpenseHeadsModule,
     CorpDepartmentsModule,
     CorpExpenseHeadsModule,
+    CorpBudgetCodesModule,
     UsersModule,
     SubmissionsModule,
     NotificationsModule,

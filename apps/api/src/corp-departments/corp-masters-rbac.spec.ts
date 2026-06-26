@@ -5,16 +5,17 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { TabGuard } from '../auth/guards/tab.guard';
 import { CorpDepartmentsController } from './corp-departments.controller';
 import { CorpExpenseHeadsController } from '../corp-expense-heads/corp-expense-heads.controller';
+import { CorpBudgetCodesController } from '../corp-budget-codes/corp-budget-codes.controller';
 
 /**
- * Step C1.1 — RBAC at the API edge for corporate masters. Department and
- * expense-head MANAGEMENT (incl. reads, since the whole controller is admin-
- * gated) is FINANCE_ADMIN-only: RolesGuard 403s every other role. TabGuard
- * additionally keeps clinic-only roles — including the clinic FINANCE_MANAGER —
- * off these CORPORATE-tab controllers; FINANCE_ADMIN, the only cross-tab role,
- * passes both.
+ * Steps C1.1/C1.2 — RBAC at the API edge for corporate masters. Department,
+ * expense-head and budget-code MANAGEMENT (incl. reads, since the whole
+ * controller is admin-gated) is FINANCE_ADMIN-only: RolesGuard 403s every other
+ * role. TabGuard additionally keeps clinic-only roles — including the clinic
+ * FINANCE_MANAGER — off these CORPORATE-tab controllers; FINANCE_ADMIN, the only
+ * cross-tab role, passes both.
  */
-describe('Corporate masters RBAC (Step C1.1)', () => {
+describe('Corporate masters RBAC (Steps C1.1/C1.2)', () => {
   const roles = new RolesGuard(new Reflector());
   const tabs = new TabGuard(new Reflector());
   const ctx = (role: UserRole, handler: unknown, cls: unknown): ExecutionContext =>
@@ -38,6 +39,12 @@ describe('Corporate masters RBAC (Step C1.1)', () => {
     ['head.update', CorpExpenseHeadsController.prototype.update, CorpExpenseHeadsController],
     ['head.deactivate', CorpExpenseHeadsController.prototype.deactivate, CorpExpenseHeadsController],
     ['head.activate', CorpExpenseHeadsController.prototype.activate, CorpExpenseHeadsController],
+    ['code.create', CorpBudgetCodesController.prototype.create, CorpBudgetCodesController],
+    ['code.list', CorpBudgetCodesController.prototype.list, CorpBudgetCodesController],
+    ['code.get', CorpBudgetCodesController.prototype.get, CorpBudgetCodesController],
+    ['code.update', CorpBudgetCodesController.prototype.update, CorpBudgetCodesController],
+    ['code.deactivate', CorpBudgetCodesController.prototype.deactivate, CorpBudgetCodesController],
+    ['code.activate', CorpBudgetCodesController.prototype.activate, CorpBudgetCodesController],
   ];
 
   const nonAdminCorporate = [UserRole.CORP_FINANCE_MANAGER, UserRole.DEPT_SPOC, UserRole.DEPT_VIEWER];
