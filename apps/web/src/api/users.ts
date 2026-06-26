@@ -7,12 +7,14 @@ export interface CreateUserInput {
   password: string;
   role: UserRole;
   clinicIds: string[];
+  departmentIds: string[];
 }
 
 export interface UpdateUserInput {
   name: string;
   role: UserRole;
   clinicIds: string[];
+  departmentIds: string[];
   password?: string; // omitted = keep current password
 }
 

@@ -5,14 +5,26 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { AuditAction, CLINIC_ROLES, UserRole, type ActiveFilter, type AdminUser } from '@portal/shared';
+import {
+  AuditAction,
+  CLINIC_ROLES,
+  DEPT_SCOPED_ROLES,
+  UserRole,
+  type ActiveFilter,
+  type AdminUser,
+} from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 
-type UserWithAssignments = Prisma.UserGetPayload<{ include: { assignments: true } }>;
+type UserWithAssignments = Prisma.UserGetPayload<{
+  include: { assignments: true; departmentAssignments: true };
+}>;
+
+/** Always load both assignment sets so AdminUser carries clinicIds + departmentIds. */
+const userInclude = { assignments: true, departmentAssignments: true } as const;
 
 function toAdminUser(user: UserWithAssignments): AdminUser {
   return {
@@ -22,6 +34,7 @@ function toAdminUser(user: UserWithAssignments): AdminUser {
     role: user.role as UserRole,
     isActive: user.isActive,
     clinicIds: user.assignments.map((a) => a.clinicId),
+    departmentIds: user.departmentAssignments.map((a) => a.departmentId),
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString(),
   };
@@ -89,19 +102,68 @@ export class UsersService {
     }
   }
 
+  private isDeptRole(role: UserRole): boolean {
+    return (DEPT_SCOPED_ROLES as readonly UserRole[]).includes(role);
+  }
+
+  /**
+   * Resolve and validate the DEPARTMENT assignment for a corporate user — the
+   * mirror of resolveClinicIds, but department-scoped roles (Dept SPOC/Viewer)
+   * may hold MULTIPLE departments:
+   *  - Non-department roles (incl. CORP_FINANCE_MANAGER, which auto-sees every
+   *    department) must carry NO assignment. An explicit non-empty list is
+   *    rejected (400); an omitted/empty list resolves to none (so changing a
+   *    Dept SPOC to CORP_FINANCE_MANAGER clears it).
+   *  - Dept SPOC/Viewer must resolve to AT LEAST ONE department (0 → 400);
+   *    duplicates are de-duplicated. On update, an omitted list falls back to the
+   *    current assignment.
+   */
+  private resolveDepartmentIds(
+    role: UserRole,
+    provided: string[] | undefined,
+    current?: string[],
+  ): string[] {
+    if (!this.isDeptRole(role)) {
+      if (provided && provided.length > 0) {
+        throw new BadRequestException(
+          'Only Department SPOC and Viewer users may be assigned to a department',
+        );
+      }
+      return [];
+    }
+    const target = [...new Set(provided ?? current ?? [])];
+    if (target.length === 0) {
+      throw new BadRequestException(
+        'Department SPOC and Viewer users must be assigned to at least one department',
+      );
+    }
+    return target;
+  }
+
+  private async assertDepartmentsExist(departmentIds: string[]): Promise<void> {
+    if (departmentIds.length === 0) return;
+    const found = await this.prisma.corpDepartment.findMany({
+      where: { id: { in: departmentIds } },
+      select: { id: true },
+    });
+    if (found.length !== departmentIds.length) {
+      throw new BadRequestException('One or more department ids are invalid');
+    }
+  }
+
   async list(status: ActiveFilter = 'all'): Promise<AdminUser[]> {
     const where =
       status === 'active' ? { isActive: true } : status === 'inactive' ? { isActive: false } : {};
     const users = await this.prisma.user.findMany({
       where,
-      include: { assignments: true },
+      include: userInclude,
       orderBy: { name: 'asc' },
     });
     return users.map(toAdminUser);
   }
 
   async get(id: string): Promise<AdminUser> {
-    const user = await this.prisma.user.findUnique({ where: { id }, include: { assignments: true } });
+    const user = await this.prisma.user.findUnique({ where: { id }, include: userInclude });
     if (!user) throw new NotFoundException('User not found');
     return toAdminUser(user);
   }
@@ -112,6 +174,8 @@ export class UsersService {
 
     const clinicIds = this.resolveClinicIds(dto.role, dto.clinicIds);
     await this.assertClinicsExist(clinicIds);
+    const departmentIds = this.resolveDepartmentIds(dto.role, dto.departmentIds);
+    await this.assertDepartmentsExist(departmentIds);
     const passwordHash = await this.auth.hashPassword(dto.password);
 
     const user = await this.prisma.user.create({
@@ -121,14 +185,17 @@ export class UsersService {
         passwordHash,
         role: dto.role,
         assignments: { create: clinicIds.map((clinicId) => ({ clinicId })) },
+        departmentAssignments: {
+          create: departmentIds.map((departmentId) => ({ departmentId })),
+        },
       },
-      include: { assignments: true },
+      include: userInclude,
     });
     await this.audit.record({
       action: AuditAction.USER_CREATE,
       entityType: 'User',
       entityId: user.id,
-      newValue: { name: dto.name, email: dto.email, role: dto.role, clinicIds },
+      newValue: { name: dto.name, email: dto.email, role: dto.role, clinicIds, departmentIds },
     });
     // New user has no sessions yet — nothing to invalidate.
     return toAdminUser(user);
@@ -137,7 +204,7 @@ export class UsersService {
   async update(id: string, dto: UpdateUserDto, requesterId: string): Promise<AdminUser> {
     const current = await this.prisma.user.findUnique({
       where: { id },
-      include: { assignments: true },
+      include: userInclude,
     });
     if (!current) throw new NotFoundException('User not found');
 
@@ -159,6 +226,18 @@ export class UsersService {
       assignmentsTouched = true;
     }
     const assignmentsChanged = assignmentsTouched && !sameSet(currentClinicIds, targetClinicIds);
+
+    const currentDepartmentIds = current.departmentAssignments.map((a) => a.departmentId);
+    let targetDepartmentIds = currentDepartmentIds;
+    let deptAssignmentsTouched = false;
+    if (dto.departmentIds !== undefined || roleChanged) {
+      targetDepartmentIds = this.resolveDepartmentIds(newRole, dto.departmentIds, currentDepartmentIds);
+      await this.assertDepartmentsExist(targetDepartmentIds);
+      deptAssignmentsTouched = true;
+    }
+    const deptAssignmentsChanged =
+      deptAssignmentsTouched && !sameSet(currentDepartmentIds, targetDepartmentIds);
+
     const passwordChanged = dto.password !== undefined;
 
     const userData: Prisma.UserUpdateInput = {};
@@ -178,11 +257,19 @@ export class UsersService {
           });
         }
       }
-      return tx.user.findUniqueOrThrow({ where: { id }, include: { assignments: true } });
+      if (deptAssignmentsChanged) {
+        await tx.userDepartmentAssignment.deleteMany({ where: { userId: id } });
+        if (targetDepartmentIds.length > 0) {
+          await tx.userDepartmentAssignment.createMany({
+            data: targetDepartmentIds.map((departmentId) => ({ userId: id, departmentId })),
+          });
+        }
+      }
+      return tx.user.findUniqueOrThrow({ where: { id }, include: userInclude });
     });
 
     // Immediate effect: any security-relevant change kills outstanding sessions.
-    if (roleChanged || assignmentsChanged || passwordChanged) {
+    if (roleChanged || assignmentsChanged || deptAssignmentsChanged || passwordChanged) {
       await this.auth.invalidateUserSessions(id);
     }
 
@@ -191,11 +278,12 @@ export class UsersService {
       entityType: 'User',
       entityId: id,
       // Never log password material — only whether it changed.
-      oldValue: { role: current.role, clinicIds: currentClinicIds },
+      oldValue: { role: current.role, clinicIds: currentClinicIds, departmentIds: currentDepartmentIds },
       newValue: {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
         role: newRole,
         clinicIds: targetClinicIds,
+        departmentIds: targetDepartmentIds,
         passwordChanged,
       },
     });
@@ -212,7 +300,7 @@ export class UsersService {
     const user = await this.prisma.user.update({
       where: { id },
       data: { isActive },
-      include: { assignments: true },
+      include: userInclude,
     });
     await this.auth.invalidateUserSessions(id);
     await this.audit.record({

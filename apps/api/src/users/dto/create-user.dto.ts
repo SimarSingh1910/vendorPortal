@@ -27,9 +27,18 @@ export class CreateUserDto {
   @IsEnum(UserRole)
   role!: UserRole;
 
-  /** Only meaningful for clinic-scoped roles; ignored for finance roles. */
+  /** Only meaningful for clinic-scoped roles; rejected for non-clinic roles. */
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
   clinicIds?: string[];
+
+  /**
+   * Only meaningful for department-scoped corporate roles (Dept SPOC/Viewer);
+   * rejected for any other role. May hold MULTIPLE departments.
+   */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  departmentIds?: string[];
 }

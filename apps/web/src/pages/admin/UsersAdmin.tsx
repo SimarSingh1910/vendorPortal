@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import {
   CLINIC_ROLES,
+  DEPT_SCOPED_ROLES,
   ROLE_LABELS,
   UserRole,
   type ActiveFilter,
@@ -29,6 +30,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { listClinics } from '@/api/clinics';
+import { listDepartments } from '@/api/departments';
 import {
   createUser,
   listUsers,
@@ -44,6 +46,7 @@ const FILTERS: { value: ActiveFilter; label: string }[] = [
 ];
 
 const isClinicRole = (role: UserRole) => (CLINIC_ROLES as readonly UserRole[]).includes(role);
+const isDeptRole = (role: UserRole) => (DEPT_SCOPED_ROLES as readonly UserRole[]).includes(role);
 
 export function UsersAdmin() {
   const [filter, setFilter] = useState<ActiveFilter>('all');
@@ -59,10 +62,18 @@ export function UsersAdmin() {
     queryKey: ['clinics', 'active'],
     queryFn: () => listClinics('active'),
   });
+  const { data: departments = [] } = useQuery({
+    queryKey: ['departments', 'active'],
+    queryFn: () => listDepartments('active'),
+  });
 
   const clinicName = useMemo(
     () => new Map(clinics.map((c) => [c.id, c.name])),
     [clinics],
+  );
+  const departmentName = useMemo(
+    () => new Map(departments.map((d) => [d.id, d.name])),
+    [departments],
   );
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['users'] });
@@ -86,8 +97,8 @@ export function UsersAdmin() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Users &amp; access</h1>
           <p className="text-sm text-muted-foreground">
-            Create users, assign one role, and map each clinic-scoped user to one or more clinics.
-            Changes take effect immediately. Finance Admin only.
+            Create users, assign one role, and map each clinic- or department-scoped user to one or
+            more clinics / departments. Changes take effect immediately. Finance Admin only.
           </p>
         </div>
         <Button onClick={openAdd}>
@@ -116,7 +127,7 @@ export function UsersAdmin() {
               <TableHead>Name</TableHead>
               <TableHead>Email</TableHead>
               <TableHead>Role</TableHead>
-              <TableHead>Clinic</TableHead>
+              <TableHead>Clinic / Department</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -145,7 +156,11 @@ export function UsersAdmin() {
                       ? user.clinicIds.length === 0
                         ? '—'
                         : user.clinicIds.map((id) => clinicName.get(id) ?? id).join(', ')
-                      : 'All (finance)'}
+                      : isDeptRole(user.role)
+                        ? user.departmentIds.length === 0
+                          ? '—'
+                          : user.departmentIds.map((id) => departmentName.get(id) ?? id).join(', ')
+                        : 'All (finance)'}
                   </TableCell>
                   <TableCell>
                     <Badge variant={user.isActive ? 'success' : 'muted'}>
@@ -184,6 +199,7 @@ export function UsersAdmin() {
         }}
         editing={editing}
         clinics={clinics}
+        departments={departments}
         onSaved={() => {
           invalidate();
           setDialogOpen(false);
@@ -199,20 +215,32 @@ interface UserFormDialogProps {
   onOpenChange: (open: boolean) => void;
   editing: AdminUser | null;
   clinics: { id: string; name: string; location: string }[];
+  departments: { id: string; name: string }[];
   onSaved: () => void;
 }
 
-function UserFormDialog({ open, onOpenChange, editing, clinics, onSaved }: UserFormDialogProps) {
+function UserFormDialog({
+  open,
+  onOpenChange,
+  editing,
+  clinics,
+  departments,
+  onSaved,
+}: UserFormDialogProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<UserRole>(UserRole.CLINIC_SPOC);
   // One or more clinics per clinic-role user; finance roles carry none.
   const [clinicIds, setClinicIds] = useState<string[]>([]);
+  // One or more departments per Dept SPOC/Viewer; all other roles carry none.
+  const [departmentIds, setDepartmentIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const toggleClinic = (id: string) =>
     setClinicIds((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]));
+  const toggleDepartment = (id: string) =>
+    setDepartmentIds((prev) => (prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id]));
 
   useEffect(() => {
     if (!open) return;
@@ -223,26 +251,37 @@ function UserFormDialog({ open, onOpenChange, editing, clinics, onSaved }: UserF
       setEmail(editing.email);
       setRole(editing.role);
       setClinicIds(editing.clinicIds ?? []);
+      setDepartmentIds(editing.departmentIds ?? []);
     } else {
       setName('');
       setEmail('');
       setRole(UserRole.CLINIC_SPOC);
       setClinicIds([]);
+      setDepartmentIds([]);
     }
   }, [open, editing]);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
       const clinics = isClinicRole(role) ? clinicIds : [];
+      const depts = isDeptRole(role) ? departmentIds : [];
       if (editing) {
         return updateUser(editing.id, {
           name,
           role,
           clinicIds: clinics,
+          departmentIds: depts,
           ...(password ? { password } : {}),
         });
       }
-      const input: CreateUserInput = { name, email, password, role, clinicIds: clinics };
+      const input: CreateUserInput = {
+        name,
+        email,
+        password,
+        role,
+        clinicIds: clinics,
+        departmentIds: depts,
+      };
       return createUser(input);
     },
     onSuccess: onSaved,
@@ -264,6 +303,8 @@ function UserFormDialog({ open, onOpenChange, editing, clinics, onSaved }: UserF
       return setError('Password must be at least 8 characters.');
     if (isClinicRole(role) && clinicIds.length === 0)
       return setError('Select at least one clinic for clinic-scoped roles.');
+    if (isDeptRole(role) && departmentIds.length === 0)
+      return setError('Select at least one department for department-scoped roles.');
     saveMutation.mutate();
   }
 
@@ -356,9 +397,43 @@ function UserFormDialog({ open, onOpenChange, editing, clinics, onSaved }: UserF
                 </>
               )}
             </div>
+          ) : isDeptRole(role) ? (
+            <div className="space-y-1.5">
+              <Label>Assigned departments</Label>
+              {departments.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No active departments to assign.</p>
+              ) : (
+                <>
+                  <div
+                    className="max-h-44 space-y-1 overflow-y-auto rounded-md border p-2"
+                    data-testid="department-select"
+                  >
+                    {departments.map((d) => (
+                      <label
+                        key={d.id}
+                        className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-accent"
+                      >
+                        <input
+                          type="checkbox"
+                          className="size-4"
+                          checked={departmentIds.includes(d.id)}
+                          onChange={() => toggleDepartment(d.id)}
+                        />
+                        <span>{d.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Department-scoped users may cover one or more departments (
+                    {departmentIds.length} selected).
+                  </p>
+                </>
+              )}
+            </div>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Finance roles have org-wide access (no clinic assignment).
+              Finance &amp; Corporate Finance Manager roles have tab-wide access (no individual
+              clinic or department assignment).
             </p>
           )}
 

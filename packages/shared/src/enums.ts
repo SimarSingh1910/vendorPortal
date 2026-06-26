@@ -115,6 +115,18 @@ export const CORPORATE_ROLES: readonly UserRole[] = [
 ];
 
 /**
+ * Convenience: the corporate roles scoped to one or more departments
+ * (Dept SPOC / Viewer) — the ones carrying user_department_assignments rows.
+ * CORP_FINANCE_MANAGER is deliberately EXCLUDED: like the clinic FINANCE_MANAGER
+ * it auto-sees every department and holds NO assignment rows. Unlike clinic
+ * roles (one clinic each), these may hold MULTIPLE departments.
+ */
+export const DEPT_SCOPED_ROLES: readonly UserRole[] = [
+  UserRole.DEPT_SPOC,
+  UserRole.DEPT_VIEWER,
+];
+
+/**
  * Which tab(s) each role may see — the single source of truth for tab visibility,
  * consumed by frontend routing and the backend TabGuard. FINANCE_ADMIN is the
  * ONLY role spanning both tabs; every other role sees exactly one.

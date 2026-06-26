@@ -7,7 +7,7 @@
  * shape that RBAC will rely on.
  */
 
-import type { SubmissionStatus, UserRole } from './enums';
+import type { CorpDepartmentType, SubmissionStatus, UserRole } from './enums';
 
 /** Response from the API health endpoint. */
 export interface HealthResponse {
@@ -60,7 +60,8 @@ export interface AuthResponse {
 
 /**
  * A user as shown in the Finance Admin user-management screen. Never includes
- * the password hash. `clinicIds` is populated only for clinic-scoped roles.
+ * the password hash. `clinicIds` is populated only for clinic-scoped roles;
+ * `departmentIds` only for department-scoped corporate roles (Dept SPOC/Viewer).
  */
 export interface AdminUser {
   id: string;
@@ -69,6 +70,7 @@ export interface AdminUser {
   role: UserRole;
   isActive: boolean;
   clinicIds: string[];
+  departmentIds: string[];
   createdAt: string; // ISO-8601
   updatedAt: string; // ISO-8601
 }
@@ -106,6 +108,18 @@ export interface ClinicExpenseHead {
 
 /** Active/inactive list filter shared by the master-data lists. */
 export type ActiveFilter = 'active' | 'inactive' | 'all';
+
+// ── Corporate master data ────────────────────────────────────────────────────
+
+/** A corporate department master record (Corporate tab). */
+export interface CorpDepartment {
+  id: string;
+  name: string;
+  type: CorpDepartmentType;
+  isActive: boolean;
+  createdAt: string; // ISO-8601
+  updatedAt: string; // ISO-8601
+}
 
 /**
  * An expense head that currently applies to a clinic (active mapping + active
