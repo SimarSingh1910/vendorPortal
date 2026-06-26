@@ -23,6 +23,7 @@ import { CorpSubmissionEntry } from '@/pages/corporate/CorpSubmissionEntry';
 import { CorpReviewQueue } from '@/pages/corporate/CorpReviewQueue';
 import { CorpReview } from '@/pages/corporate/CorpReview';
 import { CorporateDashboard } from '@/pages/corporate/CorporateDashboard';
+import { CorpMyDashboard } from '@/pages/corporate/CorpMyDashboard';
 import { CorpDepartmentsAdmin } from '@/pages/corporate/admin/CorpDepartmentsAdmin';
 import { CorpDepartmentDetail } from '@/pages/corporate/admin/CorpDepartmentDetail';
 import { CorpSec24Admin } from '@/pages/corporate/admin/CorpSec24Admin';
@@ -207,6 +208,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/dashboard']}>
             <CorporateDashboard />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/my-dashboard',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/my-dashboard']}>
+            <CorpMyDashboard />
           </ProtectedRoute>
         ),
       },

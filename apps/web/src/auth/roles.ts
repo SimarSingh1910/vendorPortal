@@ -96,7 +96,14 @@ export const NAV_ITEMS: NavItem[] = [
   // Corporate tab (Corporate Provisions module).
   { path: CORPORATE_HOME, label: 'Departments', roles: CORP_VISIBLE, tab: PortalTab.CORPORATE },
   { path: '/corporate/review', label: 'Review Queue', roles: CORP_APPROVER, tab: PortalTab.CORPORATE },
-  { path: '/corporate/dashboard', label: 'Dashboard', roles: CORP_VISIBLE, tab: PortalTab.CORPORATE },
+  // Dashboard: finance consolidated (all depts) for approvers; own-dept view for dept users.
+  { path: '/corporate/dashboard', label: 'Dashboard', roles: CORP_APPROVER, tab: PortalTab.CORPORATE },
+  {
+    path: '/corporate/my-dashboard',
+    label: 'Dashboard',
+    roles: CORP_DEPT_USERS,
+    tab: PortalTab.CORPORATE,
+  },
   // Corporate master data — Finance Admin only (mirrors the clinic admin items).
   {
     path: '/corporate/admin/departments',
@@ -133,7 +140,8 @@ export const ROUTE_ROLES: Record<string, UserRole[]> = {
   [CORPORATE_HOME]: CORP_VISIBLE,
   '/corporate/submissions': CORP_DEPT_USERS,
   '/corporate/review': CORP_APPROVER,
-  '/corporate/dashboard': CORP_VISIBLE,
+  '/corporate/dashboard': CORP_APPROVER,
+  '/corporate/my-dashboard': CORP_DEPT_USERS,
   '/corporate/admin/departments': [UserRole.FINANCE_ADMIN],
   '/corporate/admin/sec24': [UserRole.FINANCE_ADMIN],
 };

@@ -341,4 +341,86 @@ describe('CorpDashboardService (Step C4.1 — consolidated dashboard)', () => {
     expect(opts.expenseHeads.map((h) => h.name)).toEqual(['Salaries']);
     expect(opts.budgetCodes.map((c) => c.code)).toEqual(['BR-1']);
   });
+
+  // ── C4.2 — DEPT_SPOC/VIEWER scoped dashboard view ───────────────────────────
+  // The dept dashboard is the SAME aggregation endpoints, auto-scoped by
+  // CorpDepartmentScopeService: a DEPT_SPOC/VIEWER sees ONLY assigned departments
+  // (a multi-dept SPOC sees EACH), finance sees all, reads write no audit.
+  describe('C4.2 — DEPT_SPOC/VIEWER scoped view', () => {
+    it('a multi-dept SPOC sees EACH assigned department and excludes unassigned ones', async () => {
+      const deptA = await fx.makeDept({ name: 'Alpha' });
+      await fx.makeHead(deptA.id);
+      const codeA = await fx.makeBudgetCode(deptA.id);
+      const deptB = await fx.makeDept({ name: 'Beta' });
+      await fx.makeHead(deptB.id);
+      const codeB = await fx.makeBudgetCode(deptB.id);
+      const deptC = await fx.makeDept({ name: 'Gamma' }); // NOT assigned to the SPOC
+      await fx.makeHead(deptC.id);
+      const codeC = await fx.makeBudgetCode(deptC.id);
+
+      const fm = await fmUser();
+      const spocAB = await fx.makeUser(UserRole.DEPT_SPOC, [deptA.id, deptB.id]);
+      await enterAndApprove(deptA.id, M, spocAB, fm, codeA.id, [100]);
+      await enterAndApprove(deptB.id, M, spocAB, fm, codeB.id, [200]);
+      const spocC = await fx.makeUser(UserRole.DEPT_SPOC, [deptC.id]);
+      await enterAndApprove(deptC.id, M, spocC, fm, codeC.id, [999]);
+
+      // status tracker: BOTH assigned depts (with their totals), NOT the unassigned one.
+      const tiles = await dash.statusTracker(spocAB, M);
+      expect(tiles.map((t) => t.departmentId).sort()).toEqual([deptA.id, deptB.id].sort());
+      expect(tiles.find((t) => t.departmentId === deptA.id)!.total).toBe('100.00');
+      expect(tiles.find((t) => t.departmentId === deptB.id)!.total).toBe('200.00');
+      expect(tiles.find((t) => t.departmentId === deptC.id)).toBeUndefined();
+
+      // combined MoM sums ONLY the assigned depts (100 + 200), never C's 999.
+      expect(await dash.monthlyTotals(spocAB, { month: M })).toEqual([{ month: M, total: '300.00' }]);
+
+      // finance, by contrast, sees all three departments.
+      const fmTotals = await dash.departmentTotals(fm, { from: M, to: M });
+      expect(fmTotals.map((d) => d.departmentId).sort()).toEqual(
+        [deptA.id, deptB.id, deptC.id].sort(),
+      );
+    });
+
+    it('a DEPT_VIEWER sees only its assigned department across tiles, totals and filters', async () => {
+      const deptA = await fx.makeDept({ name: 'Alpha' });
+      await fx.makeHead(deptA.id, { name: 'Salaries' });
+      const codeA = await fx.makeBudgetCode(deptA.id, { code: 'BR-A' });
+      const deptB = await fx.makeDept({ name: 'Beta' });
+      await fx.makeHead(deptB.id, { name: 'Rent' });
+      const codeB = await fx.makeBudgetCode(deptB.id, { code: 'BR-B' });
+
+      const fm = await fmUser();
+      const spoc = await fx.makeUser(UserRole.DEPT_SPOC, [deptA.id, deptB.id]);
+      await enterAndApprove(deptA.id, M, spoc, fm, codeA.id, [100]);
+      await enterAndApprove(deptB.id, M, spoc, fm, codeB.id, [200]);
+
+      const viewerA = await fx.makeUser(UserRole.DEPT_VIEWER, [deptA.id]);
+      const tiles = await dash.statusTracker(viewerA, M);
+      expect(tiles.map((t) => t.departmentId)).toEqual([deptA.id]);
+      expect(await dash.monthlyTotals(viewerA, { month: M })).toEqual([
+        { month: M, total: '100.00' },
+      ]);
+      const opts = await dash.filterOptions(viewerA);
+      expect(opts.departments.map((d) => d.id)).toEqual([deptA.id]);
+      expect(opts.expenseHeads.map((h) => h.name)).toEqual(['Salaries']);
+      expect(opts.budgetCodes.map((c) => c.code)).toEqual(['BR-A']);
+    });
+
+    it('a dept-scoped dashboard read writes no audit rows', async () => {
+      const deptA = await fx.makeDept({ name: 'Alpha' });
+      await fx.makeHead(deptA.id);
+      const codeA = await fx.makeBudgetCode(deptA.id);
+      const fm = await fmUser();
+      const spoc = await fx.makeUser(UserRole.DEPT_SPOC, [deptA.id]);
+      await enterAndApprove(deptA.id, M, spoc, fm, codeA.id, [100]);
+
+      const auditBefore = await prisma.auditLog.count();
+      await dash.statusTracker(spoc, M);
+      await dash.monthlyTotals(spoc, { month: M });
+      await dash.headTrends(spoc, { month: M });
+      await dash.filterOptions(spoc);
+      expect(await prisma.auditLog.count()).toBe(auditBefore);
+    });
+  });
 });

@@ -1,10 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
-import {
-  CorpSubmissionStatus,
-  type CorpDashboardStatusTile,
-  type CorpSec24MonthPoint,
-} from '@portal/shared';
+import { CorpSubmissionStatus, type CorpSec24MonthPoint } from '@portal/shared';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -29,11 +25,12 @@ import {
 } from '@/api/corpDashboard';
 import { MonthlyTotalsChart } from '@/components/dashboard/charts';
 import { CorpDepartmentTotalsChart } from '@/components/dashboard/CorpDepartmentTotalsChart';
+import { CorpStatusTiles, CorpStatusTable } from '@/components/dashboard/CorpStatusTiles';
 import { ChartTableView } from '@/components/dashboard/ChartTableView';
 import { HeadTrendBlock } from '@/components/dashboard/HeadTrendBlock';
 import { MonthlyTotalsTable, VarianceTable } from '@/components/dashboard/dataTables';
 import { formatINR, formatMonth } from '@/lib/format';
-import { corpStatusBadgeVariant, corpStatusLabel, currentMonthIST } from '@/lib/corpFormat';
+import { corpStatusLabel, currentMonthIST } from '@/lib/corpFormat';
 import { buildHeadColorMap, headColor } from '@/lib/chartColors';
 
 /** Shift a YYYY-MM month by `delta` months. */
@@ -65,59 +62,6 @@ function Select({
 }
 
 const STATUS_OPTIONS = Object.values(CorpSubmissionStatus);
-
-/** (a) Per-department status tiles for the as-of month. */
-function CorpStatusTiles({ tiles }: { tiles: CorpDashboardStatusTile[] }) {
-  if (tiles.length === 0) {
-    return <p className="py-6 text-center text-sm text-muted-foreground">No departments in scope.</p>;
-  }
-  return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {tiles.map((t) => (
-        <Card key={t.departmentId}>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">{t.departmentName}</CardTitle>
-            <CardDescription>
-              <Badge variant={corpStatusBadgeVariant(t.status)}>{corpStatusLabel(t.status)}</Badge>
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-lg font-semibold">{formatINR(t.total)}</p>
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
-}
-
-/** (a) Tabular view of the same status tiles. */
-function CorpStatusTable({ tiles }: { tiles: CorpDashboardStatusTile[] }) {
-  if (tiles.length === 0) {
-    return <p className="py-6 text-center text-sm text-muted-foreground">No departments in scope.</p>;
-  }
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Department</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead className="text-right">Total entered (₹)</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {tiles.map((t) => (
-          <TableRow key={t.departmentId}>
-            <TableCell className="font-medium">{t.departmentName}</TableCell>
-            <TableCell>
-              <Badge variant={corpStatusBadgeVariant(t.status)}>{corpStatusLabel(t.status)}</Badge>
-            </TableCell>
-            <TableCell className="text-right">{formatINR(t.total)}</TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  );
-}
 
 /**
  * (f) Sec 24 dual display: total | HCL Avitas share | % used. Reads FROZEN values
