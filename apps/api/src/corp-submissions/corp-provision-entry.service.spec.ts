@@ -187,6 +187,40 @@ describe('CorpProvisionEntryService (Steps C2.2/C2.3 — entry + override)', () 
     expect(override).not.toBeNull();
   });
 
+  it('the approver override is held to the SAME budget-code rule (inactive/foreign code → 400)', async () => {
+    const { dept, code, spoc, fm, submissionId, snaps } = await scenario();
+    await entries.saveEntries(submissionId, spoc, [
+      { snapshotId: snaps[0].id, budgetCodeId: code.id, amount: 100 },
+      { snapshotId: snaps[1].id, budgetCodeId: code.id, amount: 200 },
+    ]);
+    await workflow.submit(submissionId, spoc);
+
+    const inactive = await fx.makeBudgetCode(dept.id, { code: 'OLD', active: false });
+    const otherDept = await fx.makeDept();
+    const foreign = await fx.makeBudgetCode(otherDept.id, { code: 'BR-X' });
+
+    // An approver value edit cannot smuggle in an inactive or other-department code.
+    await expectStatus(
+      entries.saveEntries(submissionId, fm, [
+        { snapshotId: snaps[0].id, budgetCodeId: inactive.id, amount: 150 },
+      ]),
+      400,
+    );
+    await expectStatus(
+      entries.saveEntries(submissionId, fm, [
+        { snapshotId: snaps[0].id, budgetCodeId: foreign.id, amount: 150 },
+      ]),
+      400,
+    );
+
+    // The line keeps its original valid code and amount — nothing was written.
+    const entry = await prisma.corpProvisionEntry.findUniqueOrThrow({
+      where: { snapshotId: snaps[0].id },
+    });
+    expect(entry.budgetCodeId).toBe(code.id);
+    expect(entry.amount.toFixed(2)).toBe('100.00');
+  });
+
   it('an approver cannot edit while the submission is still with the SPOC (DRAFT → 409)', async () => {
     const { code, spoc, fm, submissionId, snaps } = await scenario();
     await entries.saveEntries(submissionId, spoc, [
