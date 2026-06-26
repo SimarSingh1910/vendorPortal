@@ -3,7 +3,9 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
+  Optional,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma, CommentAction } from '@prisma/client';
@@ -13,6 +15,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CORP_FINANCE_APPROVER_ROLES } from '../common/rbac.constants';
 import { CorpDepartmentScopeService } from './corp-department-scope.service';
+import { CorpNotificationDispatchService } from './corp-notification-dispatch.service';
 import { Sec24AllocationService } from './sec24-allocation.service';
 import type { RequestUser } from '../auth/request-user';
 
@@ -127,11 +130,16 @@ export class CorpWorkflowService {
     },
   };
 
+  private readonly logger = new Logger(CorpWorkflowService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly scope: CorpDepartmentScopeService,
     private readonly audit: AuditService,
     private readonly sec24: Sec24AllocationService,
+    // Optional so unit modules that construct CorpWorkflowService without the
+    // notifications wiring keep working; dispatch is a best-effort side path.
+    @Optional() private readonly dispatch?: CorpNotificationDispatchService,
   ) {}
 
   // ── Public action surface (one method per route) ────────────────────────────
@@ -339,6 +347,26 @@ export class CorpWorkflowService {
             : {}),
         },
       });
+    }
+
+    // Best-effort notifications (Step C5.1) on both channels via the existing
+    // notifier. SUBMIT → CORP_FINANCE_MANAGER; APPROVE → dept SPOCs; SEND_BACK →
+    // dept SPOCs (with the comment). OPEN_REVIEW / SAVE_DRAFT are silent. A failed
+    // notification never breaks the transition that triggered it.
+    if (this.dispatch) {
+      try {
+        if (action === CorpWorkflowAction.SUBMIT) {
+          await this.dispatch.submitted(submission);
+        } else if (action === CorpWorkflowAction.APPROVE) {
+          await this.dispatch.approved(submission);
+        } else if (action === CorpWorkflowAction.SEND_BACK) {
+          await this.dispatch.sentBack(submission, trimmedComment ?? '');
+        }
+      } catch (err) {
+        this.logger.error(
+          `corp workflow notification failed for ${submissionId} (${action}): ${(err as Error).message}`,
+        );
+      }
     }
 
     return updated;

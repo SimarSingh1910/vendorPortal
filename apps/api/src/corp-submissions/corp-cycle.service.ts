@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { CorpMonthlySubmission, CorpSubmissionExpenseHeadSnapshot } from '@prisma/client';
 import { AuditAction } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CorpExpenseHeadsService } from '../corp-expense-heads/corp-expense-heads.service';
+import { CorpNotificationDispatchService } from './corp-notification-dispatch.service';
 
 /** A corporate submission with its frozen head list, as returned by the open routine. */
 export type OpenedCorpSubmission = CorpMonthlySubmission & {
@@ -53,6 +54,9 @@ export class CorpCycleService {
     private readonly prisma: PrismaService,
     private readonly corpExpenseHeads: CorpExpenseHeadsService,
     private readonly audit: AuditService,
+    // Optional so unit modules that construct CorpCycleService without the
+    // notifications wiring keep working; dispatch is a best-effort side path.
+    @Optional() private readonly dispatch?: CorpNotificationDispatchService,
   ) {}
 
   private assertMonth(month: string): void {
@@ -114,6 +118,23 @@ export class CorpCycleService {
         entityId: submission.id,
         newValue: { departmentId, month, status: submission.status, snapshotHeads: heads.length },
       });
+
+      // Notify the department's active SPOCs the cycle is open; flag a zero-active-
+      // head open to Finance Admins (who own corp masters). Step C5.1/C5.2. Fired
+      // only on first creation, so an idempotent re-run never re-notifies. Best-effort.
+      if (this.dispatch) {
+        try {
+          await this.dispatch.cycleOpened(submission);
+          if (heads.length === 0) {
+            await this.dispatch.deptHasNoHeads(submission);
+          }
+        } catch (err) {
+          this.logger.error(
+            `corp cycle-open notification failed for ${submission.id}: ${(err as Error).message}`,
+          );
+        }
+      }
+
       return { submission, created: true };
     } catch (err) {
       // A concurrent opener won the @@unique([departmentId, month]) race — treat

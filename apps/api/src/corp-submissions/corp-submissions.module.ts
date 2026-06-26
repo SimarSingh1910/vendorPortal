@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { CorpExpenseHeadsModule } from '../corp-expense-heads/corp-expense-heads.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { CorpCycleService } from './corp-cycle.service';
 import { CorpDepartmentScopeService } from './corp-department-scope.service';
+import { CorpNotificationDispatchService } from './corp-notification-dispatch.service';
 import { CorpWorkflowService } from './corp-workflow.service';
 import { CorpProvisionEntryService } from './corp-provision-entry.service';
 import { CorpSubmissionsService } from './corp-submissions.service';
@@ -21,7 +23,7 @@ import { Sec24AllocationController } from './sec24-allocation.controller';
  * for cross-service transitions.
  */
 @Module({
-  imports: [CorpExpenseHeadsModule],
+  imports: [CorpExpenseHeadsModule, NotificationsModule],
   controllers: [
     CorpSubmissionWorkflowController,
     CorpProvisionEntryController,
@@ -31,6 +33,7 @@ import { Sec24AllocationController } from './sec24-allocation.controller';
   providers: [
     CorpCycleService,
     CorpDepartmentScopeService,
+    CorpNotificationDispatchService,
     CorpWorkflowService,
     CorpProvisionEntryService,
     CorpSubmissionsService,
@@ -42,6 +45,7 @@ import { Sec24AllocationController } from './sec24-allocation.controller';
     CorpWorkflowService,
     Sec24AllocationService,
     CorpDepartmentScopeService,
+    CorpNotificationDispatchService,
   ],
 })
 export class CorpSubmissionsModule {}
