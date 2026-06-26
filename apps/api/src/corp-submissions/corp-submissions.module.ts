@@ -37,6 +37,11 @@ import { Sec24AllocationController } from './sec24-allocation.controller';
     CorpSubmissionCommentsService,
     Sec24AllocationService,
   ],
-  exports: [CorpCycleService, CorpWorkflowService, Sec24AllocationService],
+  exports: [
+    CorpCycleService,
+    CorpWorkflowService,
+    Sec24AllocationService,
+    CorpDepartmentScopeService,
+  ],
 })
 export class CorpSubmissionsModule {}

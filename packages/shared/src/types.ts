@@ -508,6 +508,71 @@ export interface DashboardFilterOptions {
   expenseHeads: { id: string; name: string }[];
 }
 
+// ── Corporate dashboards & analytics (Phase C4) ──────────────────────────────
+
+/**
+ * One department's current-month submission status for the corporate status
+ * tracker. `total` is the summed entered amount or null when nothing is entered.
+ */
+export interface CorpDashboardStatusTile {
+  departmentId: string;
+  departmentName: string;
+  month: string; // YYYY-MM
+  status: CorpSubmissionStatus;
+  submissionId: string | null;
+  total: string | null; // DECIMAL(14,2) as string
+}
+
+/** A month → combined total point (all in-scope departments). */
+export interface CorpMonthlyTotalPoint {
+  month: string; // YYYY-MM
+  total: string; // DECIMAL(14,2) as string
+}
+
+/** A (month, department) → total point for per-department month-on-month. */
+export interface CorpDeptMonthlyTotalPoint {
+  month: string; // YYYY-MM
+  departmentId: string;
+  departmentName: string;
+  total: string; // DECIMAL(14,2) as string
+}
+
+/** A (month, expense head) → total point for the expense-head drill-down. */
+export interface CorpHeadTrendPoint {
+  month: string; // YYYY-MM
+  expenseHeadId: string;
+  expenseHeadName: string;
+  total: string; // DECIMAL(14,2) as string
+}
+
+/** A department → total for the cross-department comparison over a range. */
+export interface CorpDepartmentTotalPoint {
+  departmentId: string;
+  departmentName: string;
+  total: string; // DECIMAL(14,2) as string
+}
+
+/**
+ * The Sec 24 dual display for one month, read from FROZEN values only — never
+ * recomputed. `total` is the summed amount; `hclAvitasShare` is the summed frozen
+ * per-line share (null when no % has ever been snapshotted → render "—", NEVER 0);
+ * `allocationPct` is the submission's snapshot % (null until approved-with-% →
+ * render "—"). null and 0 are distinct: 0.00 means a real 0% allocation.
+ */
+export interface CorpSec24MonthPoint {
+  month: string; // YYYY-MM
+  total: string | null; // DECIMAL(14,2) as string
+  hclAvitasShare: string | null; // DECIMAL(14,2) as string; null = "—"
+  allocationPct: string | null; // DECIMAL(5,2) as string; null = "—"
+}
+
+/** Dropdown options for the corporate dashboard filters, scoped to the caller. */
+export interface CorpDashboardFilterOptions {
+  departments: { id: string; name: string }[];
+  expenseHeads: { id: string; name: string }[];
+  budgetCodes: { id: string; code: string }[];
+}
+
 /** Standard error envelope returned by the API. */
 export interface ApiError {
   statusCode: number;
