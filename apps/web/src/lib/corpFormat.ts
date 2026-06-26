@@ -1,5 +1,12 @@
-import { CorpSubmissionStatus } from '@portal/shared';
+import { CorpDepartmentType, CorpSubmissionStatus } from '@portal/shared';
 import type { BadgeProps } from '@/components/ui/badge';
+
+/** Human labels for the corporate department classification (no shared map exists). */
+export const DEPT_TYPE_LABELS: Record<CorpDepartmentType, string> = {
+  [CorpDepartmentType.STANDARD]: 'Standard',
+  [CorpDepartmentType.INTERNAL_BU]: 'Internal BU',
+  [CorpDepartmentType.SHARED_COST_POOL]: 'Shared cost pool (Sec 24)',
+};
 
 /**
  * Corporate-side presentation helpers. The corporate workflow has its own

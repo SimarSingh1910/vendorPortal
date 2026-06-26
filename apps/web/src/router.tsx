@@ -23,6 +23,9 @@ import { CorpSubmissionEntry } from '@/pages/corporate/CorpSubmissionEntry';
 import { CorpReviewQueue } from '@/pages/corporate/CorpReviewQueue';
 import { CorpReview } from '@/pages/corporate/CorpReview';
 import { CorporateDashboard } from '@/pages/corporate/CorporateDashboard';
+import { CorpDepartmentsAdmin } from '@/pages/corporate/admin/CorpDepartmentsAdmin';
+import { CorpDepartmentDetail } from '@/pages/corporate/admin/CorpDepartmentDetail';
+import { CorpSec24Admin } from '@/pages/corporate/admin/CorpSec24Admin';
 import { useAuthStore } from '@/store/auth.store';
 
 /** Root: send authenticated users to their role home, everyone else to login. */
@@ -204,6 +207,30 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/dashboard']}>
             <CorporateDashboard />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/admin/departments',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/admin/departments']}>
+            <CorpDepartmentsAdmin />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/admin/departments/:departmentId',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/admin/departments']}>
+            <CorpDepartmentDetail />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/admin/sec24',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/admin/sec24']}>
+            <CorpSec24Admin />
           </ProtectedRoute>
         ),
       },

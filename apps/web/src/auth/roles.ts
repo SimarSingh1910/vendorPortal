@@ -97,6 +97,19 @@ export const NAV_ITEMS: NavItem[] = [
   { path: CORPORATE_HOME, label: 'Departments', roles: CORP_VISIBLE, tab: PortalTab.CORPORATE },
   { path: '/corporate/review', label: 'Review Queue', roles: CORP_APPROVER, tab: PortalTab.CORPORATE },
   { path: '/corporate/dashboard', label: 'Dashboard', roles: CORP_VISIBLE, tab: PortalTab.CORPORATE },
+  // Corporate master data — Finance Admin only (mirrors the clinic admin items).
+  {
+    path: '/corporate/admin/departments',
+    label: 'Department Masters',
+    roles: [UserRole.FINANCE_ADMIN],
+    tab: PortalTab.CORPORATE,
+  },
+  {
+    path: '/corporate/admin/sec24',
+    label: 'Sec 24 Config',
+    roles: [UserRole.FINANCE_ADMIN],
+    tab: PortalTab.CORPORATE,
+  },
 ];
 
 /** Allowed roles per protected route path (single source for router + guard). */
@@ -121,4 +134,6 @@ export const ROUTE_ROLES: Record<string, UserRole[]> = {
   '/corporate/submissions': CORP_DEPT_USERS,
   '/corporate/review': CORP_APPROVER,
   '/corporate/dashboard': CORP_VISIBLE,
+  '/corporate/admin/departments': [UserRole.FINANCE_ADMIN],
+  '/corporate/admin/sec24': [UserRole.FINANCE_ADMIN],
 };
