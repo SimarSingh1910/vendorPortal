@@ -11,6 +11,7 @@
     "test": "jest --runInBand",
     "prisma:seed:admin": "tsc prisma/seed-admin.ts --outDir dist/prisma --module CommonJS --moduleResolution Node --target ES2022 --esModuleInterop --skipLibCheck && node dist/prisma/seed-admin.js",
     "prisma:seed:demo": "tsc prisma/seed-demo.ts --outDir dist/prisma --module CommonJS --moduleResolution Node --target ES2022 --esModuleInterop --skipLibCheck && node dist/prisma/seed-demo.js",
+    "prisma:seed:corp": "nest build && tsc prisma/seed-corp-demo.ts --outDir dist/prisma --module CommonJS --moduleResolution Node --target ES2022 --esModuleInterop --skipLibCheck && node dist/prisma/seed-corp-demo.js",
     "report:clinic-assignments": "tsc prisma/report-clinic-assignments.ts --outDir dist/prisma --module CommonJS --moduleResolution Node --target ES2022 --esModuleInterop --skipLibCheck && node dist/prisma/report-clinic-assignments.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
