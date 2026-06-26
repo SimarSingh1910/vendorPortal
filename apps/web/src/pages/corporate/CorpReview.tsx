@@ -264,7 +264,14 @@ export function CorpReview() {
                           setCodes((prev) => ({ ...prev, [head.snapshotId]: e.target.value }))
                         }
                       >
-                        <option value="">— select budget code —</option>
+                        {/* CF.5: no blank option in review — a submitted line always
+                            has a code, so an approver can only re-assign to another
+                            valid code, never silently blank it. The blank appears
+                            only in the (never-in-editable-review) uncoded edge case
+                            so the control can't misrepresent state. */}
+                        {!codes[head.snapshotId] && (
+                          <option value="">— select budget code —</option>
+                        )}
                         {detail.budgetCodes.map((bc) => (
                           <option key={bc.id} value={bc.id}>
                             {bc.code}
