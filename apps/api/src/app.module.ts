@@ -14,6 +14,7 @@ import { ClinicExpenseHeadsModule } from './clinic-expense-heads/clinic-expense-
 import { CorpDepartmentsModule } from './corp-departments/corp-departments.module';
 import { CorpExpenseHeadsModule } from './corp-expense-heads/corp-expense-heads.module';
 import { CorpBudgetCodesModule } from './corp-budget-codes/corp-budget-codes.module';
+import { CorpSubmissionsModule } from './corp-submissions/corp-submissions.module';
 import { UsersModule } from './users/users.module';
 import { SubmissionsModule } from './submissions/submissions.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -43,6 +44,7 @@ import { ExportModule } from './export/export.module';
     CorpDepartmentsModule,
     CorpExpenseHeadsModule,
     CorpBudgetCodesModule,
+    CorpSubmissionsModule,
     UsersModule,
     SubmissionsModule,
     NotificationsModule,

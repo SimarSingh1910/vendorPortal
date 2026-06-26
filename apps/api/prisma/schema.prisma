@@ -409,8 +409,8 @@ model CorpExpenseHead {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  department CorpDepartment       @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-  entries    CorpProvisionEntry[]
+  department CorpDepartment                      @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  snapshots  CorpSubmissionExpenseHeadSnapshot[]
 
   @@index([departmentId])
   @@index([isActive])
@@ -473,7 +473,8 @@ model CorpMonthlySubmission {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  department CorpDepartment          @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  department CorpDepartment                      @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  snapshots  CorpSubmissionExpenseHeadSnapshot[]
   entries    CorpProvisionEntry[]
   comments   CorpSubmissionComment[]
 
@@ -484,14 +485,38 @@ model CorpMonthlySubmission {
   @@map("corp_monthly_submissions")
 }
 
-/// A single provision line: one (submission, expense head) pair, with a MANDATORY
-/// budget code. hclAvitasShare is populated only for the Sec 24 pool (amount ×
-/// allocation% / 100); null until a % is set / for non-pool departments.
+/// Frozen copy of the expense heads that applied to a corporate submission when
+/// its cycle opened. Form rendering and data entry read from here, never from the
+/// live masters — this is how BR-C11 ("masters apply from the NEXT cycle") is
+/// enforced, mirroring the clinic SubmissionExpenseHeadSnapshot. Corporate heads
+/// carry no category, so only the name is frozen.
+model CorpSubmissionExpenseHeadSnapshot {
+  id                        String @id @default(cuid())
+  submissionId              String
+  expenseHeadId             String
+  expenseHeadNameAtSnapshot String
+
+  submission  CorpMonthlySubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  expenseHead CorpExpenseHead       @relation(fields: [expenseHeadId], references: [id])
+  entry       CorpProvisionEntry?
+
+  @@unique([submissionId, expenseHeadId])
+  @@index([submissionId])
+  @@index([expenseHeadId])
+  @@map("corp_submission_expense_head_snapshots")
+}
+
+/// A single provision line: one entry per snapshot head, with a MANDATORY budget
+/// code. Binds to the frozen snapshot head (never the live master), 1:1, mirroring
+/// the clinic ProvisionEntry. hclAvitasShare is populated only for the Sec 24 pool
+/// (amount × allocation% / 100); null until a % is set / for non-pool departments.
 model CorpProvisionEntry {
-  id             String   @id @default(cuid())
-  submissionId   String
-  expenseHeadId  String
-  budgetCodeId   String
+  id           String @id @default(cuid())
+  submissionId String
+  // Unique so each snapshot head holds at most one entry (true 1:1 with snapshot).
+  snapshotId   String @unique
+  budgetCodeId String
+
   amount         Decimal  @db.Decimal(14, 2)
   hclAvitasShare Decimal? @db.Decimal(14, 2)
 
@@ -501,16 +526,15 @@ model CorpProvisionEntry {
   lastModifiedById String
   lastModifiedAt   DateTime @updatedAt
 
-  submission     CorpMonthlySubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
-  expenseHead    CorpExpenseHead       @relation(fields: [expenseHeadId], references: [id])
-  budgetCode     CorpBudgetCode        @relation(fields: [budgetCodeId], references: [id])
-  enteredBy      User                  @relation("CorpEnteredBy", fields: [enteredById], references: [id])
-  lastModifiedBy User                  @relation("CorpLastModifiedBy", fields: [lastModifiedById], references: [id])
+  submission     CorpMonthlySubmission             @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  snapshot       CorpSubmissionExpenseHeadSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  budgetCode     CorpBudgetCode                    @relation(fields: [budgetCodeId], references: [id])
+  enteredBy      User                              @relation("CorpEnteredBy", fields: [enteredById], references: [id])
+  lastModifiedBy User                              @relation("CorpLastModifiedBy", fields: [lastModifiedById], references: [id])
 
-  // One entry per (submission, expense head) — SPOC fills every active head once.
-  @@unique([submissionId, expenseHeadId])
+  // One entry per (submission, snapshot head) — SPOC fills every active head once.
+  @@unique([submissionId, snapshotId])
   @@index([submissionId])
-  @@index([expenseHeadId])
   @@index([budgetCodeId])
   @@map("corp_provision_entries")
 }

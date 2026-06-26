@@ -47,6 +47,12 @@ export const AuditAction = {
   CORP_BUDGET_CODE_UPDATE: 'CORP_BUDGET_CODE_UPDATE',
   CORP_BUDGET_CODE_SET_ACTIVE: 'CORP_BUDGET_CODE_SET_ACTIVE',
 
+  // Corporate cycle open (Step C2.1). Mirrors the clinic CYCLE_OPEN but for a
+  // department/month; recorded as SYSTEM (no actor) when the scheduler opens it,
+  // or with the admin actor on a manual open. Corp submissions are not
+  // clinic-scoped, so these rows carry no clinicId.
+  CORP_CYCLE_OPEN: 'CORP_CYCLE_OPEN',
+
   USER_CREATE: 'USER_CREATE',
   USER_UPDATE: 'USER_UPDATE',
   USER_SET_ACTIVE: 'USER_SET_ACTIVE',
