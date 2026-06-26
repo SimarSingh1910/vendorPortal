@@ -7,7 +7,12 @@
  * shape that RBAC will rely on.
  */
 
-import type { CorpDepartmentType, SubmissionStatus, UserRole } from './enums';
+import type {
+  CorpDepartmentType,
+  CorpSubmissionStatus,
+  SubmissionStatus,
+  UserRole,
+} from './enums';
 
 /** Response from the API health endpoint. */
 export interface HealthResponse {
@@ -233,6 +238,81 @@ export interface ProvisionEntryInput {
   amount: number;
   /** Optional SPOC note for this head; blank/whitespace is stored as null. */
   note?: string;
+}
+
+// ── Corporate submission / provision entry (Phase C2) ────────────────────────
+
+/**
+ * One corporate provision line being saved against a snapshot head. Every line
+ * MUST carry a budget code chosen from the department's active codes (BR-C01/
+ * BR-C02); 0 is a valid amount, blank = omit the line entirely (BR-C16).
+ */
+export interface CorpProvisionEntryInput {
+  snapshotId: string;
+  budgetCodeId: string;
+  amount: number;
+}
+
+/** One accessible department's submission status for a month (corporate overview row). */
+export interface CorpDepartmentMonthStatus {
+  departmentId: string;
+  departmentName: string;
+  month: string; // YYYY-MM
+  submissionId: string | null;
+  status: CorpSubmissionStatus;
+  locked: boolean;
+}
+
+/** A corporate submission as a row in a department history / review queue. */
+export interface CorpSubmissionListItem {
+  id: string;
+  departmentId: string;
+  departmentName: string;
+  month: string; // YYYY-MM
+  status: CorpSubmissionStatus;
+  locked: boolean;
+  submittedAt: string | null; // ISO-8601
+  financeApprovedAt: string | null; // ISO-8601
+}
+
+/** An active budget code as an option in the per-line dropdown (BR-C02). */
+export interface CorpBudgetCodeOption {
+  id: string;
+  code: string;
+  description: string | null;
+}
+
+/**
+ * One snapshot expense head as a row in the corporate provision form. `amount`
+ * and `budgetCodeId` are null until a line is entered. `hclAvitasShare` is set
+ * only for the Sec 24 shared-cost pool (wired in a later step); null otherwise.
+ */
+export interface CorpProvisionHeadRow {
+  snapshotId: string;
+  expenseHeadId: string;
+  name: string;
+  budgetCodeId: string | null;
+  amount: string | null; // DECIMAL(14,2) string
+  hclAvitasShare: string | null; // DECIMAL(14,2) string
+}
+
+/** Full corporate provision form / read-only detail for a single submission. */
+export interface CorpSubmissionDetail {
+  id: string;
+  departmentId: string;
+  departmentName: string;
+  month: string; // YYYY-MM
+  status: CorpSubmissionStatus;
+  locked: boolean;
+  /** True only when the viewer is the dept SPOC and the status still permits editing. */
+  canEdit: boolean;
+  /** True only when the viewer is a corporate approver and may edit values now. */
+  canReview: boolean;
+  submittedAt: string | null; // ISO-8601
+  financeApprovedAt: string | null; // ISO-8601
+  /** The department's ACTIVE budget codes — the per-line dropdown source (BR-C02). */
+  budgetCodes: CorpBudgetCodeOption[];
+  heads: CorpProvisionHeadRow[];
 }
 
 // ── Notification config (Phase 10.1) ─────────────────────────────────────────

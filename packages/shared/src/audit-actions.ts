@@ -53,6 +53,17 @@ export const AuditAction = {
   // clinic-scoped, so these rows carry no clinicId.
   CORP_CYCLE_OPEN: 'CORP_CYCLE_OPEN',
 
+  // Corporate provision entry + review (Phase C2). CORP_PROVISION_SAVE = a dept
+  // SPOC's value save; CORP_PROVISION_EDIT_OVERRIDE = a corporate approver's
+  // value edit during SUBMITTED/REVIEW (BR-C08, records old->new);
+  // CORP_UNLOCK = a Finance-Admin unlock of an approved (locked) submission with
+  // its mandatory reason. Corporate workflow TRANSITIONS are recorded dynamically
+  // as `CORP_SUBMISSION_<ACTION>` (mirroring the clinic SUBMISSION_<ACTION>) and
+  // are intentionally not enumerated here.
+  CORP_PROVISION_SAVE: 'CORP_PROVISION_SAVE',
+  CORP_PROVISION_EDIT_OVERRIDE: 'CORP_PROVISION_EDIT_OVERRIDE',
+  CORP_UNLOCK: 'CORP_UNLOCK',
+
   USER_CREATE: 'USER_CREATE',
   USER_UPDATE: 'USER_UPDATE',
   USER_SET_ACTIVE: 'USER_SET_ACTIVE',
