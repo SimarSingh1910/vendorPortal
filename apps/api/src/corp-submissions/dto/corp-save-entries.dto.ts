@@ -3,8 +3,10 @@ import {
   ArrayMaxSize,
   IsArray,
   IsNumber,
+  IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -27,6 +29,13 @@ export class CorpProvisionEntryItemDto {
   @Min(0)
   @Max(999999999999.99)
   amount!: number;
+
+  // Optional SPOC line-item note. Blank/whitespace is normalised to null by the
+  // service (don't persist empty strings); same length cap as the submit comment.
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  note?: string;
 }
 
 /** Partial save is allowed — any subset of the submission's heads. */

@@ -1,4 +1,4 @@
-import type { ActiveFilter, AdminUser, UserRole } from '@portal/shared';
+import type { ActiveFilter, AdminUser, PortalTab, UserRole } from '@portal/shared';
 import { apiClient } from '@/lib/apiClient';
 
 export interface CreateUserInput {
@@ -18,8 +18,10 @@ export interface UpdateUserInput {
   password?: string; // omitted = keep current password
 }
 
-export async function listUsers(status: ActiveFilter): Promise<AdminUser[]> {
-  const { data } = await apiClient.get<AdminUser[]>('/users', { params: { status } });
+export async function listUsers(status: ActiveFilter, portal?: PortalTab): Promise<AdminUser[]> {
+  const { data } = await apiClient.get<AdminUser[]>('/users', {
+    params: { status, ...(portal ? { portal } : {}) },
+  });
   return data;
 }
 

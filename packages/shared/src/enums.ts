@@ -152,6 +152,16 @@ export function roleCanAccessTab(role: UserRole, tab: PortalTab): boolean {
   return tabsForRole(role).includes(tab);
 }
 
+/**
+ * Every role belonging to a portal's user list — the single source for the
+ * user-management clinic/corporate split. Derived from ROLE_TABS, so FINANCE_ADMIN
+ * (the only cross-tab role) appears in BOTH lists and the clinic FINANCE_MANAGER
+ * stays clinic-only. Order follows the UserRole enum.
+ */
+export function rolesForTab(tab: PortalTab): UserRole[] {
+  return (Object.values(UserRole) as UserRole[]).filter((role) => roleCanAccessTab(role, tab));
+}
+
 /** Human-readable labels for roles. Centralized so UIs never hard-code strings. */
 export const ROLE_LABELS: Record<UserRole, string> = {
   [UserRole.FINANCE_ADMIN]: 'Finance Admin',

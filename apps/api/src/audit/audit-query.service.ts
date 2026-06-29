@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import type { AuditLogPage, AuditLogView } from '@portal/shared';
+import {
+  CORP_AUDIT_ACTION_PREFIX,
+  PortalTab,
+  type AuditLogPage,
+  type AuditLogView,
+} from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditQueryDto } from './dto/audit-query.dto';
 
@@ -28,9 +33,25 @@ export class AuditQueryService {
     return {
       ...(filter.clinicId ? { clinicId: filter.clinicId } : {}),
       ...(filter.performedById ? { performedById: filter.performedById } : {}),
-      ...(filter.action ? { action: filter.action } : {}),
+      ...this.actionWhere(filter),
       ...(filter.from || filter.to ? { performedAt } : {}),
     };
+  }
+
+  /**
+   * The `action` condition. An explicit action filter pins it exactly (and thus
+   * its portal); otherwise the portal filter splits on the CORP_ prefix — the
+   * single source of truth for clinic-vs-corporate (see auditActionPortal).
+   */
+  private actionWhere(filter: AuditQueryDto): Prisma.AuditLogWhereInput {
+    if (filter.action) return { action: filter.action };
+    if (filter.portal === PortalTab.CORPORATE) {
+      return { action: { startsWith: CORP_AUDIT_ACTION_PREFIX } };
+    }
+    if (filter.portal === PortalTab.CLINIC) {
+      return { action: { not: { startsWith: CORP_AUDIT_ACTION_PREFIX } } };
+    }
+    return {};
   }
 
   async search(filter: AuditQueryDto): Promise<AuditLogPage> {

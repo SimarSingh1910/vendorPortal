@@ -79,3 +79,26 @@ export const AuditAction = {
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
+
+/**
+ * Portal discriminator for the audit-log VIEW filter (one physical AuditLog,
+ * unchanged). Every corporate action name — enumerated CORP_* above AND the
+ * runtime-built CORP_SUBMISSION_<ACTION> transitions — starts with this prefix;
+ * nothing else does. Centralized here so the clinic/corporate split has a SINGLE
+ * source of truth and can't drift between the query, the export, and the UI.
+ */
+export const CORP_AUDIT_ACTION_PREFIX = 'CORP_';
+
+/** True when an audit action belongs to the Corporate portal (CORP_* prefix). */
+export function isCorpAuditAction(action: string): boolean {
+  return action.startsWith(CORP_AUDIT_ACTION_PREFIX);
+}
+
+/**
+ * The portal an audit action belongs to, for the viewer/export filter: corporate
+ * iff it carries the CORP_ prefix, otherwise clinic (clinic actions plus the
+ * shared admin actions like USER_ and NOTIFICATION_CONFIG_ show under Clinic).
+ */
+export function auditActionPortal(action: string): 'CLINIC' | 'CORPORATE' {
+  return isCorpAuditAction(action) ? 'CORPORATE' : 'CLINIC';
+}

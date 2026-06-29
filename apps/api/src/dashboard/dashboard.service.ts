@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Portal, Prisma } from '@prisma/client';
 import {
   DEFAULT_MONTHWISE_PRESET,
   SubmissionStatus,
@@ -206,7 +206,10 @@ export class DashboardService {
     const priorMonth = shiftMonth(m, -1);
     const clinicIds = await this.resolveClinicIds(user, clinicId);
 
-    const config = await this.prisma.notificationConfig.findUnique({ where: { month: m } });
+    // Variance threshold from the CLINIC per-cycle config (independent of corporate).
+    const config = await this.prisma.notificationConfig.findUnique({
+      where: { month_portal: { month: m, portal: Portal.CLINIC } },
+    });
     const thresholdPercent = config ? config.varianceThresholdPercent.toFixed(2) : null;
     const thresholdNum = thresholdPercent != null ? Number(thresholdPercent) : null;
 

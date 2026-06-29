@@ -9,6 +9,8 @@ import {
   AuditAction,
   CLINIC_ROLES,
   DEPT_SCOPED_ROLES,
+  PortalTab,
+  rolesForTab,
   UserRole,
   type ActiveFilter,
   type AdminUser,
@@ -151,11 +153,15 @@ export class UsersService {
     }
   }
 
-  async list(status: ActiveFilter = 'all'): Promise<AdminUser[]> {
-    const where =
+  async list(status: ActiveFilter = 'all', portal?: PortalTab): Promise<AdminUser[]> {
+    const activeWhere =
       status === 'active' ? { isActive: true } : status === 'inactive' ? { isActive: false } : {};
+    // Clinic/corporate split: filter to that portal's roles (FINANCE_ADMIN, the
+    // cross-tab account, is in BOTH lists). Derived from ROLE_TABS via rolesForTab,
+    // so it can't drift from the tab-visibility source of truth.
+    const roleWhere = portal ? { role: { in: rolesForTab(portal) } } : {};
     const users = await this.prisma.user.findMany({
-      where,
+      where: { ...activeWhere, ...roleWhere },
       include: userInclude,
       orderBy: { name: 'asc' },
     });

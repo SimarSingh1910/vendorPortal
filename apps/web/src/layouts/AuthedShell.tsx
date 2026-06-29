@@ -12,14 +12,26 @@ import { NotificationTray } from '@/components/NotificationTray';
 import { TabSwitch } from '@/components/TabSwitch';
 import { PendingCountBadge } from '@/components/attention';
 import { usePendingWork } from '@/hooks/usePendingWork';
+import { useCorpPendingWork } from '@/hooks/useCorpPendingWork';
 import { cn } from '@/lib/utils';
 
-/** The single nav item that represents each role's "work to do" surface. */
+/** The single nav item that represents each role's "work to do" surface (clinic tab). */
 const WORK_PATH_BY_ROLE: Partial<Record<UserRole, string>> = {
   [UserRole.CLINIC_SPOC]: '/spoc',
   [UserRole.CLINIC_MANAGER]: '/manager',
   [UserRole.FINANCE_ADMIN]: '/finance',
   [UserRole.FINANCE_MANAGER]: '/finance',
+};
+
+/**
+ * The corporate-tab work surface per role (parallel to WORK_PATH_BY_ROLE). The
+ * dept SPOC's is the Departments home; approvers' is the Review Queue.
+ * FINANCE_ADMIN spans both tabs, so it has a clinic AND a corporate work path.
+ */
+const CORP_WORK_PATH_BY_ROLE: Partial<Record<UserRole, string>> = {
+  [UserRole.DEPT_SPOC]: '/corporate',
+  [UserRole.CORP_FINANCE_MANAGER]: '/corporate/review',
+  [UserRole.FINANCE_ADMIN]: '/corporate/review',
 };
 
 /**
@@ -43,9 +55,10 @@ export function AuthedShell() {
   }, [logout]);
   useIdleTimer(handleIdle, authenticated);
 
-  // Count of items awaiting the signed-in user (Step 6). Hook runs before the
-  // early return; it self-disables and returns 0 when unauthenticated.
+  // Count of items awaiting the signed-in user (Step 6). Hooks run before the
+  // early return; each self-disables and returns 0 when unauthenticated / off-tab.
   const pendingCount = usePendingWork();
+  const corpPendingCount = useCorpPendingWork();
 
   if (!authenticated) {
     return <Navigate to="/login" replace />;
@@ -58,6 +71,7 @@ export function AuthedShell() {
     (item) => item.tab === activeTab && item.roles.includes(user.role),
   );
   const workPath = WORK_PATH_BY_ROLE[user.role];
+  const corpWorkPath = CORP_WORK_PATH_BY_ROLE[user.role];
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
@@ -106,6 +120,7 @@ export function AuthedShell() {
               >
                 <span>{item.label}</span>
                 {item.path === workPath && <PendingCountBadge count={pendingCount} />}
+                {item.path === corpWorkPath && <PendingCountBadge count={corpPendingCount} />}
               </NavLink>
             ))}
           </nav>

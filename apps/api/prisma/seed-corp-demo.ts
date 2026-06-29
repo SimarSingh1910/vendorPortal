@@ -239,12 +239,15 @@ async function main(): Promise<void> {
       notes: SEC24_NOTE,
     });
 
-    // ── Per-cycle notification config (variance threshold) if absent. ────────
+    // ── Per-cycle CORPORATE notification config (variance threshold) if absent. ──
     for (const month of [PRIOR, CUR]) {
-      const existing = await prisma.notificationConfig.findUnique({ where: { month } });
+      const existing = await prisma.notificationConfig.findUnique({
+        where: { month_portal: { month, portal: 'CORPORATE' } },
+      });
       if (!existing) {
         await prisma.notificationConfig.create({
           data: {
+            portal: 'CORPORATE',
             month,
             monthStartNotifyDate: new Date(`${month}-01T02:30:00Z`),
             cutoffDate: new Date(`${month}-25T02:30:00Z`),

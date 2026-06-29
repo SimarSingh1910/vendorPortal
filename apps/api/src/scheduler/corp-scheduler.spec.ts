@@ -1,4 +1,5 @@
 import { Test, type TestingModule } from '@nestjs/testing';
+import { Portal } from '@prisma/client';
 import { CorpSubmissionStatus, UserRole } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -87,9 +88,12 @@ describe('SchedulerService — corporate cycles (Step C5.2)', () => {
       },
     });
 
+  // CORPORATE config — the corporate scheduler reads the CORPORATE row after the
+  // portal split (the clinic scheduler reads its own CLINIC row independently).
   const config = (month: string) =>
     prisma.notificationConfig.create({
       data: {
+        portal: Portal.CORPORATE,
         month,
         monthStartNotifyDate: new Date(`${month}-01T02:00:00Z`),
         cutoffDate: new Date(`${month}-20T02:00:00Z`),

@@ -45,6 +45,12 @@ function seedCodes(detail: CorpSubmissionDetail): ValueMap {
   return map;
 }
 
+function seedNotes(detail: CorpSubmissionDetail): ValueMap {
+  const map: ValueMap = {};
+  for (const head of detail.heads) map[head.snapshotId] = head.note ?? '';
+  return map;
+}
+
 /** A trimmed, valid non-negative number, or null if blank/invalid. */
 function parseAmount(raw: string): number | null {
   const trimmed = raw.trim();
@@ -75,6 +81,7 @@ export function CorpSubmissionEntry() {
 
   const [values, setValues] = useState<ValueMap>({});
   const [codes, setCodes] = useState<ValueMap>({});
+  const [headNotes, setHeadNotes] = useState<ValueMap>({});
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -82,6 +89,7 @@ export function CorpSubmissionEntry() {
     if (detail) {
       setValues(seedValues(detail));
       setCodes(seedCodes(detail));
+      setHeadNotes(seedNotes(detail));
     }
   }, [detail]);
 
@@ -96,8 +104,10 @@ export function CorpSubmissionEntry() {
     for (const head of detail?.heads ?? []) {
       const amount = parseAmount(values[head.snapshotId] ?? '');
       const budgetCodeId = (codes[head.snapshotId] ?? '').trim();
+      // A per-head note rides with its line; only persisted on a complete line.
       if (amount !== null && budgetCodeId) {
-        out.push({ snapshotId: head.snapshotId, budgetCodeId, amount });
+        const noteText = (headNotes[head.snapshotId] ?? '').trim();
+        out.push({ snapshotId: head.snapshotId, budgetCodeId, amount, note: noteText || undefined });
       }
     }
     return out;
@@ -109,6 +119,7 @@ export function CorpSubmissionEntry() {
       setError(null);
       setValues(seedValues(updated));
       setCodes(seedCodes(updated));
+      setHeadNotes(seedNotes(updated));
       invalidate();
     },
     onError: (e) => setError(apiErrorMessage(e, 'Could not save. Please try again.')),
@@ -238,7 +249,26 @@ export function CorpSubmissionEntry() {
             ) : (
               detail.heads.map((head) => (
                 <TableRow key={head.snapshotId}>
-                  <TableCell className="align-top font-medium">{head.name}</TableCell>
+                  <TableCell className="align-top font-medium">
+                    {head.name}
+                    {canEdit ? (
+                      <Textarea
+                        rows={2}
+                        placeholder="Add a note for this head (optional) — e.g. why it changed this month."
+                        className="mt-1.5 text-sm font-normal"
+                        value={headNotes[head.snapshotId] ?? ''}
+                        onChange={(e) =>
+                          setHeadNotes((prev) => ({ ...prev, [head.snapshotId]: e.target.value }))
+                        }
+                      />
+                    ) : (
+                      head.note && (
+                        <p className="mt-1 whitespace-pre-wrap text-xs font-normal text-muted-foreground">
+                          {head.note}
+                        </p>
+                      )
+                    )}
+                  </TableCell>
                   <TableCell className="align-top">
                     {canEdit ? (
                       <select

@@ -15,14 +15,22 @@ export {
   ROLE_TABS,
   tabsForRole,
   roleCanAccessTab,
+  rolesForTab,
   ROLE_LABELS,
   TAB_LABELS,
   SUBMISSION_STATUS_LABELS,
 } from './enums';
 
-export { AuditAction } from './audit-actions';
+export {
+  AuditAction,
+  CORP_AUDIT_ACTION_PREFIX,
+  isCorpAuditAction,
+  auditActionPortal,
+} from './audit-actions';
 
 export { isActionPending, pendingCount } from './attention';
+
+export { isCorpActionPending, corpPendingCount } from './corp-attention';
 
 // Runtime constants from types.ts (values, not types).
 export { MONTHWISE_PRESETS, DEFAULT_MONTHWISE_PRESET } from './types';

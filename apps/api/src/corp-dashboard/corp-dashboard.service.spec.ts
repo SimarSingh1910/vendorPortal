@@ -1,5 +1,5 @@
 import { Test, type TestingModule } from '@nestjs/testing';
-import { Prisma } from '@prisma/client';
+import { Portal, Prisma } from '@prisma/client';
 import { CorpDepartmentType, CorpSubmissionStatus, UserRole } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -278,9 +278,11 @@ describe('CorpDashboardService (Step C4.1 — consolidated dashboard)', () => {
     expect(noConfig.thresholdPercent).toBeNull();
     expect(noConfig.rows.every((r) => !r.flagged)).toBe(true);
 
-    // Threshold 50% → +100% breaches it.
+    // Threshold 50% → +100% breaches it. Corporate dashboard reads the CORPORATE
+    // per-cycle config (independent of the clinic config since the portal split).
     await prisma.notificationConfig.create({
       data: {
+        portal: Portal.CORPORATE,
         month: M,
         monthStartNotifyDate: new Date(),
         cutoffDate: new Date(),

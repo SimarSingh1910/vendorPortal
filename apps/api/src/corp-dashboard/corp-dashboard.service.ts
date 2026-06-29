@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Portal, Prisma } from '@prisma/client';
 import {
   CorpDepartmentType,
   CorpSubmissionStatus,
@@ -296,9 +296,12 @@ export class CorpDashboardService {
     const priorMonth = shiftMonth(m, -1);
     const departmentIds = await this.resolveDepartmentIds(user, departmentId);
 
-    // Threshold comes from the shared per-month NotificationConfig (BR-12) —
-    // never hardcoded; null when none is configured for the month.
-    const config = await this.prisma.notificationConfig.findUnique({ where: { month: m } });
+    // Threshold comes from the CORPORATE per-cycle NotificationConfig (BR-12) —
+    // never hardcoded; null when none is configured for the month. Independent of
+    // the clinic config since the portal split.
+    const config = await this.prisma.notificationConfig.findUnique({
+      where: { month_portal: { month: m, portal: Portal.CORPORATE } },
+    });
     const thresholdPercent = config ? config.varianceThresholdPercent.toFixed(2) : null;
     const thresholdNum = thresholdPercent != null ? Number(thresholdPercent) : null;
 

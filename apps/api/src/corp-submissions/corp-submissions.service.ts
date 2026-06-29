@@ -198,6 +198,7 @@ export class CorpSubmissionsService {
           isPool && resolvedPct !== null && snap.entry
             ? this.sec24.computeShare(snap.entry.amount, resolvedPct)!.toFixed(2)
             : null,
+        note: snap.entry?.note ?? null,
       })),
     };
   }

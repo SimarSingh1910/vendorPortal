@@ -254,7 +254,14 @@ export function CorpReview() {
             ) : (
               detail.heads.map((head) => (
                 <TableRow key={head.snapshotId}>
-                  <TableCell className="align-top font-medium">{head.name}</TableCell>
+                  <TableCell className="align-top font-medium">
+                    {head.name}
+                    {head.note && (
+                      <p className="mt-1 whitespace-pre-wrap text-xs font-normal text-muted-foreground">
+                        <span className="font-medium">SPOC note:</span> {head.note}
+                      </p>
+                    )}
+                  </TableCell>
                   <TableCell className="align-top">
                     {canEdit ? (
                       <select

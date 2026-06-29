@@ -21,7 +21,7 @@ export class UsersController {
 
   @Get()
   list(@Query() query: ListUsersQuery) {
-    return this.users.list(query.status);
+    return this.users.list(query.status, query.portal);
   }
 
   @Get(':id')

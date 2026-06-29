@@ -1,4 +1,5 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
+import { PortalTab } from '@portal/shared';
 import { AuthedShell } from '@/layouts/AuthedShell';
 import { ProtectedRoute } from '@/auth/ProtectedRoute';
 import { ROUTE_ROLES, roleHome } from '@/auth/roles';
@@ -119,7 +120,7 @@ export const router = createBrowserRouter([
         path: 'admin/audit',
         element: (
           <ProtectedRoute allowedRoles={ROUTE_ROLES['/admin/audit']}>
-            <AuditAdmin />
+            <AuditAdmin defaultPortal={PortalTab.CLINIC} />
           </ProtectedRoute>
         ),
       },
@@ -240,6 +241,30 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/admin/sec24']}>
             <CorpSec24Admin />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/admin/users',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/admin/users']}>
+            <UsersAdmin defaultPortal={PortalTab.CORPORATE} />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/admin/notifications',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/admin/notifications']}>
+            <NotificationConfigAdmin portal={PortalTab.CORPORATE} />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/admin/audit',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/admin/audit']}>
+            <AuditAdmin defaultPortal={PortalTab.CORPORATE} />
           </ProtectedRoute>
         ),
       },

@@ -1,5 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { Portal } from '@prisma/client';
 import { CorpSubmissionStatus, SubmissionStatus } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { CycleService, type OpenMonthResult } from '../submissions/cycle.service';
@@ -62,19 +63,25 @@ export class SchedulerService {
     const configs = await this.prisma.notificationConfig.findMany();
     this.logger.log(`daily jobs for IST ${today}: evaluating ${configs.length} cycle config(s)`);
 
+    // Each config now belongs to ONE portal and drives only that portal's
+    // calendar: a CLINIC row opens/reminds clinics, a CORPORATE row opens/reminds
+    // departments. The two portals' cutoff/notify dates are fully independent.
     for (const cfg of configs) {
+      const isCorp = cfg.portal === Portal.CORPORATE;
       try {
         if (istDateKey(cfg.monthStartNotifyDate) === today) {
-          await this.openCycleForMonth(cfg.month);
-          await this.openCorpCycleForMonth(cfg.month);
+          if (isCorp) await this.openCorpCycleForMonth(cfg.month);
+          else await this.openCycleForMonth(cfg.month);
         }
         const reminderDay = new Date(cfg.cutoffDate.getTime() - cfg.preCutoffReminderDays * DAY_MS);
         if (istDateKey(reminderDay) === today) {
-          await this.sendReminders(cfg.month);
-          await this.sendCorpReminders(cfg.month);
+          if (isCorp) await this.sendCorpReminders(cfg.month);
+          else await this.sendReminders(cfg.month);
         }
       } catch (err) {
-        this.logger.error(`daily job failed for ${cfg.month}: ${(err as Error).message}`);
+        this.logger.error(
+          `daily job failed for ${cfg.portal} ${cfg.month}: ${(err as Error).message}`,
+        );
       }
     }
   }
@@ -99,7 +106,9 @@ export class SchedulerService {
    * Returns the number of laggard submissions reminded.
    */
   async sendReminders(month: string): Promise<number> {
-    const cfg = await this.prisma.notificationConfig.findUnique({ where: { month } });
+    const cfg = await this.prisma.notificationConfig.findUnique({
+      where: { month_portal: { month, portal: Portal.CLINIC } },
+    });
     const laggards = await this.prisma.monthlySubmission.findMany({
       where: { month, status: { in: LAGGARD_STATUSES } },
       select: { id: true, clinicId: true, month: true },
@@ -141,7 +150,9 @@ export class SchedulerService {
    */
   async sendCorpReminders(month: string): Promise<number> {
     if (!this.corpDispatch) return 0;
-    const cfg = await this.prisma.notificationConfig.findUnique({ where: { month } });
+    const cfg = await this.prisma.notificationConfig.findUnique({
+      where: { month_portal: { month, portal: Portal.CORPORATE } },
+    });
     const laggards = await this.prisma.corpMonthlySubmission.findMany({
       where: { month, status: { in: CORP_LAGGARD_STATUSES } },
       select: { id: true, departmentId: true, month: true },

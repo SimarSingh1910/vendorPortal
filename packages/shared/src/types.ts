@@ -10,6 +10,7 @@
 import type {
   CorpDepartmentType,
   CorpSubmissionStatus,
+  PortalTab,
   SubmissionStatus,
   UserRole,
 } from './enums';
@@ -251,6 +252,8 @@ export interface CorpProvisionEntryInput {
   snapshotId: string;
   budgetCodeId: string;
   amount: number;
+  /** Optional SPOC note for this head; blank/whitespace is stored as null. */
+  note?: string;
 }
 
 /** One accessible department's submission status for a month (corporate overview row). */
@@ -294,6 +297,8 @@ export interface CorpProvisionHeadRow {
   budgetCodeId: string | null;
   amount: string | null; // DECIMAL(14,2) string
   hclAvitasShare: string | null; // DECIMAL(14,2) string
+  /** Optional SPOC line-item note for this head (e.g. why it spiked/dropped); null when none. */
+  note: string | null;
 }
 
 /** Full corporate provision form / read-only detail for a single submission. */
@@ -347,8 +352,9 @@ export interface Sec24AllocationInput {
 
 // ── Notification config (Phase 10.1) ─────────────────────────────────────────
 
-/** Per-cycle notification config (one row per month). Read by scheduler + dashboard. */
+/** Per-cycle notification config (one row per portal per month). Read by scheduler + dashboard. */
 export interface NotificationConfigView {
+  portal: PortalTab; // CLINIC | CORPORATE — which portal this config governs
   month: string; // YYYY-MM
   monthStartNotifyDate: string; // ISO-8601
   cutoffDate: string; // ISO-8601

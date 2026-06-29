@@ -117,6 +117,27 @@ export const NAV_ITEMS: NavItem[] = [
     roles: [UserRole.FINANCE_ADMIN],
     tab: PortalTab.CORPORATE,
   },
+  // Corporate-portal user management + notification config + audit view (Finance
+  // Admin only) — separate per-portal surfaces over the SAME user / config table
+  // and the single audit log.
+  {
+    path: '/corporate/admin/users',
+    label: 'Users',
+    roles: [UserRole.FINANCE_ADMIN],
+    tab: PortalTab.CORPORATE,
+  },
+  {
+    path: '/corporate/admin/notifications',
+    label: 'Notification Config',
+    roles: [UserRole.FINANCE_ADMIN],
+    tab: PortalTab.CORPORATE,
+  },
+  {
+    path: '/corporate/admin/audit',
+    label: 'Audit Log',
+    roles: [UserRole.FINANCE_ADMIN],
+    tab: PortalTab.CORPORATE,
+  },
 ];
 
 /** Allowed roles per protected route path (single source for router + guard). */
@@ -144,4 +165,7 @@ export const ROUTE_ROLES: Record<string, UserRole[]> = {
   '/corporate/my-dashboard': CORP_DEPT_USERS,
   '/corporate/admin/departments': [UserRole.FINANCE_ADMIN],
   '/corporate/admin/sec24': [UserRole.FINANCE_ADMIN],
+  '/corporate/admin/users': [UserRole.FINANCE_ADMIN],
+  '/corporate/admin/notifications': [UserRole.FINANCE_ADMIN],
+  '/corporate/admin/audit': [UserRole.FINANCE_ADMIN],
 };

@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { NotificationConfigView } from '@portal/shared';
+import { PortalTab, TAB_LABELS, type NotificationConfigView } from '@portal/shared';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -32,13 +32,18 @@ type FormValues = z.input<typeof schema>;
 const toIso = (date: string) => `${date}T00:00:00.000Z`;
 const toDateInput = (iso: string) => iso.slice(0, 10);
 
-export function NotificationConfigAdmin() {
+/**
+ * Per-cycle notification config for one portal. The same screen serves both tabs:
+ * the Clinic tab mounts it with portal=CLINIC, the Corporate tab with
+ * portal=CORPORATE, each editing only its own portal's independent config.
+ */
+export function NotificationConfigAdmin({ portal = PortalTab.CLINIC }: { portal?: PortalTab }) {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
 
   const { data: configs = [] } = useQuery({
-    queryKey: ['notification-config'],
-    queryFn: listConfigs,
+    queryKey: ['notification-config', portal],
+    queryFn: () => listConfigs(portal),
   });
 
   const {
@@ -60,16 +65,20 @@ export function NotificationConfigAdmin() {
   const saveMutation = useMutation({
     mutationFn: (values: FormValues) => {
       const parsed = schema.parse(values);
-      return upsertConfig(parsed.month, {
-        monthStartNotifyDate: toIso(parsed.monthStartNotifyDate),
-        cutoffDate: toIso(parsed.cutoffDate),
-        preCutoffReminderDays: parsed.preCutoffReminderDays,
-        varianceThresholdPercent: parsed.varianceThresholdPercent,
-      });
+      return upsertConfig(
+        parsed.month,
+        {
+          monthStartNotifyDate: toIso(parsed.monthStartNotifyDate),
+          cutoffDate: toIso(parsed.cutoffDate),
+          preCutoffReminderDays: parsed.preCutoffReminderDays,
+          varianceThresholdPercent: parsed.varianceThresholdPercent,
+        },
+        portal,
+      );
     },
     onSuccess: () => {
       setError(null);
-      void qc.invalidateQueries({ queryKey: ['notification-config'] });
+      void qc.invalidateQueries({ queryKey: ['notification-config', portal] });
     },
     onError: (e) => setError(apiErrorMessage(e, 'Could not save config.')),
   });
@@ -89,7 +98,9 @@ export function NotificationConfigAdmin() {
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Notification Config</h1>
         <p className="text-sm text-muted-foreground">
-          Per-cycle schedule + variance threshold. Finance Admin only.
+          Per-cycle schedule + variance threshold for{' '}
+          <span className="font-medium text-foreground">{TAB_LABELS[portal]}</span>. This portal’s
+          calendar is independent of the other. Finance Admin only.
         </p>
       </div>
 

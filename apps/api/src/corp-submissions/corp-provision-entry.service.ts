@@ -149,6 +149,11 @@ export class CorpProvisionEntryService {
       select: { snapshotId: true, amount: true, budgetCodeId: true },
     });
 
+    // The per-head note is the SPOC's own line annotation: written only on a SPOC
+    // save (approver overrides leave it untouched). Blank/whitespace → null.
+    const writesNote = kind === 'spoc';
+    const noteOf = (item: CorpProvisionEntryInput): string | null => item.note?.trim() || null;
+
     await this.prisma.$transaction(
       items.map((item) =>
         this.prisma.corpProvisionEntry.upsert({
@@ -157,6 +162,7 @@ export class CorpProvisionEntryService {
             amount: item.amount,
             budgetCodeId: item.budgetCodeId,
             lastModifiedById: user.id,
+            ...(writesNote ? { note: noteOf(item) } : {}),
           },
           create: {
             submissionId,
@@ -165,6 +171,7 @@ export class CorpProvisionEntryService {
             amount: item.amount,
             enteredById: user.id,
             lastModifiedById: user.id,
+            ...(writesNote ? { note: noteOf(item) } : {}),
           },
         }),
       ),

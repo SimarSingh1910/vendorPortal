@@ -358,10 +358,22 @@ model Notification {
   @@index([isRead])
 }
 
-/// Global per-cycle config set by Finance Admin (one row per month).
+/// Which portal a row belongs to. Clinic and Corporate keep INDEPENDENT per-cycle
+/// notification config so each portal's month-end calendar is its own. Existing
+/// rows predate the split and are all clinic (migration backfills portal=CLINIC).
+enum Portal {
+  CLINIC
+  CORPORATE
+}
+
+/// Global per-cycle config set by Finance Admin — one row per (portal, month).
+/// Clinic and Corporate each have their OWN config for a month (independent
+/// cutoff/reminder/variance); the clinic scheduler/notifier/dashboard read the
+/// CLINIC row, the corporate ones read the CORPORATE row.
 model NotificationConfig {
   id                       String   @id @default(cuid())
-  month                    String   @unique @db.VarChar(7) // YYYY-MM
+  portal                   Portal   @default(CLINIC)
+  month                    String   @db.VarChar(7) // YYYY-MM
   monthStartNotifyDate     DateTime
   cutoffDate               DateTime
   preCutoffReminderDays    Int
@@ -369,6 +381,9 @@ model NotificationConfig {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // One config per portal per month (was @unique on month alone, pre-split).
+  @@unique([month, portal])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -519,6 +534,11 @@ model CorpProvisionEntry {
 
   amount         Decimal  @db.Decimal(14, 2)
   hclAvitasShare Decimal? @db.Decimal(14, 2)
+
+  // Optional SPOC line-item note explaining this head's value (e.g. a spike/drop).
+  // One nullable note per head per submission; set only by the SPOC while editable
+  // (approver overrides preserve it). Mirrors the clinic ProvisionEntry.note.
+  note String? @db.Text
 
   enteredById String
   enteredAt   DateTime @default(now())
