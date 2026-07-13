@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Lock } from 'lucide-react';
 import {
   isActionPending,
+  PRODUCT_CODES,
   SubmissionStatus,
   UserRole,
   type ProvisionEntryInput,
@@ -75,6 +76,29 @@ function seedNotes(detail: SubmissionDetail): ValueMap {
   return map;
 }
 
+/** Build the per-head vendor-name map from a freshly-loaded detail (vendor or blank). */
+function seedVendors(detail: SubmissionDetail): ValueMap {
+  const map: ValueMap = {};
+  for (const head of detail.heads) {
+    map[head.snapshotId] = head.vendorName ?? '';
+  }
+  return map;
+}
+
+/** Build the per-head product-code map from a freshly-loaded detail (code or blank). */
+function seedProducts(detail: SubmissionDetail): ValueMap {
+  const map: ValueMap = {};
+  for (const head of detail.heads) {
+    map[head.snapshotId] = head.productCode ?? '';
+  }
+  return map;
+}
+
+/** Native styled select, matching the Input look (no shared Select component exists). */
+const selectClass =
+  'h-9 w-40 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm ' +
+  'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50';
+
 /** A trimmed, valid non-negative number, or null if blank/invalid. */
 function parseAmount(raw: string): number | null {
   const trimmed = raw.trim();
@@ -101,6 +125,10 @@ export function SubmissionEntry() {
   const [values, setValues] = useState<ValueMap>({});
   // Per-head line-item notes (distinct from `note` below, the submission-level submit comment).
   const [headNotes, setHeadNotes] = useState<ValueMap>({});
+  // Per-head free-text vendor names, saved with the entry alongside the amount.
+  const [headVendors, setHeadVendors] = useState<ValueMap>({});
+  // Per-head product codes (fixed dropdown set), saved with the entry.
+  const [headProducts, setHeadProducts] = useState<ValueMap>({});
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
   // Recall confirmation dialog (with an optional reason for the timeline).
@@ -112,6 +140,8 @@ export function SubmissionEntry() {
     if (detail) {
       setValues(seedValues(detail));
       setHeadNotes(seedNotes(detail));
+      setHeadVendors(seedVendors(detail));
+      setHeadProducts(seedProducts(detail));
     }
   }, [detail]);
 
@@ -123,10 +153,18 @@ export function SubmissionEntry() {
     const out: ProvisionEntryInput[] = [];
     for (const head of detail?.heads ?? []) {
       const amount = parseAmount(values[head.snapshotId] ?? '');
-      // A note rides with its head's value; the API stores it on the entry row.
+      // A note and vendor name ride with the head's value; the API stores them on the entry row.
       if (amount !== null) {
         const noteText = (headNotes[head.snapshotId] ?? '').trim();
-        out.push({ snapshotId: head.snapshotId, amount, note: noteText || undefined });
+        const vendorText = (headVendors[head.snapshotId] ?? '').trim();
+        const productText = (headProducts[head.snapshotId] ?? '').trim();
+        out.push({
+          snapshotId: head.snapshotId,
+          amount,
+          note: noteText || undefined,
+          vendorName: vendorText || undefined,
+          productCode: productText || undefined,
+        });
       }
     }
     return out;
@@ -138,6 +176,8 @@ export function SubmissionEntry() {
       setError(null);
       setValues(seedValues(updated));
       setHeadNotes(seedNotes(updated));
+      setHeadVendors(seedVendors(updated));
+      setHeadProducts(seedProducts(updated));
       invalidate();
     },
     onError: (e) => setError(apiErrorMessage(e, 'Could not save. Please try again.')),
@@ -198,7 +238,16 @@ export function SubmissionEntry() {
       </Button>
 
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight">{detail.clinicName}</h1>
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">{detail.clinicName}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Acc. Location Code:{' '}
+            <span className="font-medium text-foreground">{detail.clinicAccLocationCode}</span>
+            {' · '}
+            Customer Code:{' '}
+            <span className="font-medium text-foreground">{detail.clinicCustomerCode}</span>
+          </p>
+        </div>
         <div className="flex flex-col items-end gap-1">
           <p className="text-xl font-semibold text-foreground">{formatMonth(detail.month)}</p>
           <div className="flex items-center gap-2">
@@ -249,24 +298,26 @@ export function SubmissionEntry() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Category</TableHead>
-              <TableHead>Expense head</TableHead>
+              <TableHead>G/L Account No.</TableHead>
+              <TableHead>G/L Account Name</TableHead>
+              <TableHead>Vendor Name</TableHead>
+              <TableHead>Product Code</TableHead>
               <TableHead className="text-right">Amount (₹)</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {detail.heads.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={3} className="text-center text-muted-foreground">
+                <TableCell colSpan={5} className="text-center text-muted-foreground">
                   No expense heads are mapped to this clinic. Contact Finance.
                 </TableCell>
               </TableRow>
             ) : (
               detail.heads.map((head) => (
                 <TableRow key={head.snapshotId}>
-                  <TableCell className="align-top text-muted-foreground">{head.category}</TableCell>
+                  <TableCell className="align-top text-muted-foreground">{head.glAccountNo}</TableCell>
                   <TableCell className="align-top font-medium">
-                    <div>{head.name}</div>
+                    <div>{head.glAccountName}</div>
                     {canEdit ? (
                       <Textarea
                         rows={2}
@@ -283,6 +334,41 @@ export function SubmissionEntry() {
                           {head.note}
                         </p>
                       )
+                    )}
+                  </TableCell>
+                  <TableCell className="align-top">
+                    {canEdit ? (
+                      <Input
+                        type="text"
+                        placeholder="Vendor (optional)"
+                        className="w-48"
+                        value={headVendors[head.snapshotId] ?? ''}
+                        onChange={(e) =>
+                          setHeadVendors((prev) => ({ ...prev, [head.snapshotId]: e.target.value }))
+                        }
+                      />
+                    ) : (
+                      <span className="text-sm text-muted-foreground">{head.vendorName ?? ''}</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="align-top">
+                    {canEdit ? (
+                      <select
+                        className={selectClass}
+                        value={headProducts[head.snapshotId] ?? ''}
+                        onChange={(e) =>
+                          setHeadProducts((prev) => ({ ...prev, [head.snapshotId]: e.target.value }))
+                        }
+                      >
+                        <option value="">— select —</option>
+                        {PRODUCT_CODES.map((code) => (
+                          <option key={code} value={code}>
+                            {code}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">{head.productCode ?? ''}</span>
                     )}
                   </TableCell>
                   <TableCell className="align-top text-right">

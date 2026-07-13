@@ -106,3 +106,21 @@ export async function corpSendBack(submissionId: string, comment: string): Promi
 export async function corpUnlock(submissionId: string, reason: string): Promise<void> {
   await apiClient.post(`/corp/submissions/${submissionId}/unlock`, { reason });
 }
+
+/** Outcome of opening (or re-running) a month's cycle across every active department. */
+export interface OpenCorpCycleResult {
+  month: string;
+  activeDepartments: number;
+  created: number;
+  alreadyOpen: number;
+}
+
+/**
+ * Finance Admin: open (or re-run) the corporate cycle for `month` (YYYY-MM) across
+ * every active department. Idempotent — departments already open are counted, not
+ * duplicated.
+ */
+export async function openCorpCycle(month: string): Promise<OpenCorpCycleResult> {
+  const { data } = await apiClient.post<OpenCorpCycleResult>(`/corp/cycles/${month}/open`, {});
+  return data;
+}

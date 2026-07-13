@@ -1,8 +1,10 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { Download } from 'lucide-react';
 import { CorpSubmissionStatus, type CorpSec24MonthPoint } from '@portal/shared';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -29,6 +31,7 @@ import { CorpStatusTiles, CorpStatusTable } from '@/components/dashboard/CorpSta
 import { ChartTableView } from '@/components/dashboard/ChartTableView';
 import { HeadTrendBlock } from '@/components/dashboard/HeadTrendBlock';
 import { MonthlyTotalsTable, VarianceTable } from '@/components/dashboard/dataTables';
+import { exportCorpMonthEnd } from '@/api/export';
 import { formatINR, formatMonth } from '@/lib/format';
 import { corpStatusLabel, currentMonthIST } from '@/lib/corpFormat';
 import { buildHeadColorMap, headColor } from '@/lib/chartColors';
@@ -196,12 +199,18 @@ export function CorporateDashboard() {
 
   return (
     <div className="space-y-8">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Corporate Dashboard</h1>
-        <p className="text-sm text-muted-foreground">
-          Submission tracking, expense trends, cross-department totals, Sec 24 share and variance
-          alerts across corporate departments.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Corporate Dashboard</h1>
+          <p className="text-sm text-muted-foreground">
+            Submission tracking, expense trends, cross-department totals, Sec 24 share and variance
+            alerts across corporate departments.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => void exportCorpMonthEnd(asOf)}>
+          <Download />
+          Month-end Excel ({formatMonth(asOf)})
+        </Button>
       </div>
 
       {/* Filters */}

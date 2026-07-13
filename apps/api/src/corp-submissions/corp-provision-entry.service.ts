@@ -143,16 +143,34 @@ export class CorpProvisionEntryService {
       }
     }
 
-    // Snapshot prior values so the audit captures the change (amount + budget code).
+    // Snapshot prior values so the audit captures the change (amount + budget code
+    // + the SPOC's own line fields, so their old→new is visible too).
     const before = await this.prisma.corpProvisionEntry.findMany({
       where: { snapshotId: { in: items.map((i) => i.snapshotId) } },
-      select: { snapshotId: true, amount: true, budgetCodeId: true },
+      select: {
+        snapshotId: true,
+        amount: true,
+        budgetCodeId: true,
+        note: true,
+        vendorName: true,
+        location: true,
+      },
     });
 
-    // The per-head note is the SPOC's own line annotation: written only on a SPOC
-    // save (approver overrides leave it untouched). Blank/whitespace → null.
-    const writesNote = kind === 'spoc';
+    // The per-head note, vendor name and location are the SPOC's own line
+    // annotations: written only on a SPOC save (approver overrides leave all three
+    // untouched — don't include them in that upsert). Blank/whitespace → null.
+    const writesSpocFields = kind === 'spoc';
     const noteOf = (item: CorpProvisionEntryInput): string | null => item.note?.trim() || null;
+    const vendorOf = (item: CorpProvisionEntryInput): string | null =>
+      item.vendorName?.trim() || null;
+    const locationOf = (item: CorpProvisionEntryInput): string | null =>
+      item.location?.trim() || null;
+    const spocFields = (item: CorpProvisionEntryInput) => ({
+      note: noteOf(item),
+      vendorName: vendorOf(item),
+      location: locationOf(item),
+    });
 
     await this.prisma.$transaction(
       items.map((item) =>
@@ -162,7 +180,7 @@ export class CorpProvisionEntryService {
             amount: item.amount,
             budgetCodeId: item.budgetCodeId,
             lastModifiedById: user.id,
-            ...(writesNote ? { note: noteOf(item) } : {}),
+            ...(writesSpocFields ? spocFields(item) : {}),
           },
           create: {
             submissionId,
@@ -171,7 +189,7 @@ export class CorpProvisionEntryService {
             amount: item.amount,
             enteredById: user.id,
             lastModifiedById: user.id,
-            ...(writesNote ? { note: noteOf(item) } : {}),
+            ...(writesSpocFields ? spocFields(item) : {}),
           },
         }),
       ),
@@ -191,6 +209,9 @@ export class CorpProvisionEntryService {
         snapshotId: b.snapshotId,
         amount: b.amount.toFixed(2),
         budgetCodeId: b.budgetCodeId,
+        note: b.note,
+        vendorName: b.vendorName,
+        location: b.location,
       })),
       newValue: items,
     });

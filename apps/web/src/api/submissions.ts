@@ -60,6 +60,23 @@ export async function getComments(submissionId: string): Promise<SubmissionComme
   return data;
 }
 
+/** Outcome of opening (or re-running) a month's cycle for every active clinic. */
+export interface OpenCycleResult {
+  month: string;
+  activeClinics: number;
+  created: number;
+  alreadyOpen: number;
+}
+
+/**
+ * Finance Admin: open (or re-run) the cycle for `month` (YYYY-MM) across every
+ * active clinic. Idempotent — clinics already open are counted, never duplicated.
+ */
+export async function openCycle(month: string): Promise<OpenCycleResult> {
+  const { data } = await apiClient.post<OpenCycleResult>(`/admin/cycles/${month}/open`, {});
+  return data;
+}
+
 /** The caller's cross-clinic work queue for the given statuses (Manager/Finance). */
 export async function getQueue(statuses: SubmissionStatus[]): Promise<SubmissionListItem[]> {
   const { data } = await apiClient.get<SubmissionListItem[]>('/submissions', {

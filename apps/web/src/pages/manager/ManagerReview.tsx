@@ -148,7 +148,16 @@ export function ManagerReview() {
       </Button>
 
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight">{detail.clinicName}</h1>
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">{detail.clinicName}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Acc. Location Code:{' '}
+            <span className="font-medium text-foreground">{detail.clinicAccLocationCode}</span>
+            {' · '}
+            Customer Code:{' '}
+            <span className="font-medium text-foreground">{detail.clinicCustomerCode}</span>
+          </p>
+        </div>
         <div className="flex flex-col items-end gap-1">
           <p className="text-xl font-semibold text-foreground">{formatMonth(detail.month)}</p>
           <Badge variant={statusBadgeVariant(detail.status)}>{statusLabel(detail.status)}</Badge>
@@ -190,22 +199,30 @@ export function ManagerReview() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Category</TableHead>
-              <TableHead>Expense head</TableHead>
+              <TableHead>G/L Account No.</TableHead>
+              <TableHead>G/L Account Name</TableHead>
+              <TableHead>Vendor Name</TableHead>
+              <TableHead>Product Code</TableHead>
               <TableHead className="text-right">Amount (₹)</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {detail.heads.map((head) => (
               <TableRow key={head.snapshotId}>
-                <TableCell className="align-top text-muted-foreground">{head.category}</TableCell>
+                <TableCell className="align-top text-muted-foreground">{head.glAccountNo}</TableCell>
                 <TableCell className="align-top font-medium">
-                  <div>{head.name}</div>
+                  <div>{head.glAccountName}</div>
                   {head.note && (
                     <p className="mt-1 whitespace-pre-wrap text-xs font-normal text-muted-foreground">
                       <span className="font-medium">SPOC note:</span> {head.note}
                     </p>
                   )}
+                </TableCell>
+                <TableCell className="align-top text-sm text-muted-foreground">
+                  {head.vendorName ?? ''}
+                </TableCell>
+                <TableCell className="align-top text-sm text-muted-foreground">
+                  {head.productCode ?? ''}
                 </TableCell>
                 <TableCell className="align-top text-right">
                   {canOverride ? (

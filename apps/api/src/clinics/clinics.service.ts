@@ -49,8 +49,8 @@ export class ClinicsService {
       clinicId: id,
       oldValue: {
         name: before.name,
-        location: before.location,
-        corporateClient: before.corporateClient,
+        accLocationCode: before.accLocationCode,
+        customerCode: before.customerCode,
       },
       newValue: dto,
     });

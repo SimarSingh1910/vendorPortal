@@ -30,13 +30,13 @@ export class ClinicExpenseHeadsService {
     const rows = await this.prisma.clinicExpenseHead.findMany({
       where: { clinicId, isActive: true, expenseHead: { isActive: true } },
       include: { expenseHead: true },
-      orderBy: [{ expenseHead: { category: 'asc' } }, { expenseHead: { name: 'asc' } }],
+      orderBy: [{ expenseHead: { glAccountNo: 'asc' } }, { expenseHead: { glAccountName: 'asc' } }],
     });
     return rows.map((row) => ({
       mappingId: row.id,
       expenseHeadId: row.expenseHeadId,
-      name: row.expenseHead.name,
-      category: row.expenseHead.category,
+      glAccountNo: row.expenseHead.glAccountNo,
+      glAccountName: row.expenseHead.glAccountName,
     }));
   }
 

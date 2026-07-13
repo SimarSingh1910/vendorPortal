@@ -49,3 +49,13 @@ export function exportMonthEnd(): Promise<void> {
 export function exportDashboardPdf(filter: DashboardFilter): Promise<void> {
   return download('/export/pdf/dashboard', clean(filter), 'dashboard.pdf');
 }
+
+/** Single corporate department-month submission (.xlsx). */
+export function exportCorpSubmission(submissionId: string): Promise<void> {
+  return download('/export/corp/excel/submission', { submissionId }, 'corp-submission.xlsx');
+}
+
+/** Combined corporate month-end report across accessible departments (.xlsx). */
+export function exportCorpMonthEnd(month?: string): Promise<void> {
+  return download('/export/corp/excel/month-end', month ? { month } : {}, 'corp-month-end.xlsx');
+}

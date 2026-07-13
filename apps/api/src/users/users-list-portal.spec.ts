@@ -50,7 +50,12 @@ describe('UsersService — clinic/corporate role-group filter', () => {
 
   it('clinic lists only clinic roles, corporate only corporate, FINANCE_ADMIN in both', async () => {
     const clinic = await prisma.clinic.create({
-      data: { name: 'C', location: 'L', corporateClient: 'HCL', isActive: true },
+      data: {
+        name: 'C',
+        accLocationCode: 'ACC-C',
+        customerCode: 'CUST-C',
+        isActive: true,
+      },
     });
     const dept = await prisma.corpDepartment.create({ data: { name: 'Dept', isActive: true } });
     const base = { name: 'X', password: 'Secret@123' };

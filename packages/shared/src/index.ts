@@ -35,6 +35,9 @@ export { isCorpActionPending, corpPendingCount } from './corp-attention';
 // Runtime constants from types.ts (values, not types).
 export { MONTHWISE_PRESETS, DEFAULT_MONTHWISE_PRESET } from './types';
 
+export { PRODUCT_CODES } from './product-codes';
+export type { ProductCode } from './product-codes';
+
 export type {
   HealthResponse,
   JwtClaims,

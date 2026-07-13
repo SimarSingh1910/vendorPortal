@@ -117,7 +117,12 @@ describe('NotificationConfig — per-portal split', () => {
 
     // A clinic laggard (NOT_STARTED) for the month.
     const clinic = await prisma.clinic.create({
-      data: { name: 'C', location: 'L', corporateClient: 'X', isActive: true },
+      data: {
+        name: 'C',
+        accLocationCode: 'ACC-1',
+        customerCode: 'CUST-1',
+        isActive: true,
+      },
     });
     await prisma.user.create({
       data: {

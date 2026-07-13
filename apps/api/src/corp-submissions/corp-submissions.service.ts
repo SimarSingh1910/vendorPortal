@@ -199,6 +199,8 @@ export class CorpSubmissionsService {
             ? this.sec24.computeShare(snap.entry.amount, resolvedPct)!.toFixed(2)
             : null,
         note: snap.entry?.note ?? null,
+        vendorName: snap.entry?.vendorName ?? null,
+        location: snap.entry?.location ?? null,
       })),
     };
   }

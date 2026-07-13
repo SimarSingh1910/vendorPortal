@@ -26,26 +26,33 @@ export interface TestUser {
 export function makeFixtures(ctx: FixtureCtx) {
   const { prisma, cycle, workflow } = ctx;
 
-  async function makeClinic(opts: { active?: boolean; name?: string } = {}): Promise<Clinic> {
+  async function makeClinic(
+    opts: {
+      active?: boolean;
+      name?: string;
+      accLocationCode?: string;
+      customerCode?: string;
+    } = {},
+  ): Promise<Clinic> {
     const n = next();
     return prisma.clinic.create({
       data: {
         name: opts.name ?? `Clinic ${n}`,
-        location: `Location ${n}`,
-        corporateClient: `Client ${n}`,
+        accLocationCode: opts.accLocationCode ?? `ACC-${n}`,
+        customerCode: opts.customerCode ?? `CUST-${n}`,
         isActive: opts.active ?? true,
       },
     });
   }
 
   async function makeExpenseHead(
-    opts: { name?: string; category?: string; active?: boolean } = {},
+    opts: { glAccountName?: string; glAccountNo?: string; active?: boolean } = {},
   ): Promise<ExpenseHead> {
     const n = next();
     return prisma.expenseHead.create({
       data: {
-        name: opts.name ?? `Head ${n}`,
-        category: opts.category ?? `Category ${n}`,
+        glAccountName: opts.glAccountName ?? `Head ${n}`,
+        glAccountNo: opts.glAccountNo ?? `GL-${n}`,
         isActive: opts.active ?? true,
       },
     });

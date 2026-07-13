@@ -41,8 +41,8 @@ const FILTERS: { value: ActiveFilter; label: string }[] = [
 
 const clinicSchema = z.object({
   name: z.string().min(1, 'Required').max(191),
-  location: z.string().min(1, 'Required').max(191),
-  corporateClient: z.string().min(1, 'Required').max(191),
+  accLocationCode: z.string().min(1, 'Required').max(191),
+  customerCode: z.string().min(1, 'Required').max(191),
 });
 type ClinicFormValues = z.infer<typeof clinicSchema>;
 
@@ -115,8 +115,8 @@ export function ClinicsAdmin() {
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
-              <TableHead>Location</TableHead>
-              <TableHead>Corporate client</TableHead>
+              <TableHead>Acc. Location Code</TableHead>
+              <TableHead>Customer Code</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -138,8 +138,8 @@ export function ClinicsAdmin() {
               clinics.map((clinic) => (
                 <TableRow key={clinic.id}>
                   <TableCell className="font-medium">{clinic.name}</TableCell>
-                  <TableCell>{clinic.location}</TableCell>
-                  <TableCell>{clinic.corporateClient}</TableCell>
+                  <TableCell>{clinic.accLocationCode}</TableCell>
+                  <TableCell>{clinic.customerCode}</TableCell>
                   <TableCell>
                     <Badge variant={clinic.isActive ? 'success' : 'muted'}>
                       {clinic.isActive ? 'Active' : 'Inactive'}
@@ -208,7 +208,11 @@ function ClinicFormDialog({
     formState: { errors },
   } = useForm<ClinicFormValues>({
     resolver: zodResolver(clinicSchema),
-    defaultValues: { name: '', location: '', corporateClient: '' },
+    defaultValues: {
+      name: '',
+      accLocationCode: '',
+      customerCode: '',
+    },
   });
 
   // Re-seed the form whenever the dialog opens (add = blank, edit = clinic).
@@ -216,8 +220,12 @@ function ClinicFormDialog({
     if (open) {
       reset(
         editing
-          ? { name: editing.name, location: editing.location, corporateClient: editing.corporateClient }
-          : { name: '', location: '', corporateClient: '' },
+          ? {
+              name: editing.name,
+              accLocationCode: editing.accLocationCode,
+              customerCode: editing.customerCode,
+            }
+          : { name: '', accLocationCode: '', customerCode: '' },
       );
     }
   }, [open, editing, reset]);
@@ -238,17 +246,17 @@ function ClinicFormDialog({
             {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="location">Location</Label>
-            <Input id="location" {...register('location')} />
-            {errors.location && (
-              <p className="text-xs text-destructive">{errors.location.message}</p>
+            <Label htmlFor="accLocationCode">Acc. Location Code</Label>
+            <Input id="accLocationCode" {...register('accLocationCode')} />
+            {errors.accLocationCode && (
+              <p className="text-xs text-destructive">{errors.accLocationCode.message}</p>
             )}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="corporateClient">Corporate client</Label>
-            <Input id="corporateClient" {...register('corporateClient')} />
-            {errors.corporateClient && (
-              <p className="text-xs text-destructive">{errors.corporateClient.message}</p>
+            <Label htmlFor="customerCode">Customer Code</Label>
+            <Input id="customerCode" {...register('customerCode')} />
+            {errors.customerCode && (
+              <p className="text-xs text-destructive">{errors.customerCode.message}</p>
             )}
           </div>
           {isError && <p className="text-sm text-destructive">Could not save. Please try again.</p>}

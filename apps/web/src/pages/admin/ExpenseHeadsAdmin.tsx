@@ -40,10 +40,20 @@ const FILTERS: { value: ActiveFilter; label: string }[] = [
 ];
 
 const headSchema = z.object({
-  name: z.string().min(1, 'Required').max(191),
-  category: z.string().min(1, 'Required').max(191),
+  glAccountNo: z.string().min(1, 'Required').max(191),
+  glAccountName: z.string().min(1, 'Required').max(191),
 });
 type HeadFormValues = z.infer<typeof headSchema>;
+
+/** Pull a friendly message out of an axios/API error, singling out the 409 duplicate. */
+function saveErrorMessage(error: unknown): string | null {
+  if (!error) return null;
+  const res = (error as { response?: { status?: number; data?: { message?: string } } }).response;
+  if (res?.status === 409) {
+    return res.data?.message ?? 'A head with this G/L Account No. already exists.';
+  }
+  return 'Could not save. Please try again.';
+}
 
 export function ExpenseHeadsAdmin() {
   const [filter, setFilter] = useState<ActiveFilter>('all');
@@ -113,8 +123,8 @@ export function ExpenseHeadsAdmin() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Category</TableHead>
+              <TableHead>G/L Account No.</TableHead>
+              <TableHead>G/L Account Name</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -135,8 +145,8 @@ export function ExpenseHeadsAdmin() {
             ) : (
               heads.map((head) => (
                 <TableRow key={head.id}>
-                  <TableCell className="font-medium">{head.name}</TableCell>
-                  <TableCell>{head.category}</TableCell>
+                  <TableCell className="font-medium">{head.glAccountNo}</TableCell>
+                  <TableCell>{head.glAccountName}</TableCell>
                   <TableCell>
                     <Badge variant={head.isActive ? 'success' : 'muted'}>
                       {head.isActive ? 'Active' : 'Inactive'}
@@ -174,7 +184,7 @@ export function ExpenseHeadsAdmin() {
         }}
         editing={editing}
         pending={saveMutation.isPending}
-        isError={saveMutation.isError}
+        error={saveMutation.error}
         onSubmit={(values) => saveMutation.mutate(values)}
       />
     </div>
@@ -186,7 +196,7 @@ interface ExpenseHeadFormDialogProps {
   onOpenChange: (open: boolean) => void;
   editing: ExpenseHead | null;
   pending: boolean;
-  isError: boolean;
+  error: unknown;
   onSubmit: (values: HeadFormValues) => void;
 }
 
@@ -195,7 +205,7 @@ function ExpenseHeadFormDialog({
   onOpenChange,
   editing,
   pending,
-  isError,
+  error,
   onSubmit,
 }: ExpenseHeadFormDialogProps) {
   const {
@@ -205,14 +215,20 @@ function ExpenseHeadFormDialog({
     formState: { errors },
   } = useForm<HeadFormValues>({
     resolver: zodResolver(headSchema),
-    defaultValues: { name: '', category: '' },
+    defaultValues: { glAccountNo: '', glAccountName: '' },
   });
 
   useEffect(() => {
     if (open) {
-      reset(editing ? { name: editing.name, category: editing.category } : { name: '', category: '' });
+      reset(
+        editing
+          ? { glAccountNo: editing.glAccountNo, glAccountName: editing.glAccountName }
+          : { glAccountNo: '', glAccountName: '' },
+      );
     }
   }, [open, editing, reset]);
+
+  const errorMessage = saveErrorMessage(error);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -225,18 +241,20 @@ function ExpenseHeadFormDialog({
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           <div className="space-y-1.5">
-            <Label htmlFor="name">Name</Label>
-            <Input id="name" {...register('name')} />
-            {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="category">Category</Label>
-            <Input id="category" {...register('category')} />
-            {errors.category && (
-              <p className="text-xs text-destructive">{errors.category.message}</p>
+            <Label htmlFor="glAccountNo">G/L Account No.</Label>
+            <Input id="glAccountNo" {...register('glAccountNo')} />
+            {errors.glAccountNo && (
+              <p className="text-xs text-destructive">{errors.glAccountNo.message}</p>
             )}
           </div>
-          {isError && <p className="text-sm text-destructive">Could not save. Please try again.</p>}
+          <div className="space-y-1.5">
+            <Label htmlFor="glAccountName">G/L Account Name</Label>
+            <Input id="glAccountName" {...register('glAccountName')} />
+            {errors.glAccountName && (
+              <p className="text-xs text-destructive">{errors.glAccountName.message}</p>
+            )}
+          </div>
+          {errorMessage && <p className="text-sm text-destructive">{errorMessage}</p>}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel

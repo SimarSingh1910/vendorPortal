@@ -254,7 +254,7 @@ interface UserFormDialogProps {
   editing: AdminUser | null;
   /** Which portal's view opened this dialog — drives the role options offered. */
   portal: PortalTab;
-  clinics: { id: string; name: string; location: string }[];
+  clinics: { id: string; name: string }[];
   departments: { id: string; name: string }[];
   onSaved: () => void;
 }
@@ -435,9 +435,7 @@ function UserFormDialog({
                           checked={clinicIds.includes(c.id)}
                           onChange={() => toggleClinic(c.id)}
                         />
-                        <span>
-                          {c.name} — {c.location}
-                        </span>
+                        <span>{c.name}</span>
                       </label>
                     ))}
                   </div>

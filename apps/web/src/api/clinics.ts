@@ -3,8 +3,8 @@ import { apiClient } from '@/lib/apiClient';
 
 export interface ClinicInput {
   name: string;
-  location: string;
-  corporateClient: string;
+  accLocationCode: string;
+  customerCode: string;
 }
 
 export async function listClinics(status: ActiveFilter): Promise<Clinic[]> {

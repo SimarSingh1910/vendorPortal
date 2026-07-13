@@ -6,11 +6,11 @@ export class UpdateExpenseHeadDto {
   @IsString()
   @MinLength(1)
   @MaxLength(191)
-  name?: string;
+  glAccountNo?: string;
 
   @IsOptional()
   @IsString()
   @MinLength(1)
   @MaxLength(191)
-  category?: string;
+  glAccountName?: string;
 }

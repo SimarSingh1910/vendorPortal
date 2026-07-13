@@ -89,8 +89,13 @@ enum CorpSubmissionStatus {
 model Clinic {
   id              String   @id @default(cuid())
   name            String
-  location        String
-  corporateClient String
+  // Fixed finance identifiers set by the Finance Admin per clinic (NOT SPOC-entered,
+  // NOT per-line): the accounting location code and customer code shown read-only to
+  // the SPOC/reviewers and carried onto exports. Required; existing rows were
+  // backfilled with a `PENDING-<id>` placeholder by the acc-location/customer-code
+  // migration — replace via the admin UI. Not unique (per-clinic identifiers).
+  accLocationCode String
+  customerCode    String
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -103,12 +108,16 @@ model Clinic {
 }
 
 model ExpenseHead {
-  id        String   @id @default(cuid())
-  name      String
-  category  String
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String   @id @default(cuid())
+  // Finance G/L account code (admin-entered). Unique so a code identifies exactly
+  // one head. Existing rows were backfilled with a `TEMP-<id>` placeholder by the
+  // 20260707_clinic_expense_head_gl_accounts migration — replace via the admin UI.
+  glAccountNo   String   @unique
+  // Descriptive G/L account name (carried over from the former `name` field).
+  glAccountName String
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   clinics   ClinicExpenseHead[]
   snapshots SubmissionExpenseHeadSnapshot[]
@@ -250,11 +259,14 @@ model MonthlySubmission {
 /// opened. Form rendering reads from here, never from live masters — this is how
 /// BR-05 ("master changes take effect next cycle only") is enforced.
 model SubmissionExpenseHeadSnapshot {
-  id                            String @id @default(cuid())
-  submissionId                  String
-  expenseHeadId                 String
-  expenseHeadNameAtSnapshot     String
-  expenseHeadCategoryAtSnapshot String
+  id                          String @id @default(cuid())
+  submissionId                String
+  expenseHeadId               String
+  // Frozen G/L account name at cycle-open (renamed from expenseHeadNameAtSnapshot).
+  expenseHeadGlNameAtSnapshot String
+  // Frozen G/L account no at cycle-open. Historical rows (which predate G/L codes)
+  // were backfilled from their head's placeholder glAccountNo by the migration.
+  expenseHeadGlNoAtSnapshot   String
 
   submission  MonthlySubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   expenseHead ExpenseHead       @relation(fields: [expenseHeadId], references: [id])
@@ -275,6 +287,13 @@ model ProvisionEntry {
   // Optional SPOC line-item note explaining this head's value (e.g. a spike/drop).
   // One nullable note per head per submission; set only by the SPOC while editable.
   note         String?  @db.Text
+  // Optional free-text vendor name the SPOC enters against this line (NOT a vendor
+  // master / dropdown, NOT snapshotted). Nullable; set only by the SPOC while editable.
+  vendorName   String?  @db.Text
+  // Optional Product Code the SPOC picks from a FIXED predefined set (PRODUCT_CODES
+  // in @portal/shared) — validated against that set at the API, NOT an admin master,
+  // NOT snapshotted. Nullable; set only by the SPOC while editable.
+  productCode  String?  @db.VarChar(191)
   enteredById  String
   enteredAt    DateTime @default(now())
 
@@ -539,6 +558,15 @@ model CorpProvisionEntry {
   // One nullable note per head per submission; set only by the SPOC while editable
   // (approver overrides preserve it). Mirrors the clinic ProvisionEntry.note.
   note String? @db.Text
+
+  // Optional SPOC free-text vendor name for this line (NOT a master / dropdown,
+  // NOT snapshotted). Nullable; set only by the SPOC while editable, preserved
+  // across approver overrides. Corporate analogue of ProvisionEntry.vendorName.
+  vendorName String? @db.Text
+  // Optional SPOC free-text location for this line. Unlike the clinic (where the
+  // location was a fixed clinic-master code), here it is per-line SPOC free text —
+  // NOT a master / dropdown, NOT snapshotted. Nullable; SPOC-set while editable.
+  location String? @db.Text
 
   enteredById String
   enteredAt   DateTime @default(now())

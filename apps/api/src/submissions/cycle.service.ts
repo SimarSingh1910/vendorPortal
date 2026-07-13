@@ -105,8 +105,8 @@ export class CycleService {
           snapshots: {
             create: heads.map((head) => ({
               expenseHeadId: head.expenseHeadId,
-              expenseHeadNameAtSnapshot: head.name,
-              expenseHeadCategoryAtSnapshot: head.category,
+              expenseHeadGlNameAtSnapshot: head.glAccountName,
+              expenseHeadGlNoAtSnapshot: head.glAccountNo,
             })),
           },
         },

@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -10,6 +11,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { PRODUCT_CODES } from '@portal/shared';
 
 /** One value being written against a snapshot head, with an optional note. */
 export class ProvisionEntryItemDto {
@@ -28,6 +30,20 @@ export class ProvisionEntryItemDto {
   @IsString()
   @MaxLength(2000)
   note?: string;
+
+  // Optional free-text vendor name for this line. Blank/whitespace is normalised
+  // to null by the service (never an empty string).
+  @IsOptional()
+  @IsString()
+  @MaxLength(191)
+  vendorName?: string;
+
+  // Optional Product Code from the FIXED predefined set (single source of truth in
+  // @portal/shared). Any value outside the set is rejected (400); blank/omitted is
+  // normalised to null by the service.
+  @IsOptional()
+  @IsIn([...PRODUCT_CODES])
+  productCode?: string;
 }
 
 /** Partial save is allowed — any subset of the submission's heads. */

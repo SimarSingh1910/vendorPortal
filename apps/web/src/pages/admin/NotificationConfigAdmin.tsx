@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { PortalTab, TAB_LABELS, type NotificationConfigView } from '@portal/shared';
+import { PortalTab, TAB_LABELS, UserRole, type NotificationConfigView } from '@portal/shared';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,8 +16,19 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { listConfigs, upsertConfig } from '@/api/notificationConfig';
+import { openCycle, type OpenCycleResult } from '@/api/submissions';
+import { openCorpCycle, type OpenCorpCycleResult } from '@/api/corpSubmissions';
 import { apiErrorMessage } from '@/lib/apiError';
 import { formatIST, formatMonth } from '@/lib/format';
+import { useAuthStore } from '@/store/auth.store';
+
+/** Current month in IST (UTC+5:30, no DST) as 'YYYY-MM' for the open-cycle default. */
+function currentIstMonth(): string {
+  const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 const schema = z.object({
   month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'YYYY-MM'),
@@ -83,6 +94,37 @@ export function NotificationConfigAdmin({ portal = PortalTab.CLINIC }: { portal?
     onError: (e) => setError(apiErrorMessage(e, 'Could not save config.')),
   });
 
+  // Manual cycle open — separate from saving the config. Opening a month creates a
+  // NOT_STARTED submission for every active clinic/department, which is what flips a
+  // SPOC's "awaiting cycle open" screen into the data-entry form. Idempotent (the
+  // same routine the scheduler runs on the notify date), and portal-aware.
+  const isCorp = portal === PortalTab.CORPORATE;
+  // Opening a cycle is Finance Admin only; the clinic config page is also visible to
+  // the Finance Manager, so hide the control for them (backend enforces it too).
+  const canOpenCycle = useAuthStore((s) => s.user?.role) === UserRole.FINANCE_ADMIN;
+  const [openMonth, setOpenMonth] = useState(currentIstMonth);
+  const [openError, setOpenError] = useState<string | null>(null);
+  const [openResult, setOpenResult] = useState<string | null>(null);
+
+  const openCycleMutation = useMutation<OpenCycleResult | OpenCorpCycleResult, unknown, string>({
+    mutationFn: (value: string) => (isCorp ? openCorpCycle(value) : openCycle(value)),
+    onSuccess: (res) => {
+      setOpenError(null);
+      const count = 'activeClinics' in res ? res.activeClinics : res.activeDepartments;
+      const noun = isCorp ? 'department' : 'clinic';
+      setOpenResult(
+        `${formatMonth(res.month)} is open — ${res.created} newly opened, ` +
+          `${res.alreadyOpen} already open of ${count} active ${noun}${count === 1 ? '' : 's'}.`,
+      );
+      void qc.invalidateQueries({ queryKey: [isCorp ? 'corp' : 'submissions'] });
+    },
+    onError: (e) => {
+      setOpenResult(null);
+      setOpenError(apiErrorMessage(e, 'Could not open the cycle.'));
+    },
+  });
+  const openMonthValid = MONTH_RE.test(openMonth);
+
   function editRow(config: NotificationConfigView) {
     reset({
       month: config.month,
@@ -103,6 +145,42 @@ export function NotificationConfigAdmin({ portal = PortalTab.CLINIC }: { portal?
           calendar is independent of the other. Finance Admin only.
         </p>
       </div>
+
+      {canOpenCycle && (
+      <div className="space-y-3 rounded-lg border p-4">
+        <div className="space-y-1">
+          <h2 className="text-sm font-semibold">Open cycle now</h2>
+          <p className="text-sm text-muted-foreground">
+            Open a month for data entry across every active {isCorp ? 'department' : 'clinic'} —
+            creates each provision form and notifies its SPOCs. Safe to re-run; already-open{' '}
+            {isCorp ? 'departments' : 'clinics'} are left untouched.
+          </p>
+        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (openMonthValid) openCycleMutation.mutate(openMonth);
+          }}
+          className="flex flex-wrap items-end gap-4"
+          noValidate
+        >
+          <div className="space-y-1.5">
+            <Label htmlFor="openMonth">Month</Label>
+            <Input
+              id="openMonth"
+              type="month"
+              value={openMonth}
+              onChange={(e) => setOpenMonth(e.target.value)}
+            />
+          </div>
+          <Button type="submit" disabled={!openMonthValid || openCycleMutation.isPending}>
+            {openCycleMutation.isPending ? 'Opening…' : 'Open cycle'}
+          </Button>
+        </form>
+        {openResult && <p className="text-sm text-emerald-600 dark:text-emerald-400">{openResult}</p>}
+        {openError && <p className="text-sm text-destructive">{openError}</p>}
+      </div>
+      )}
 
       <form
         onSubmit={handleSubmit((values) => saveMutation.mutate(values))}

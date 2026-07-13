@@ -87,18 +87,22 @@ export interface AdminUser {
 export interface Clinic {
   id: string;
   name: string;
-  location: string;
-  corporateClient: string;
+  /** Acc. Location Code — fixed finance identifier, admin-set per clinic (required). */
+  accLocationCode: string;
+  /** Customer Code — fixed finance identifier, admin-set per clinic (required). */
+  customerCode: string;
   isActive: boolean;
   createdAt: string; // ISO-8601
   updatedAt: string; // ISO-8601
 }
 
-/** An expense-head master record. */
+/** An expense-head master record, keyed on its finance G/L account. */
 export interface ExpenseHead {
   id: string;
-  name: string;
-  category: string;
+  /** G/L Account No. — the account code (required, unique). */
+  glAccountNo: string;
+  /** G/L Account Name — the descriptive account name (required). */
+  glAccountName: string;
   isActive: boolean;
   createdAt: string; // ISO-8601
   updatedAt: string; // ISO-8601
@@ -135,8 +139,8 @@ export interface CorpDepartment {
 export interface MappedExpenseHead {
   mappingId: string;
   expenseHeadId: string;
-  name: string;
-  category: string;
+  glAccountNo: string;
+  glAccountName: string;
 }
 
 // ── Submission comments / timeline (Phase 5) ─────────────────────────────────
@@ -203,11 +207,15 @@ export interface SubmissionListItem {
 export interface ProvisionHeadRow {
   snapshotId: string;
   expenseHeadId: string;
-  name: string;
-  category: string;
+  glAccountNo: string;
+  glAccountName: string;
   amount: string | null;
   /** Optional SPOC line-item note for this head (e.g. why it spiked/dropped); null when none. */
   note: string | null;
+  /** Optional free-text vendor name the SPOC entered against this line; null when none. */
+  vendorName: string | null;
+  /** Optional Product Code the SPOC picked from the fixed PRODUCT_CODES set; null when none. */
+  productCode: string | null;
 }
 
 /** Full provision form / read-only detail for a single submission. */
@@ -215,6 +223,10 @@ export interface SubmissionDetail {
   id: string;
   clinicId: string;
   clinicName: string;
+  /** Clinic's fixed Acc. Location Code — read-only context for the entry/review panel. */
+  clinicAccLocationCode: string;
+  /** Clinic's fixed Customer Code — read-only context for the entry/review panel. */
+  clinicCustomerCode: string;
   month: string; // YYYY-MM
   status: SubmissionStatus;
   locked: boolean;
@@ -239,6 +251,10 @@ export interface ProvisionEntryInput {
   amount: number;
   /** Optional SPOC note for this head; blank/whitespace is stored as null. */
   note?: string;
+  /** Optional free-text vendor name for this head; blank/whitespace is stored as null. */
+  vendorName?: string;
+  /** Optional Product Code from the fixed PRODUCT_CODES set; blank is stored as null. */
+  productCode?: string;
 }
 
 // ── Corporate submission / provision entry (Phase C2) ────────────────────────
@@ -254,6 +270,10 @@ export interface CorpProvisionEntryInput {
   amount: number;
   /** Optional SPOC note for this head; blank/whitespace is stored as null. */
   note?: string;
+  /** Optional free-text vendor name for this head; blank/whitespace is stored as null. */
+  vendorName?: string;
+  /** Optional free-text location for this head; blank/whitespace is stored as null. */
+  location?: string;
 }
 
 /** One accessible department's submission status for a month (corporate overview row). */
@@ -299,6 +319,10 @@ export interface CorpProvisionHeadRow {
   hclAvitasShare: string | null; // DECIMAL(14,2) string
   /** Optional SPOC line-item note for this head (e.g. why it spiked/dropped); null when none. */
   note: string | null;
+  /** Optional free-text vendor name the SPOC entered against this line; null when none. */
+  vendorName: string | null;
+  /** Optional free-text location the SPOC entered against this line; null when none. */
+  location: string | null;
 }
 
 /** Full corporate provision form / read-only detail for a single submission. */

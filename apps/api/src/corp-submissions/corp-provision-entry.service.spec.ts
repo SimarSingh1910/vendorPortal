@@ -270,4 +270,74 @@ describe('CorpProvisionEntryService (Steps C2.2/C2.3 — entry + override)', () 
     const submitted = await workflow.submit(submissionId, spoc);
     expect(submitted.status).toBe(CorpSubmissionStatus.SUBMITTED);
   });
+
+  // ── per-line Vendor Name + Location (both optional, SPOC free text) ─────────────
+
+  it('SPOC save persists vendor name + location (trimmed), clears to null, audited only as CORP_PROVISION_SAVE', async () => {
+    const { code, spoc, submissionId, snaps } = await scenario();
+
+    let detail = await entries.saveEntries(submissionId, spoc, [
+      {
+        snapshotId: snaps[0].id,
+        budgetCodeId: code.id,
+        amount: 10,
+        vendorName: '  Acme Corp  ',
+        location: '  Pune HQ  ',
+      },
+    ]);
+    let row = detail.heads.find((h) => h.snapshotId === snaps[0].id)!;
+    expect(row.vendorName).toBe('Acme Corp'); // trimmed
+    expect(row.location).toBe('Pune HQ');
+
+    // Clearing (blank / whitespace-only) stores null — never an empty string.
+    detail = await entries.saveEntries(submissionId, spoc, [
+      { snapshotId: snaps[0].id, budgetCodeId: code.id, amount: 10, vendorName: '   ', location: '' },
+    ]);
+    row = detail.heads.find((h) => h.snapshotId === snaps[0].id)!;
+    expect(row.vendorName).toBeNull();
+    expect(row.location).toBeNull();
+
+    // Both fields ride the existing per-line save — no separate/extra audit action.
+    const rows = await prisma.auditLog.findMany({
+      where: { entityType: 'CorpMonthlySubmission', entityId: submissionId },
+    });
+    const actions = new Set(rows.map((r) => r.action));
+    expect(actions).toContain('CORP_PROVISION_SAVE');
+    expect([...actions]).not.toContain('CORP_PROVISION_EDIT_OVERRIDE');
+  });
+
+  it('an approver override cannot set/alter vendor name + location — they stay the SPOC’s, and the approver sees them in detail', async () => {
+    const { code, spoc, fm, submissionId, snaps } = await scenario();
+    await entries.saveEntries(submissionId, spoc, [
+      { snapshotId: snaps[0].id, budgetCodeId: code.id, amount: 100, vendorName: 'Acme', location: 'Pune' },
+      { snapshotId: snaps[1].id, budgetCodeId: code.id, amount: 200 },
+    ]);
+    await workflow.submit(submissionId, spoc);
+
+    // The approver edits the amount and tries to smuggle in vendor/location — ignored.
+    const detail = await entries.saveEntries(submissionId, fm, [
+      {
+        snapshotId: snaps[0].id,
+        budgetCodeId: code.id,
+        amount: 150,
+        vendorName: 'HACKED',
+        location: 'Nowhere',
+      },
+    ]);
+    const row = detail.heads.find((h) => h.snapshotId === snaps[0].id)!;
+    expect(row.amount).toBe('150.00'); // amount override applied
+    expect(row.vendorName).toBe('Acme'); // SPOC's values preserved (approver read-only)
+    expect(row.location).toBe('Pune'); // and returned to the approver in detail
+  });
+
+  it('submit still succeeds when vendor name + location are blank (both optional — completeness rule unchanged)', async () => {
+    const { code, spoc, submissionId, snaps } = await scenario();
+    await entries.saveEntries(
+      submissionId,
+      spoc,
+      snaps.map((s) => ({ snapshotId: s.id, budgetCodeId: code.id, amount: 100 })), // no vendor/location
+    );
+    const submitted = await workflow.submit(submissionId, spoc);
+    expect(submitted.status).toBe(CorpSubmissionStatus.SUBMITTED);
+  });
 });

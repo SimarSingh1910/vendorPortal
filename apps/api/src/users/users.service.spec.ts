@@ -53,10 +53,20 @@ describe('UsersService — one or more clinics per clinic-role user', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     clinicA = await prisma.clinic.create({
-      data: { name: 'Clinic A', location: 'A', corporateClient: 'HCL', isActive: true },
+      data: {
+        name: 'Clinic A',
+        accLocationCode: 'ACC-A',
+        customerCode: 'CUST-A',
+        isActive: true,
+      },
     });
     clinicB = await prisma.clinic.create({
-      data: { name: 'Clinic B', location: 'B', corporateClient: 'HCL', isActive: true },
+      data: {
+        name: 'Clinic B',
+        accLocationCode: 'ACC-B',
+        customerCode: 'CUST-B',
+        isActive: true,
+      },
     });
   });
 

@@ -46,9 +46,9 @@ describe('CycleService (Step 5.1 — cycle opening + snapshot)', () => {
   it('opens an active clinic with 3 mapped heads → 1 NOT_STARTED submission + 3 matching snapshots', async () => {
     const clinic = await fx.makeClinic();
     const heads = [
-      await fx.makeExpenseHead({ name: 'Salaries', category: 'Payroll' }),
-      await fx.makeExpenseHead({ name: 'Rent', category: 'Facilities' }),
-      await fx.makeExpenseHead({ name: 'Consumables', category: 'Supplies' }),
+      await fx.makeExpenseHead({ glAccountName: 'Salaries', glAccountNo: '500100' }),
+      await fx.makeExpenseHead({ glAccountName: 'Rent', glAccountNo: '400100' }),
+      await fx.makeExpenseHead({ glAccountName: 'Consumables', glAccountNo: '600100' }),
     ];
     await fx.mapHeads(clinic.id, heads.map((h) => h.id));
 
@@ -69,8 +69,8 @@ describe('CycleService (Step 5.1 — cycle opening + snapshot)', () => {
     for (const head of heads) {
       const snap = byHead.get(head.id);
       expect(snap).toBeDefined();
-      expect(snap!.expenseHeadNameAtSnapshot).toBe(head.name);
-      expect(snap!.expenseHeadCategoryAtSnapshot).toBe(head.category);
+      expect(snap!.expenseHeadGlNameAtSnapshot).toBe(head.glAccountName);
+      expect(snap!.expenseHeadGlNoAtSnapshot).toBe(head.glAccountNo);
     }
   });
 
@@ -88,8 +88,8 @@ describe('CycleService (Step 5.1 — cycle opening + snapshot)', () => {
 
   it('freezes the snapshot: deactivating/renaming a head afterward leaves it unchanged', async () => {
     const clinic = await fx.makeClinic();
-    const toDeactivate = await fx.makeExpenseHead({ name: 'Utilities', category: 'Facilities' });
-    const toRename = await fx.makeExpenseHead({ name: 'Marketing', category: 'Growth' });
+    const toDeactivate = await fx.makeExpenseHead({ glAccountName: 'Utilities', glAccountNo: '400200' });
+    const toRename = await fx.makeExpenseHead({ glAccountName: 'Marketing', glAccountNo: '700100' });
     await fx.mapHeads(clinic.id, [toDeactivate.id, toRename.id]);
 
     const { submission } = await cycle.openClinicCycle(clinic.id, MONTH);
@@ -98,20 +98,20 @@ describe('CycleService (Step 5.1 — cycle opening + snapshot)', () => {
     await prisma.expenseHead.update({ where: { id: toDeactivate.id }, data: { isActive: false } });
     await prisma.expenseHead.update({
       where: { id: toRename.id },
-      data: { name: 'Brand & Marketing', category: 'Demand Gen' },
+      data: { glAccountName: 'Brand & Marketing', glAccountNo: '700200' },
     });
 
     const snaps = await prisma.submissionExpenseHeadSnapshot.findMany({
       where: { submissionId: submission.id },
-      orderBy: { expenseHeadNameAtSnapshot: 'asc' },
+      orderBy: { expenseHeadGlNameAtSnapshot: 'asc' },
     });
 
     expect(snaps).toHaveLength(2);
-    const names = snaps.map((s) => s.expenseHeadNameAtSnapshot).sort();
+    const names = snaps.map((s) => s.expenseHeadGlNameAtSnapshot).sort();
     expect(names).toEqual(['Marketing', 'Utilities']);
     const renamedSnap = snaps.find((s) => s.expenseHeadId === toRename.id)!;
-    expect(renamedSnap.expenseHeadNameAtSnapshot).toBe('Marketing');
-    expect(renamedSnap.expenseHeadCategoryAtSnapshot).toBe('Growth');
+    expect(renamedSnap.expenseHeadGlNameAtSnapshot).toBe('Marketing');
+    expect(renamedSnap.expenseHeadGlNoAtSnapshot).toBe('700100');
   });
 
   it('is idempotent: re-opening the same clinic/month returns the same submission, no dup snapshots', async () => {

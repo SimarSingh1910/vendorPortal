@@ -131,11 +131,11 @@ export class SubmissionsService {
     const submission = await this.prisma.monthlySubmission.findUnique({
       where: { id: submissionId },
       include: {
-        clinic: { select: { name: true } },
+        clinic: { select: { name: true, accLocationCode: true, customerCode: true } },
         reviewStartedBy: { select: { name: true } },
         snapshots: {
           include: { entry: true },
-          orderBy: [{ expenseHeadCategoryAtSnapshot: 'asc' }, { expenseHeadNameAtSnapshot: 'asc' }],
+          orderBy: [{ expenseHeadGlNoAtSnapshot: 'asc' }, { expenseHeadGlNameAtSnapshot: 'asc' }],
         },
       },
     });
@@ -155,6 +155,8 @@ export class SubmissionsService {
       id: submission.id,
       clinicId: submission.clinicId,
       clinicName: submission.clinic.name,
+      clinicAccLocationCode: submission.clinic.accLocationCode,
+      clinicCustomerCode: submission.clinic.customerCode,
       month: submission.month,
       status,
       locked: isLocked(status),
@@ -167,10 +169,12 @@ export class SubmissionsService {
       heads: submission.snapshots.map((snap) => ({
         snapshotId: snap.id,
         expenseHeadId: snap.expenseHeadId,
-        name: snap.expenseHeadNameAtSnapshot,
-        category: snap.expenseHeadCategoryAtSnapshot,
+        glAccountNo: snap.expenseHeadGlNoAtSnapshot,
+        glAccountName: snap.expenseHeadGlNameAtSnapshot,
         amount: snap.entry ? snap.entry.amount.toFixed(2) : null,
         note: snap.entry?.note ?? null,
+        vendorName: snap.entry?.vendorName ?? null,
+        productCode: snap.entry?.productCode ?? null,
       })),
     };
   }

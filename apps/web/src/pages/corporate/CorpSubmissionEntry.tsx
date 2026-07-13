@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Lock } from 'lucide-react';
+import { ArrowLeft, Download, Lock } from 'lucide-react';
 import {
   CorpSubmissionStatus,
   type CorpProvisionEntryInput,
@@ -21,6 +21,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { getCorpComments, getCorpSubmission, saveCorpEntries, submitCorpSubmission } from '@/api/corpSubmissions';
+import { exportCorpSubmission } from '@/api/export';
 import {
   ActionNeededBadge,
   attentionAccentClass,
@@ -48,6 +49,18 @@ function seedCodes(detail: CorpSubmissionDetail): ValueMap {
 function seedNotes(detail: CorpSubmissionDetail): ValueMap {
   const map: ValueMap = {};
   for (const head of detail.heads) map[head.snapshotId] = head.note ?? '';
+  return map;
+}
+
+function seedVendors(detail: CorpSubmissionDetail): ValueMap {
+  const map: ValueMap = {};
+  for (const head of detail.heads) map[head.snapshotId] = head.vendorName ?? '';
+  return map;
+}
+
+function seedLocations(detail: CorpSubmissionDetail): ValueMap {
+  const map: ValueMap = {};
+  for (const head of detail.heads) map[head.snapshotId] = head.location ?? '';
   return map;
 }
 
@@ -82,6 +95,8 @@ export function CorpSubmissionEntry() {
   const [values, setValues] = useState<ValueMap>({});
   const [codes, setCodes] = useState<ValueMap>({});
   const [headNotes, setHeadNotes] = useState<ValueMap>({});
+  const [vendors, setVendors] = useState<ValueMap>({});
+  const [locations, setLocations] = useState<ValueMap>({});
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -90,6 +105,8 @@ export function CorpSubmissionEntry() {
       setValues(seedValues(detail));
       setCodes(seedCodes(detail));
       setHeadNotes(seedNotes(detail));
+      setVendors(seedVendors(detail));
+      setLocations(seedLocations(detail));
     }
   }, [detail]);
 
@@ -104,10 +121,20 @@ export function CorpSubmissionEntry() {
     for (const head of detail?.heads ?? []) {
       const amount = parseAmount(values[head.snapshotId] ?? '');
       const budgetCodeId = (codes[head.snapshotId] ?? '').trim();
-      // A per-head note rides with its line; only persisted on a complete line.
+      // Per-head note / vendor name / location ride with the line; only persisted
+      // on a complete line (both optional — blank is fine).
       if (amount !== null && budgetCodeId) {
         const noteText = (headNotes[head.snapshotId] ?? '').trim();
-        out.push({ snapshotId: head.snapshotId, budgetCodeId, amount, note: noteText || undefined });
+        const vendorText = (vendors[head.snapshotId] ?? '').trim();
+        const locationText = (locations[head.snapshotId] ?? '').trim();
+        out.push({
+          snapshotId: head.snapshotId,
+          budgetCodeId,
+          amount,
+          note: noteText || undefined,
+          vendorName: vendorText || undefined,
+          location: locationText || undefined,
+        });
       }
     }
     return out;
@@ -120,6 +147,8 @@ export function CorpSubmissionEntry() {
       setValues(seedValues(updated));
       setCodes(seedCodes(updated));
       setHeadNotes(seedNotes(updated));
+      setVendors(seedVendors(updated));
+      setLocations(seedLocations(updated));
       invalidate();
     },
     onError: (e) => setError(apiErrorMessage(e, 'Could not save. Please try again.')),
@@ -156,16 +185,26 @@ export function CorpSubmissionEntry() {
   const pending = isCorpSpocActionPending(detail.status) && !!detail.canEdit;
   const isPool = detail.isSharedCostPool;
   const busy = saveMutation.isPending || submitMutation.isPending;
-  const colSpan = isPool ? 4 : 3;
+  const colSpan = isPool ? 6 : 5;
 
   return (
     <div className="space-y-6">
-      <Button asChild variant="ghost" size="sm" className="-ml-2 w-fit">
-        <Link to="/corporate">
-          <ArrowLeft />
-          Back to my departments
-        </Link>
-      </Button>
+      <div className="flex items-center justify-between gap-3">
+        <Button asChild variant="ghost" size="sm" className="-ml-2 w-fit">
+          <Link to="/corporate">
+            <ArrowLeft />
+            Back to my departments
+          </Link>
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void exportCorpSubmission(submissionId)}
+        >
+          <Download />
+          Export Excel
+        </Button>
+      </div>
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">{detail.departmentName}</h1>
@@ -235,6 +274,8 @@ export function CorpSubmissionEntry() {
             <TableRow>
               <TableHead>Expense head</TableHead>
               <TableHead>Budget code</TableHead>
+              <TableHead>Vendor name</TableHead>
+              <TableHead>Location</TableHead>
               <TableHead className="text-right">Amount (₹)</TableHead>
               {isPool && <TableHead className="text-right">HCL Avitas share (₹)</TableHead>}
             </TableRow>
@@ -289,6 +330,40 @@ export function CorpSubmissionEntry() {
                     ) : (
                       <span className={head.budgetCodeId === null ? 'text-muted-foreground' : ''}>
                         {detail.budgetCodes.find((b) => b.id === head.budgetCodeId)?.code ?? '—'}
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className="align-top">
+                    {canEdit ? (
+                      <Input
+                        placeholder="Vendor (optional)"
+                        maxLength={191}
+                        className="w-44"
+                        value={vendors[head.snapshotId] ?? ''}
+                        onChange={(e) =>
+                          setVendors((prev) => ({ ...prev, [head.snapshotId]: e.target.value }))
+                        }
+                      />
+                    ) : (
+                      <span className={head.vendorName ? '' : 'text-muted-foreground'}>
+                        {head.vendorName ?? '—'}
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className="align-top">
+                    {canEdit ? (
+                      <Input
+                        placeholder="Location (optional)"
+                        maxLength={191}
+                        className="w-44"
+                        value={locations[head.snapshotId] ?? ''}
+                        onChange={(e) =>
+                          setLocations((prev) => ({ ...prev, [head.snapshotId]: e.target.value }))
+                        }
+                      />
+                    ) : (
+                      <span className={head.location ? '' : 'text-muted-foreground'}>
+                        {head.location ?? '—'}
                       </span>
                     )}
                   </TableCell>

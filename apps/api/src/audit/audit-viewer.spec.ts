@@ -20,7 +20,11 @@ describe('Audit viewer + export (Step 9.2)', () => {
   const mkClinic = () => {
     seq += 1;
     return prisma.clinic.create({
-      data: { name: `Clinic ${seq}`, location: 'L', corporateClient: 'X' },
+      data: {
+        name: `Clinic ${seq}`,
+        accLocationCode: `ACC-${seq}`,
+        customerCode: `CUST-${seq}`,
+      },
     });
   };
   const mkUser = (role: UserRole) => {

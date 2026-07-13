@@ -70,26 +70,50 @@ const MONTHS = [shiftMonth(CUR, -3), shiftMonth(CUR, -2), shiftMonth(CUR, -1), C
 const PRIOR = shiftMonth(CUR, -1);
 
 // ── Master data ──────────────────────────────────────────────────────────────
-interface ClinicDef { code: string; name: string; location: string; factor: number; active: boolean }
+// Clinics carry a realistic, human-readable Acc. Location Code + Customer Code
+// (distinct per clinic) so the finance export shows real identifiers, not the
+// migration's PENDING- placeholders.
+interface ClinicDef {
+  code: string;
+  name: string;
+  location: string;
+  accLocationCode: string;
+  customerCode: string;
+  factor: number;
+  active: boolean;
+}
 const CLINICS: ClinicDef[] = [
-  { code: 'PUN', name: 'Pune Tech Park Clinic', location: 'Pune', factor: 1.0, active: true },
-  { code: 'MUM', name: 'Mumbai BKC Clinic', location: 'Mumbai', factor: 1.2, active: true },
-  { code: 'BLR', name: 'Bengaluru Whitefield Clinic', location: 'Bengaluru', factor: 0.9, active: true },
-  { code: 'HYD', name: 'Hyderabad Gachibowli Clinic', location: 'Hyderabad', factor: 1.05, active: true },
-  { code: 'CHE', name: 'Chennai OMR Clinic', location: 'Chennai', factor: 0.95, active: true },
-  { code: 'GUR', name: 'Gurugram Cyber City Clinic (closed)', location: 'Gurugram', factor: 0.8, active: false },
+  { code: 'PUN', name: 'Pune Tech Park Clinic', location: 'Pune', accLocationCode: 'PUN-HIN-01', customerCode: 'CUST-100231', factor: 1.0, active: true },
+  { code: 'MUM', name: 'Mumbai BKC Clinic', location: 'Mumbai', accLocationCode: 'MUM-BKC-02', customerCode: 'CUST-100232', factor: 1.2, active: true },
+  { code: 'BLR', name: 'Bengaluru Whitefield Clinic', location: 'Bengaluru', accLocationCode: 'BLR-WF-03', customerCode: 'CUST-100233', factor: 0.9, active: true },
+  { code: 'HYD', name: 'Hyderabad Gachibowli Clinic', location: 'Hyderabad', accLocationCode: 'HYD-GAC-04', customerCode: 'CUST-100234', factor: 1.05, active: true },
+  { code: 'CHE', name: 'Chennai OMR Clinic', location: 'Chennai', accLocationCode: 'CHE-OMR-05', customerCode: 'CUST-100235', factor: 0.95, active: true },
+  { code: 'GUR', name: 'Gurugram Cyber City Clinic (closed)', location: 'Gurugram', accLocationCode: 'GUR-CYB-06', customerCode: 'CUST-100236', factor: 0.8, active: false },
 ];
 
-interface HeadDef { key: string; name: string; category: string; base: number }
+// Expense heads carry realistic G/L account numbers (6xxxxx series) and an
+// EXAMPLE per-line vendor / product code / description. Vendor/product/description
+// are OPTIONAL by design — the blanks below (e.g. no vendor for salaries, no
+// product for equipment) are intentional so the export demos the "may or may not
+// be entered" behaviour. `entryExtras` varies them further across clinics/months.
+interface HeadDef {
+  key: string;
+  glAccountNo: string;
+  glAccountName: string;
+  base: number;
+  vendor?: string;
+  product?: string;
+  description?: string;
+}
 const HEADS: HeadDef[] = [
-  { key: 'RENT', name: 'Facility Rent', category: 'Facilities', base: 120_000 },
-  { key: 'STAFF', name: 'Clinical Staff Salaries', category: 'Personnel', base: 450_000 },
-  { key: 'UTIL', name: 'Utilities (Power & Water)', category: 'Facilities', base: 35_000 },
-  { key: 'CONSUM', name: 'Medical Consumables', category: 'Medical', base: 80_000 },
-  { key: 'HOUSE', name: 'Housekeeping & Sanitation', category: 'Facilities', base: 25_000 },
-  { key: 'EQUIP', name: 'Equipment Maintenance', category: 'Medical', base: 40_000 }, // the variance spiker
-  { key: 'PHARMA', name: 'Pharmacy Stock', category: 'Medical', base: 95_000 },
-  { key: 'TELECOM', name: 'Internet & Telecom', category: 'IT', base: 12_000 },
+  { key: 'RENT', glAccountNo: '610010', glAccountName: 'Facility Rent', base: 120_000, vendor: 'Prestige Property Management', product: 'p10', description: 'Annual lease escalation 5% effective Apr' },
+  { key: 'STAFF', glAccountNo: '620010', glAccountName: 'Clinical Staff Salaries', base: 450_000, product: 'p20' },
+  { key: 'UTIL', glAccountNo: '630010', glAccountName: 'Utilities (Power & Water)', base: 35_000, vendor: 'BESCOM', product: 'p18', description: 'Higher AC load over summer months' },
+  { key: 'CONSUM', glAccountNo: '640010', glAccountName: 'Medical Consumables', base: 80_000, vendor: 'Romsons Scientific & Surgical', product: 'p17' },
+  { key: 'HOUSE', glAccountNo: '650010', glAccountName: 'Housekeeping & Sanitation', base: 25_000, vendor: 'BVG India Ltd', product: 'p10', description: 'Additional deep-clean contract' },
+  { key: 'EQUIP', glAccountNo: '660010', glAccountName: 'Equipment Maintenance', base: 40_000, vendor: 'Siemens Healthineers', description: 'Scheduled AMC for imaging equipment' }, // the variance spiker
+  { key: 'PHARMA', glAccountNo: '670010', glAccountName: 'Pharmacy Stock', base: 95_000, vendor: 'Apollo Pharmacy Distribution', product: 'p17' },
+  { key: 'TELECOM', glAccountNo: '680010', glAccountName: 'Internet & Telecom', base: 12_000, vendor: 'Airtel Business', product: 'p18', description: 'Bandwidth upgrade' },
 ];
 
 // Per (clinic, month, head) amount. Historical months drift up slightly; the
@@ -104,6 +128,26 @@ function amountFor(clinic: ClinicDef, month: string, head: HeadDef): number {
     amt = head.base * clinic.factor * 2.4;
   }
   return Math.round(amt);
+}
+
+// Per-line Vendor Name / Product Code / Description (the Description column maps to
+// the per-line SPOC note). All three are OPTIONAL: they start from the head's
+// example, then vary by clinic and month so a consolidated export isn't uniform and
+// shows the "may or may not be entered" spread (blanks are intentional).
+function entryExtras(
+  clinic: ClinicDef,
+  month: string,
+  head: HeadDef,
+): { vendorName: string | null; productCode: string | null; note: string | null } {
+  const ci = CLINICS.findIndex((x) => x.code === clinic.code);
+  const mi = MONTHS.indexOf(month);
+  // Vendor names are stable where a vendor is seeded (blank for e.g. staff salaries).
+  const vendorName = head.vendor ?? null;
+  // Product codes: adopted from the 2nd seeded month onward; some clinics lag a month.
+  const productCode = mi >= (ci % 2 === 0 ? 1 : 2) ? head.product ?? null : null;
+  // Descriptions are event-driven — only the recent months, and not every clinic.
+  const note = mi >= 2 && (ci + mi) % 2 === 0 ? head.description ?? null : null;
+  return { vendorName, productCode, note };
 }
 
 // ── Users ────────────────────────────────────────────────────────────────────
@@ -154,7 +198,7 @@ const CURRENT_STATUS: Record<string, SubmissionStatus> = {
 
 async function main(): Promise<void> {
   const clinicNames = CLINICS.map((c) => c.name);
-  const headNames = HEADS.map((h) => h.name);
+  const headNames = HEADS.map((h) => h.glAccountName);
   const userEmails = USERS.filter((u) => u.role !== UserRole.FINANCE_ADMIN).map((u) => u.email);
   // Legacy demo emails no longer in USERS (e.g. the pre-Step-1 finance viewer)
   // so re-seeding doesn't leave an orphaned account behind.
@@ -168,7 +212,13 @@ async function main(): Promise<void> {
     where: { OR: [{ name: { in: clinicNames } }, { name: { startsWith: 'Demo ' } }, { name: { startsWith: 'Perf ' } }] },
   });
   await prisma.expenseHead.deleteMany({
-    where: { OR: [{ name: { in: headNames } }, { name: { startsWith: 'Demo ' } }, { name: { startsWith: 'Perf ' } }] },
+    where: {
+      OR: [
+        { glAccountName: { in: headNames } },
+        { glAccountName: { startsWith: 'Demo ' } },
+        { glAccountName: { startsWith: 'Perf ' } },
+      ],
+    },
   });
   await prisma.user.deleteMany({ where: { email: { in: [...userEmails, ...legacyEmails] } } });
   await prisma.notificationConfig.deleteMany({ where: { month: { in: MONTHS } } });
@@ -177,13 +227,20 @@ async function main(): Promise<void> {
   const clinicId: Record<string, string> = {};
   for (const c of CLINICS) {
     const row = await prisma.clinic.create({
-      data: { name: c.name, location: c.location, corporateClient: 'HCL Avitas', isActive: c.active },
+      data: {
+        name: c.name,
+        accLocationCode: c.accLocationCode,
+        customerCode: c.customerCode,
+        isActive: c.active,
+      },
     });
     clinicId[c.code] = row.id;
   }
   const headId: Record<string, string> = {};
   for (const h of HEADS) {
-    const row = await prisma.expenseHead.create({ data: { name: h.name, category: h.category, isActive: true } });
+    const row = await prisma.expenseHead.create({
+      data: { glAccountNo: h.glAccountNo, glAccountName: h.glAccountName, isActive: true },
+    });
     headId[h.key] = row.id;
   }
   for (const c of CLINICS) {
@@ -260,8 +317,8 @@ async function main(): Promise<void> {
         snapshots: {
           create: HEADS.map((h) => ({
             expenseHeadId: headId[h.key],
-            expenseHeadNameAtSnapshot: h.name,
-            expenseHeadCategoryAtSnapshot: h.category,
+            expenseHeadGlNameAtSnapshot: h.glAccountName,
+            expenseHeadGlNoAtSnapshot: h.glAccountNo,
           })),
         },
       } as never,
@@ -271,12 +328,16 @@ async function main(): Promise<void> {
     // Value every head except for a pristine NOT_STARTED.
     if (status !== SubmissionStatus.NOT_STARTED) {
       for (const snap of sub.snapshots) {
-        const head = HEADS.find((h) => h.name === snap.expenseHeadNameAtSnapshot)!;
+        const head = HEADS.find((h) => h.glAccountName === snap.expenseHeadGlNameAtSnapshot)!;
+        const extras = entryExtras(c, month, head);
         await prisma.provisionEntry.create({
           data: {
             submissionId: sub.id,
             snapshotId: snap.id,
             amount: amountFor(c, month, head),
+            vendorName: extras.vendorName,
+            productCode: extras.productCode,
+            note: extras.note,
             enteredById: spocByCode[c.code],
             lastModifiedById: spocByCode[c.code],
           },

@@ -140,14 +140,17 @@ export class ProvisionEntryService {
     // Snapshot the prior values so the audit captures the change.
     const before = await this.prisma.provisionEntry.findMany({
       where: { snapshotId: { in: items.map((i) => i.snapshotId) } },
-      select: { snapshotId: true, amount: true },
+      select: { snapshotId: true, amount: true, vendorName: true, productCode: true },
     });
 
-    // Only the SPOC owns the per-head note; manager/finance value overrides leave
-    // the existing note untouched (don't include it in their upsert). Blank or
-    // whitespace-only notes are stored as null (never empty strings).
-    const writesNote = kind === 'spoc';
+    // Only the SPOC owns the per-head note, vendor name and product code;
+    // manager/finance value overrides leave all three untouched (don't include them
+    // in their upsert). Blank or whitespace-only values are stored as null (never
+    // empty strings). The product code is validated against the fixed set by the DTO.
+    const writesSpocFields = kind === 'spoc';
     const noteOf = (item: ProvisionEntryInput): string | null => item.note?.trim() || null;
+    const vendorOf = (item: ProvisionEntryInput): string | null => item.vendorName?.trim() || null;
+    const productOf = (item: ProvisionEntryInput): string | null => item.productCode?.trim() || null;
 
     await this.prisma.$transaction(
       items.map((item) =>
@@ -156,7 +159,9 @@ export class ProvisionEntryService {
           update: {
             amount: item.amount,
             lastModifiedById: user.id,
-            ...(writesNote ? { note: noteOf(item) } : {}),
+            ...(writesSpocFields
+              ? { note: noteOf(item), vendorName: vendorOf(item), productCode: productOf(item) }
+              : {}),
           },
           create: {
             submissionId,
@@ -164,7 +169,9 @@ export class ProvisionEntryService {
             amount: item.amount,
             enteredById: user.id,
             lastModifiedById: user.id,
-            ...(writesNote ? { note: noteOf(item) } : {}),
+            ...(writesSpocFields
+              ? { note: noteOf(item), vendorName: vendorOf(item), productCode: productOf(item) }
+              : {}),
           },
         }),
       ),
@@ -185,7 +192,12 @@ export class ProvisionEntryService {
       entityType: 'MonthlySubmission',
       entityId: submissionId,
       clinicId,
-      oldValue: before.map((b) => ({ snapshotId: b.snapshotId, amount: b.amount.toFixed(2) })),
+      oldValue: before.map((b) => ({
+        snapshotId: b.snapshotId,
+        amount: b.amount.toFixed(2),
+        vendorName: b.vendorName,
+        productCode: b.productCode,
+      })),
       newValue: items,
     });
   }

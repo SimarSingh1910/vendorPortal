@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Lock } from 'lucide-react';
+import { ArrowLeft, Download, Lock } from 'lucide-react';
 import {
   CorpSubmissionStatus,
   UserRole,
@@ -29,6 +29,7 @@ import {
   getCorpSubmission,
   saveCorpEntries,
 } from '@/api/corpSubmissions';
+import { exportCorpSubmission } from '@/api/export';
 import { useAuthStore } from '@/store/auth.store';
 import { apiErrorMessage } from '@/lib/apiError';
 import { commentActionLabel, commentActionVariant, formatINR, formatIST, formatMonth } from '@/lib/format';
@@ -167,7 +168,7 @@ export function CorpReview() {
   const canEdit = detail.canReview;
   const inReview = detail.status === CorpSubmissionStatus.FINANCE_MANAGER_REVIEW;
   const isPool = detail.isSharedCostPool;
-  const colSpan = isPool ? 4 : 3;
+  const colSpan = isPool ? 6 : 5;
   const busy =
     approveMutation.isPending ||
     sendBackMutation.isPending ||
@@ -176,12 +177,22 @@ export function CorpReview() {
 
   return (
     <div className="space-y-6">
-      <Button asChild variant="ghost" size="sm" className="-ml-2 w-fit">
-        <Link to="/corporate/review">
-          <ArrowLeft />
-          Back to review queue
-        </Link>
-      </Button>
+      <div className="flex items-center justify-between gap-3">
+        <Button asChild variant="ghost" size="sm" className="-ml-2 w-fit">
+          <Link to="/corporate/review">
+            <ArrowLeft />
+            Back to review queue
+          </Link>
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void exportCorpSubmission(submissionId)}
+        >
+          <Download />
+          Export Excel
+        </Button>
+      </div>
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">{detail.departmentName}</h1>
@@ -240,6 +251,8 @@ export function CorpReview() {
             <TableRow>
               <TableHead>Expense head</TableHead>
               <TableHead>Budget code</TableHead>
+              <TableHead>Vendor name</TableHead>
+              <TableHead>Location</TableHead>
               <TableHead className="text-right">Amount (₹)</TableHead>
               {isPool && <TableHead className="text-right">HCL Avitas share (₹)</TableHead>}
             </TableRow>
@@ -291,6 +304,18 @@ export function CorpReview() {
                         {detail.budgetCodes.find((b) => b.id === head.budgetCodeId)?.code ?? '—'}
                       </span>
                     )}
+                  </TableCell>
+                  {/* Vendor Name + Location are the SPOC's per-line entries — always
+                      read-only here (the approver override edits amounts only). */}
+                  <TableCell className="align-top">
+                    <span className={head.vendorName ? '' : 'text-muted-foreground'}>
+                      {head.vendorName ?? '—'}
+                    </span>
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <span className={head.location ? '' : 'text-muted-foreground'}>
+                      {head.location ?? '—'}
+                    </span>
                   </TableCell>
                   <TableCell className="align-top text-right">
                     {canEdit ? (

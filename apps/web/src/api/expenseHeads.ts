@@ -2,8 +2,8 @@ import type { ActiveFilter, ExpenseHead } from '@portal/shared';
 import { apiClient } from '@/lib/apiClient';
 
 export interface ExpenseHeadInput {
-  name: string;
-  category: string;
+  glAccountNo: string;
+  glAccountName: string;
 }
 
 export async function listExpenseHeads(status: ActiveFilter): Promise<ExpenseHead[]> {

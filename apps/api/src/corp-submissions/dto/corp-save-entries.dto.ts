@@ -36,6 +36,20 @@ export class CorpProvisionEntryItemDto {
   @IsString()
   @MaxLength(2000)
   note?: string;
+
+  // Optional free-text vendor name for this line. Blank/whitespace is normalised
+  // to null by the service (never an empty string). Mirrors the clinic cap.
+  @IsOptional()
+  @IsString()
+  @MaxLength(191)
+  vendorName?: string;
+
+  // Optional free-text location for this line (per-line SPOC free text, NOT a
+  // master/dropdown). Blank/whitespace is normalised to null by the service.
+  @IsOptional()
+  @IsString()
+  @MaxLength(191)
+  location?: string;
 }
 
 /** Partial save is allowed — any subset of the submission's heads. */
