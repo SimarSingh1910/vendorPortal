@@ -75,7 +75,7 @@ export function MappingsAdmin() {
           <option value="">Select a clinic…</option>
           {clinics.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.name} — {c.location}
+              {c.name}
             </option>
           ))}
         </select>
@@ -112,8 +112,8 @@ export function MappingsAdmin() {
                     onChange={() => toggle(head.id)}
                     data-testid={`head-${head.id}`}
                   />
-                  <span className="font-medium">{head.name}</span>
-                  <span className="text-muted-foreground">{head.category}</span>
+                  <span className="font-medium">{head.glAccountName}</span>
+                  <span className="text-muted-foreground">{head.glAccountNo}</span>
                 </label>
               );
             })}

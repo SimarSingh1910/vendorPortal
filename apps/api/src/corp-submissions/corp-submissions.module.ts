@@ -1,0 +1,51 @@
+import { Module } from '@nestjs/common';
+import { CorpExpenseHeadsModule } from '../corp-expense-heads/corp-expense-heads.module';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { CorpCycleService } from './corp-cycle.service';
+import { CorpDepartmentScopeService } from './corp-department-scope.service';
+import { CorpNotificationDispatchService } from './corp-notification-dispatch.service';
+import { CorpWorkflowService } from './corp-workflow.service';
+import { CorpProvisionEntryService } from './corp-provision-entry.service';
+import { CorpSubmissionsService } from './corp-submissions.service';
+import { CorpSubmissionCommentsService } from './corp-submission-comments.service';
+import { Sec24AllocationService } from './sec24-allocation.service';
+import { CorpSubmissionWorkflowController } from './corp-submission-workflow.controller';
+import { CorpProvisionEntryController } from './corp-provision-entry.controller';
+import { CorpSubmissionsController } from './corp-submissions.controller';
+import { Sec24AllocationController } from './sec24-allocation.controller';
+
+/**
+ * Corporate submission workflow engine (Phase C2). Step C2.1 ships cycle opening +
+ * head snapshot; C2.2 the authoritative state machine + dept SPOC entry; C2.3 the
+ * Corporate Finance Manager review/override/approve/send-back + Finance-Admin
+ * unlock. Its own services, following the clinic SubmissionsModule pattern.
+ * CorpCycleService is exported for the scheduler (Step C5); CorpWorkflowService
+ * for cross-service transitions.
+ */
+@Module({
+  imports: [CorpExpenseHeadsModule, NotificationsModule],
+  controllers: [
+    CorpSubmissionWorkflowController,
+    CorpProvisionEntryController,
+    CorpSubmissionsController,
+    Sec24AllocationController,
+  ],
+  providers: [
+    CorpCycleService,
+    CorpDepartmentScopeService,
+    CorpNotificationDispatchService,
+    CorpWorkflowService,
+    CorpProvisionEntryService,
+    CorpSubmissionsService,
+    CorpSubmissionCommentsService,
+    Sec24AllocationService,
+  ],
+  exports: [
+    CorpCycleService,
+    CorpWorkflowService,
+    Sec24AllocationService,
+    CorpDepartmentScopeService,
+    CorpNotificationDispatchService,
+  ],
+})
+export class CorpSubmissionsModule {}

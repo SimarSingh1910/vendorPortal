@@ -127,8 +127,8 @@ describe('DashboardService (Phase 11, FR-07)', () => {
 
   it('variance flags a head only when deviation exceeds the configured threshold', async () => {
     const clinic = await fx.makeClinic();
-    const spiker = await fx.makeExpenseHead({ name: 'Spiker' });
-    const steady = await fx.makeExpenseHead({ name: 'Steady' });
+    const spiker = await fx.makeExpenseHead({ glAccountName:'Spiker' });
+    const steady = await fx.makeExpenseHead({ glAccountName:'Steady' });
     await fx.mapHeads(clinic.id, [spiker.id, steady.id]);
 
     // Prior month: both 100.
@@ -166,8 +166,8 @@ describe('DashboardService (Phase 11, FR-07)', () => {
 
   it('variance returns fiscal-year-to-date AVERAGE per head: FY total ÷ elapsed FY months, missing months as 0', async () => {
     const clinic = await fx.makeClinic();
-    const rent = await fx.makeExpenseHead({ name: 'Rent' });
-    const adhoc = await fx.makeExpenseHead({ name: 'Adhoc' });
+    const rent = await fx.makeExpenseHead({ glAccountName:'Rent' });
+    const adhoc = await fx.makeExpenseHead({ glAccountName:'Adhoc' });
     await fx.mapHeads(clinic.id, [rent.id, adhoc.id]);
 
     // FY 2026-27 starts 2026-04. As of June, 3 FY months have elapsed (Apr–Jun).
@@ -197,7 +197,7 @@ describe('DashboardService (Phase 11, FR-07)', () => {
 
   it('YTD average in April equals the current month only — the prior fiscal year is excluded', async () => {
     const clinic = await fx.makeClinic();
-    const rent = await fx.makeExpenseHead({ name: 'Rent' });
+    const rent = await fx.makeExpenseHead({ glAccountName:'Rent' });
     await fx.mapHeads(clinic.id, [rent.id]);
 
     // March 2026 belongs to the PREVIOUS fiscal year; April 2026 starts the new one.
@@ -260,7 +260,7 @@ describe('DashboardService (Phase 11, FR-07)', () => {
 
   it('month-wise report: window = current + N preceding (chronological, current last) with gaps as null', async () => {
     const clinic = await fx.makeClinic({ name: 'Reportee' });
-    const head = await fx.makeExpenseHead({ name: 'Rent' });
+    const head = await fx.makeExpenseHead({ glAccountName:'Rent' });
     await fx.mapHeads(clinic.id, [head.id]);
     // Data in Apr/May/Jun; March is a gap. Current cycle month pinned to 2026-06.
     await enter(clinic.id, '2026-04', head.id, 400);

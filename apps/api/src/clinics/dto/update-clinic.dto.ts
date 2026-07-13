@@ -16,11 +16,11 @@ export class UpdateClinicDto {
   @IsString()
   @MinLength(1)
   @MaxLength(191)
-  location?: string;
+  accLocationCode?: string;
 
   @IsOptional()
   @IsString()
   @MinLength(1)
   @MaxLength(191)
-  corporateClient?: string;
+  customerCode?: string;
 }

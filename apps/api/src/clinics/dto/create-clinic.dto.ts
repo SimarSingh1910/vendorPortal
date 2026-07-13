@@ -6,13 +6,15 @@ export class CreateClinicDto {
   @MaxLength(191)
   name!: string;
 
+  // Fixed finance identifiers set per clinic by the Finance Admin — both REQUIRED,
+  // shown read-only to the SPOC/reviewers (never SPOC-entered) and carried onto exports.
   @IsString()
   @MinLength(1)
   @MaxLength(191)
-  location!: string;
+  accLocationCode!: string;
 
   @IsString()
   @MinLength(1)
   @MaxLength(191)
-  corporateClient!: string;
+  customerCode!: string;
 }

@@ -1,10 +1,31 @@
-import { UserRole } from '@portal/shared';
+import { PortalTab, UserRole, tabsForRole } from '@portal/shared';
 
 /**
  * Finance staff with full powers. FINANCE_ADMIN and FINANCE_MANAGER share every
  * finance screen; only FINANCE_ADMIN additionally sees User Management.
  */
 const FINANCE_FULL: UserRole[] = [UserRole.FINANCE_ADMIN, UserRole.FINANCE_MANAGER];
+
+/**
+ * Roles that may see the Corporate tab: the corporate-only roles plus
+ * FINANCE_ADMIN (the only role spanning both tabs). The clinic FINANCE_MANAGER
+ * is intentionally absent — it is a distinct role with no corporate visibility.
+ */
+const CORP_VISIBLE: UserRole[] = [
+  UserRole.FINANCE_ADMIN,
+  UserRole.CORP_FINANCE_MANAGER,
+  UserRole.DEPT_SPOC,
+  UserRole.DEPT_VIEWER,
+];
+
+/** Corporate approvers — the review/approve/unlock side (org-wide scope). */
+const CORP_APPROVER: UserRole[] = [UserRole.FINANCE_ADMIN, UserRole.CORP_FINANCE_MANAGER];
+
+/** Department users who enter/view a department's provision form. */
+const CORP_DEPT_USERS: UserRole[] = [UserRole.DEPT_SPOC, UserRole.DEPT_VIEWER];
+
+/** Landing path for the Corporate tab (placeholder until corporate screens land). */
+export const CORPORATE_HOME = '/corporate';
 
 /** Where each role lands after login / when hitting the app root. */
 export const ROLE_HOME: Record<UserRole, string> = {
@@ -13,16 +34,39 @@ export const ROLE_HOME: Record<UserRole, string> = {
   [UserRole.CLINIC_MANAGER]: '/manager',
   [UserRole.CLINIC_SPOC]: '/spoc',
   [UserRole.CLINIC_VIEWER]: '/viewer',
+  // Corporate-only roles land in the Corporate tab.
+  [UserRole.CORP_FINANCE_MANAGER]: CORPORATE_HOME,
+  [UserRole.DEPT_SPOC]: CORPORATE_HOME,
+  [UserRole.DEPT_VIEWER]: CORPORATE_HOME,
 };
 
 export function roleHome(role: UserRole): string {
   return ROLE_HOME[role] ?? '/login';
 }
 
+/** Which tab a given route path belongs to (corporate routes are prefixed). */
+export function tabForPath(pathname: string): PortalTab {
+  return pathname === CORPORATE_HOME || pathname.startsWith(`${CORPORATE_HOME}/`)
+    ? PortalTab.CORPORATE
+    : PortalTab.CLINIC;
+}
+
+/** Landing path for a given tab. Clinic uses the role's own home; corporate is fixed. */
+export function tabHome(role: UserRole, tab: PortalTab): string {
+  return tab === PortalTab.CORPORATE ? CORPORATE_HOME : roleHome(role);
+}
+
+/** The tabs a role may switch between (drives the top-level tab switch). */
+export function rolePortalTabs(role: UserRole): readonly PortalTab[] {
+  return tabsForRole(role);
+}
+
 export interface NavItem {
   path: string;
   label: string;
   roles: UserRole[];
+  /** Which tab this item belongs under (filtered out when the other tab is active). */
+  tab: PortalTab;
 }
 
 /**
@@ -30,24 +74,70 @@ export interface NavItem {
  * the backend independently enforces access; hiding is purely UX).
  */
 export const NAV_ITEMS: NavItem[] = [
-  { path: '/finance', label: 'Finance', roles: FINANCE_FULL },
-  { path: '/finance/dashboard', label: 'Dashboard', roles: FINANCE_FULL },
+  { path: '/finance', label: 'Finance', roles: FINANCE_FULL, tab: PortalTab.CLINIC },
+  { path: '/finance/dashboard', label: 'Dashboard', roles: FINANCE_FULL, tab: PortalTab.CLINIC },
   // Master-data management (create/edit) is FINANCE_ADMIN-only; the manager keeps
   // finance review, dashboards, audit, exports and notification config.
-  { path: '/admin/clinics', label: 'Clinics', roles: [UserRole.FINANCE_ADMIN] },
-  { path: '/admin/expense-heads', label: 'Expense Heads', roles: [UserRole.FINANCE_ADMIN] },
-  { path: '/admin/mappings', label: 'Mappings', roles: [UserRole.FINANCE_ADMIN] },
-  { path: '/admin/users', label: 'Users', roles: [UserRole.FINANCE_ADMIN] },
-  { path: '/admin/notifications', label: 'Notification Config', roles: FINANCE_FULL },
-  { path: '/admin/audit', label: 'Audit Log', roles: FINANCE_FULL },
-  { path: '/manager', label: 'Clinic Manager', roles: [UserRole.CLINIC_MANAGER] },
-  { path: '/spoc', label: 'Data Entry', roles: [UserRole.CLINIC_SPOC] },
+  { path: '/admin/clinics', label: 'Clinics', roles: [UserRole.FINANCE_ADMIN], tab: PortalTab.CLINIC },
+  { path: '/admin/expense-heads', label: 'Expense Heads', roles: [UserRole.FINANCE_ADMIN], tab: PortalTab.CLINIC },
+  { path: '/admin/mappings', label: 'Mappings', roles: [UserRole.FINANCE_ADMIN], tab: PortalTab.CLINIC },
+  { path: '/admin/users', label: 'Users', roles: [UserRole.FINANCE_ADMIN], tab: PortalTab.CLINIC },
+  { path: '/admin/notifications', label: 'Notification Config', roles: FINANCE_FULL, tab: PortalTab.CLINIC },
+  { path: '/admin/audit', label: 'Audit Log', roles: FINANCE_FULL, tab: PortalTab.CLINIC },
+  { path: '/manager', label: 'Clinic Manager', roles: [UserRole.CLINIC_MANAGER], tab: PortalTab.CLINIC },
+  { path: '/spoc', label: 'Data Entry', roles: [UserRole.CLINIC_SPOC], tab: PortalTab.CLINIC },
   {
     path: '/clinic/dashboard',
     label: 'Dashboard',
     roles: [UserRole.CLINIC_MANAGER, UserRole.CLINIC_SPOC],
+    tab: PortalTab.CLINIC,
   },
-  { path: '/viewer', label: 'Clinic View', roles: [UserRole.CLINIC_VIEWER] },
+  { path: '/viewer', label: 'Clinic View', roles: [UserRole.CLINIC_VIEWER], tab: PortalTab.CLINIC },
+  // Corporate tab (Corporate Provisions module).
+  { path: CORPORATE_HOME, label: 'Departments', roles: CORP_VISIBLE, tab: PortalTab.CORPORATE },
+  { path: '/corporate/review', label: 'Review Queue', roles: CORP_APPROVER, tab: PortalTab.CORPORATE },
+  // Dashboard: finance consolidated (all depts) for approvers; own-dept view for dept users.
+  { path: '/corporate/dashboard', label: 'Dashboard', roles: CORP_APPROVER, tab: PortalTab.CORPORATE },
+  {
+    path: '/corporate/my-dashboard',
+    label: 'Dashboard',
+    roles: CORP_DEPT_USERS,
+    tab: PortalTab.CORPORATE,
+  },
+  // Corporate master data — Finance Admin only (mirrors the clinic admin items).
+  {
+    path: '/corporate/admin/departments',
+    label: 'Department Masters',
+    roles: [UserRole.FINANCE_ADMIN],
+    tab: PortalTab.CORPORATE,
+  },
+  {
+    path: '/corporate/admin/sec24',
+    label: 'Sec 24 Config',
+    roles: [UserRole.FINANCE_ADMIN],
+    tab: PortalTab.CORPORATE,
+  },
+  // Corporate-portal user management + notification config + audit view (Finance
+  // Admin only) — separate per-portal surfaces over the SAME user / config table
+  // and the single audit log.
+  {
+    path: '/corporate/admin/users',
+    label: 'Users',
+    roles: [UserRole.FINANCE_ADMIN],
+    tab: PortalTab.CORPORATE,
+  },
+  {
+    path: '/corporate/admin/notifications',
+    label: 'Notification Config',
+    roles: [UserRole.FINANCE_ADMIN],
+    tab: PortalTab.CORPORATE,
+  },
+  {
+    path: '/corporate/admin/audit',
+    label: 'Audit Log',
+    roles: [UserRole.FINANCE_ADMIN],
+    tab: PortalTab.CORPORATE,
+  },
 ];
 
 /** Allowed roles per protected route path (single source for router + guard). */
@@ -67,4 +157,15 @@ export const ROUTE_ROLES: Record<string, UserRole[]> = {
   '/spoc/submissions': [UserRole.CLINIC_SPOC],
   '/clinic/dashboard': [UserRole.CLINIC_MANAGER, UserRole.CLINIC_SPOC],
   '/viewer': [UserRole.CLINIC_VIEWER],
+  // Corporate tab — visible to corporate roles + the cross-tab FINANCE_ADMIN.
+  [CORPORATE_HOME]: CORP_VISIBLE,
+  '/corporate/submissions': CORP_DEPT_USERS,
+  '/corporate/review': CORP_APPROVER,
+  '/corporate/dashboard': CORP_APPROVER,
+  '/corporate/my-dashboard': CORP_DEPT_USERS,
+  '/corporate/admin/departments': [UserRole.FINANCE_ADMIN],
+  '/corporate/admin/sec24': [UserRole.FINANCE_ADMIN],
+  '/corporate/admin/users': [UserRole.FINANCE_ADMIN],
+  '/corporate/admin/notifications': [UserRole.FINANCE_ADMIN],
+  '/corporate/admin/audit': [UserRole.FINANCE_ADMIN],
 };

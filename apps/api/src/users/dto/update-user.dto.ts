@@ -11,8 +11,8 @@ import { UserRole } from '@portal/shared';
 /**
  * Editable user fields. Email is immutable (stable identity). `isActive` is
  * changed only via the deactivate/activate endpoints. Providing `password`
- * resets it. Any role / clinicIds / password change invalidates the user's
- * sessions (handled in the service).
+ * resets it. Any role / clinicIds / departmentIds / password change invalidates
+ * the user's sessions (handled in the service).
  */
 export class UpdateUserDto {
   @IsOptional()
@@ -35,4 +35,9 @@ export class UpdateUserDto {
   @IsArray()
   @IsString({ each: true })
   clinicIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  departmentIds?: string[];
 }

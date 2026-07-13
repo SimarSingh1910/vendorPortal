@@ -1,9 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { SubmissionStatus } from '@portal/shared';
+import { Portal } from '@prisma/client';
+import { CorpSubmissionStatus, SubmissionStatus } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { CycleService, type OpenMonthResult } from '../submissions/cycle.service';
+import { CorpCycleService, type OpenCorpMonthResult } from '../corp-submissions/corp-cycle.service';
 import { NotificationDispatchService } from '../notifications/notification-dispatch.service';
+import { CorpNotificationDispatchService } from '../corp-submissions/corp-notification-dispatch.service';
 
 const IST_TZ = 'Asia/Kolkata';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -20,6 +23,9 @@ function istDateKey(date: Date): string {
 
 /** Statuses that count as "not yet submitted" for the pre-cutoff reminder. */
 const LAGGARD_STATUSES = [SubmissionStatus.NOT_STARTED, SubmissionStatus.DRAFT];
+
+/** Corporate "not yet submitted" statuses for the pre-cutoff reminder. */
+const CORP_LAGGARD_STATUSES = [CorpSubmissionStatus.NOT_STARTED, CorpSubmissionStatus.DRAFT];
 
 /**
  * Cycle scheduler (Step 10.4). A single daily cron (08:00 IST) reads the
@@ -44,6 +50,11 @@ export class SchedulerService {
     private readonly prisma: PrismaService,
     private readonly cycle: CycleService,
     private readonly dispatch: NotificationDispatchService,
+    // Optional so the existing clinic scheduler unit module (which provides no
+    // corporate wiring) keeps working unmodified; corporate jobs are skipped when
+    // absent. Provided in the running app via CorpSubmissionsModule.
+    @Optional() private readonly corpCycle?: CorpCycleService,
+    @Optional() private readonly corpDispatch?: CorpNotificationDispatchService,
   ) {}
 
   @Cron('0 0 8 * * *', { name: 'cpp-daily-cycle-jobs', timeZone: IST_TZ })
@@ -52,17 +63,25 @@ export class SchedulerService {
     const configs = await this.prisma.notificationConfig.findMany();
     this.logger.log(`daily jobs for IST ${today}: evaluating ${configs.length} cycle config(s)`);
 
+    // Each config now belongs to ONE portal and drives only that portal's
+    // calendar: a CLINIC row opens/reminds clinics, a CORPORATE row opens/reminds
+    // departments. The two portals' cutoff/notify dates are fully independent.
     for (const cfg of configs) {
+      const isCorp = cfg.portal === Portal.CORPORATE;
       try {
         if (istDateKey(cfg.monthStartNotifyDate) === today) {
-          await this.openCycleForMonth(cfg.month);
+          if (isCorp) await this.openCorpCycleForMonth(cfg.month);
+          else await this.openCycleForMonth(cfg.month);
         }
         const reminderDay = new Date(cfg.cutoffDate.getTime() - cfg.preCutoffReminderDays * DAY_MS);
         if (istDateKey(reminderDay) === today) {
-          await this.sendReminders(cfg.month);
+          if (isCorp) await this.sendCorpReminders(cfg.month);
+          else await this.sendReminders(cfg.month);
         }
       } catch (err) {
-        this.logger.error(`daily job failed for ${cfg.month}: ${(err as Error).message}`);
+        this.logger.error(
+          `daily job failed for ${cfg.portal} ${cfg.month}: ${(err as Error).message}`,
+        );
       }
     }
   }
@@ -87,7 +106,9 @@ export class SchedulerService {
    * Returns the number of laggard submissions reminded.
    */
   async sendReminders(month: string): Promise<number> {
-    const cfg = await this.prisma.notificationConfig.findUnique({ where: { month } });
+    const cfg = await this.prisma.notificationConfig.findUnique({
+      where: { month_portal: { month, portal: Portal.CLINIC } },
+    });
     const laggards = await this.prisma.monthlySubmission.findMany({
       where: { month, status: { in: LAGGARD_STATUSES } },
       select: { id: true, clinicId: true, month: true },
@@ -102,6 +123,52 @@ export class SchedulerService {
     }
 
     this.logger.log(`sent ${laggards.length} pre-cutoff reminder(s) for ${month}`);
+    return laggards.length;
+  }
+
+  /**
+   * Corporate counterpart of openCycleForMonth: open every active department's
+   * cycle for `month` (idempotent). SPOC notifications + zero-active-head flags
+   * are emitted inside CorpCycleService on first creation, so re-running produces
+   * no duplicate cycles or notifications. No-op when corporate wiring is absent.
+   */
+  async openCorpCycleForMonth(month: string): Promise<OpenCorpMonthResult | null> {
+    if (!this.corpCycle) return null;
+    const result = await this.corpCycle.openMonth(month);
+    this.logger.log(
+      `opened corp ${month}: ${result.created} new, ${result.alreadyOpen} already open ` +
+        `of ${result.activeDepartments} active department(s)`,
+    );
+    return result;
+  }
+
+  /**
+   * Corporate pre-cutoff reminder: every still-NOT_STARTED/DRAFT corporate
+   * submission for the month reminds that department's SPOCs, including the IST
+   * cutoff. Returns the number of laggard submissions reminded (0 when corporate
+   * wiring is absent).
+   */
+  async sendCorpReminders(month: string): Promise<number> {
+    if (!this.corpDispatch) return 0;
+    const cfg = await this.prisma.notificationConfig.findUnique({
+      where: { month_portal: { month, portal: Portal.CORPORATE } },
+    });
+    const laggards = await this.prisma.corpMonthlySubmission.findMany({
+      where: { month, status: { in: CORP_LAGGARD_STATUSES } },
+      select: { id: true, departmentId: true, month: true },
+    });
+
+    for (const submission of laggards) {
+      try {
+        await this.corpDispatch.preCutoffReminder(submission, cfg?.cutoffDate ?? null);
+      } catch (err) {
+        this.logger.error(
+          `corp reminder failed for submission ${submission.id}: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    this.logger.log(`sent ${laggards.length} corp pre-cutoff reminder(s) for ${month}`);
     return laggards.length;
   }
 }

@@ -48,7 +48,12 @@ describe('NotificationDispatchService (Step 10.3 triggers)', () => {
 
   async function makeClinic(name = 'Acme Clinic') {
     return prisma.clinic.create({
-      data: { name, location: 'L', corporateClient: 'C', isActive: true },
+      data: {
+        name,
+        accLocationCode: 'ACC-1',
+        customerCode: 'CUST-1',
+        isActive: true,
+      },
     });
   }
 

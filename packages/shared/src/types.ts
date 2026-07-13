@@ -7,7 +7,13 @@
  * shape that RBAC will rely on.
  */
 
-import type { SubmissionStatus, UserRole } from './enums';
+import type {
+  CorpDepartmentType,
+  CorpSubmissionStatus,
+  PortalTab,
+  SubmissionStatus,
+  UserRole,
+} from './enums';
 
 /** Response from the API health endpoint. */
 export interface HealthResponse {
@@ -60,7 +66,8 @@ export interface AuthResponse {
 
 /**
  * A user as shown in the Finance Admin user-management screen. Never includes
- * the password hash. `clinicIds` is populated only for clinic-scoped roles.
+ * the password hash. `clinicIds` is populated only for clinic-scoped roles;
+ * `departmentIds` only for department-scoped corporate roles (Dept SPOC/Viewer).
  */
 export interface AdminUser {
   id: string;
@@ -69,6 +76,7 @@ export interface AdminUser {
   role: UserRole;
   isActive: boolean;
   clinicIds: string[];
+  departmentIds: string[];
   createdAt: string; // ISO-8601
   updatedAt: string; // ISO-8601
 }
@@ -79,18 +87,22 @@ export interface AdminUser {
 export interface Clinic {
   id: string;
   name: string;
-  location: string;
-  corporateClient: string;
+  /** Acc. Location Code — fixed finance identifier, admin-set per clinic (required). */
+  accLocationCode: string;
+  /** Customer Code — fixed finance identifier, admin-set per clinic (required). */
+  customerCode: string;
   isActive: boolean;
   createdAt: string; // ISO-8601
   updatedAt: string; // ISO-8601
 }
 
-/** An expense-head master record. */
+/** An expense-head master record, keyed on its finance G/L account. */
 export interface ExpenseHead {
   id: string;
-  name: string;
-  category: string;
+  /** G/L Account No. — the account code (required, unique). */
+  glAccountNo: string;
+  /** G/L Account Name — the descriptive account name (required). */
+  glAccountName: string;
   isActive: boolean;
   createdAt: string; // ISO-8601
   updatedAt: string; // ISO-8601
@@ -107,6 +119,18 @@ export interface ClinicExpenseHead {
 /** Active/inactive list filter shared by the master-data lists. */
 export type ActiveFilter = 'active' | 'inactive' | 'all';
 
+// ── Corporate master data ────────────────────────────────────────────────────
+
+/** A corporate department master record (Corporate tab). */
+export interface CorpDepartment {
+  id: string;
+  name: string;
+  type: CorpDepartmentType;
+  isActive: boolean;
+  createdAt: string; // ISO-8601
+  updatedAt: string; // ISO-8601
+}
+
 /**
  * An expense head that currently applies to a clinic (active mapping + active
  * head). This is the set the provision form renders — empty until heads are
@@ -115,8 +139,8 @@ export type ActiveFilter = 'active' | 'inactive' | 'all';
 export interface MappedExpenseHead {
   mappingId: string;
   expenseHeadId: string;
-  name: string;
-  category: string;
+  glAccountNo: string;
+  glAccountName: string;
 }
 
 // ── Submission comments / timeline (Phase 5) ─────────────────────────────────
@@ -183,11 +207,15 @@ export interface SubmissionListItem {
 export interface ProvisionHeadRow {
   snapshotId: string;
   expenseHeadId: string;
-  name: string;
-  category: string;
+  glAccountNo: string;
+  glAccountName: string;
   amount: string | null;
   /** Optional SPOC line-item note for this head (e.g. why it spiked/dropped); null when none. */
   note: string | null;
+  /** Optional free-text vendor name the SPOC entered against this line; null when none. */
+  vendorName: string | null;
+  /** Optional Product Code the SPOC picked from the fixed PRODUCT_CODES set; null when none. */
+  productCode: string | null;
 }
 
 /** Full provision form / read-only detail for a single submission. */
@@ -195,6 +223,10 @@ export interface SubmissionDetail {
   id: string;
   clinicId: string;
   clinicName: string;
+  /** Clinic's fixed Acc. Location Code — read-only context for the entry/review panel. */
+  clinicAccLocationCode: string;
+  /** Clinic's fixed Customer Code — read-only context for the entry/review panel. */
+  clinicCustomerCode: string;
   month: string; // YYYY-MM
   status: SubmissionStatus;
   locked: boolean;
@@ -219,12 +251,134 @@ export interface ProvisionEntryInput {
   amount: number;
   /** Optional SPOC note for this head; blank/whitespace is stored as null. */
   note?: string;
+  /** Optional free-text vendor name for this head; blank/whitespace is stored as null. */
+  vendorName?: string;
+  /** Optional Product Code from the fixed PRODUCT_CODES set; blank is stored as null. */
+  productCode?: string;
+}
+
+// ── Corporate submission / provision entry (Phase C2) ────────────────────────
+
+/**
+ * One corporate provision line being saved against a snapshot head. Every line
+ * MUST carry a budget code chosen from the department's active codes (BR-C01/
+ * BR-C02); 0 is a valid amount, blank = omit the line entirely (BR-C16).
+ */
+export interface CorpProvisionEntryInput {
+  snapshotId: string;
+  budgetCodeId: string;
+  amount: number;
+  /** Optional SPOC note for this head; blank/whitespace is stored as null. */
+  note?: string;
+  /** Optional free-text vendor name for this head; blank/whitespace is stored as null. */
+  vendorName?: string;
+  /** Optional free-text location for this head; blank/whitespace is stored as null. */
+  location?: string;
+}
+
+/** One accessible department's submission status for a month (corporate overview row). */
+export interface CorpDepartmentMonthStatus {
+  departmentId: string;
+  departmentName: string;
+  month: string; // YYYY-MM
+  submissionId: string | null;
+  status: CorpSubmissionStatus;
+  locked: boolean;
+}
+
+/** A corporate submission as a row in a department history / review queue. */
+export interface CorpSubmissionListItem {
+  id: string;
+  departmentId: string;
+  departmentName: string;
+  month: string; // YYYY-MM
+  status: CorpSubmissionStatus;
+  locked: boolean;
+  submittedAt: string | null; // ISO-8601
+  financeApprovedAt: string | null; // ISO-8601
+}
+
+/** An active budget code as an option in the per-line dropdown (BR-C02). */
+export interface CorpBudgetCodeOption {
+  id: string;
+  code: string;
+  description: string | null;
+}
+
+/**
+ * One snapshot expense head as a row in the corporate provision form. `amount`
+ * and `budgetCodeId` are null until a line is entered. `hclAvitasShare` is set
+ * only for the Sec 24 shared-cost pool (wired in a later step); null otherwise.
+ */
+export interface CorpProvisionHeadRow {
+  snapshotId: string;
+  expenseHeadId: string;
+  name: string;
+  budgetCodeId: string | null;
+  amount: string | null; // DECIMAL(14,2) string
+  hclAvitasShare: string | null; // DECIMAL(14,2) string
+  /** Optional SPOC line-item note for this head (e.g. why it spiked/dropped); null when none. */
+  note: string | null;
+  /** Optional free-text vendor name the SPOC entered against this line; null when none. */
+  vendorName: string | null;
+  /** Optional free-text location the SPOC entered against this line; null when none. */
+  location: string | null;
+}
+
+/** Full corporate provision form / read-only detail for a single submission. */
+export interface CorpSubmissionDetail {
+  id: string;
+  departmentId: string;
+  departmentName: string;
+  month: string; // YYYY-MM
+  status: CorpSubmissionStatus;
+  locked: boolean;
+  /** True only when the viewer is the dept SPOC and the status still permits editing. */
+  canEdit: boolean;
+  /** True only when the viewer is a corporate approver and may edit values now. */
+  canReview: boolean;
+  submittedAt: string | null; // ISO-8601
+  financeApprovedAt: string | null; // ISO-8601
+  /** True for the single Sec 24 SHARED_COST_POOL department (drives the HCL Avitas share column). */
+  isSharedCostPool: boolean;
+  /**
+   * The Sec 24 allocation % applied to this submission as a DECIMAL(5,2) string:
+   * the frozen snapshot once approved, else the currently-active % for the month;
+   * null until a % has ever been set (BR-C03/C04 → the UI shows "—").
+   */
+  sec24AllocationPct: string | null;
+  /** The department's ACTIVE budget codes — the per-line dropdown source (BR-C02). */
+  budgetCodes: CorpBudgetCodeOption[];
+  heads: CorpProvisionHeadRow[];
+}
+
+// ── Sec 24 shared-cost-pool allocation (Phase C3) ────────────────────────────
+
+/**
+ * One append-only Sec 24 allocation-% row (BR-C06): every change is a NEW row,
+ * never an update. The currently-effective % is the latest applicable row.
+ */
+export interface Sec24AllocationConfigView {
+  id: string;
+  allocationPct: string; // DECIMAL(5,2) string
+  effectiveFromMonth: string; // YYYY-MM
+  notes: string | null;
+  setAt: string; // ISO-8601
+  setBy: { id: string; name: string };
+}
+
+/** Finance-Admin input to append a new Sec 24 allocation % (BR-C06). */
+export interface Sec24AllocationInput {
+  allocationPct: number;
+  effectiveFromMonth: string; // YYYY-MM
+  notes?: string;
 }
 
 // ── Notification config (Phase 10.1) ─────────────────────────────────────────
 
-/** Per-cycle notification config (one row per month). Read by scheduler + dashboard. */
+/** Per-cycle notification config (one row per portal per month). Read by scheduler + dashboard. */
 export interface NotificationConfigView {
+  portal: PortalTab; // CLINIC | CORPORATE — which portal this config governs
   month: string; // YYYY-MM
   monthStartNotifyDate: string; // ISO-8601
   cutoffDate: string; // ISO-8601
@@ -382,6 +536,71 @@ export interface MonthwiseReport {
 export interface DashboardFilterOptions {
   clinics: { id: string; name: string }[];
   expenseHeads: { id: string; name: string }[];
+}
+
+// ── Corporate dashboards & analytics (Phase C4) ──────────────────────────────
+
+/**
+ * One department's current-month submission status for the corporate status
+ * tracker. `total` is the summed entered amount or null when nothing is entered.
+ */
+export interface CorpDashboardStatusTile {
+  departmentId: string;
+  departmentName: string;
+  month: string; // YYYY-MM
+  status: CorpSubmissionStatus;
+  submissionId: string | null;
+  total: string | null; // DECIMAL(14,2) as string
+}
+
+/** A month → combined total point (all in-scope departments). */
+export interface CorpMonthlyTotalPoint {
+  month: string; // YYYY-MM
+  total: string; // DECIMAL(14,2) as string
+}
+
+/** A (month, department) → total point for per-department month-on-month. */
+export interface CorpDeptMonthlyTotalPoint {
+  month: string; // YYYY-MM
+  departmentId: string;
+  departmentName: string;
+  total: string; // DECIMAL(14,2) as string
+}
+
+/** A (month, expense head) → total point for the expense-head drill-down. */
+export interface CorpHeadTrendPoint {
+  month: string; // YYYY-MM
+  expenseHeadId: string;
+  expenseHeadName: string;
+  total: string; // DECIMAL(14,2) as string
+}
+
+/** A department → total for the cross-department comparison over a range. */
+export interface CorpDepartmentTotalPoint {
+  departmentId: string;
+  departmentName: string;
+  total: string; // DECIMAL(14,2) as string
+}
+
+/**
+ * The Sec 24 dual display for one month, read from FROZEN values only — never
+ * recomputed. `total` is the summed amount; `hclAvitasShare` is the summed frozen
+ * per-line share (null when no % has ever been snapshotted → render "—", NEVER 0);
+ * `allocationPct` is the submission's snapshot % (null until approved-with-% →
+ * render "—"). null and 0 are distinct: 0.00 means a real 0% allocation.
+ */
+export interface CorpSec24MonthPoint {
+  month: string; // YYYY-MM
+  total: string | null; // DECIMAL(14,2) as string
+  hclAvitasShare: string | null; // DECIMAL(14,2) as string; null = "—"
+  allocationPct: string | null; // DECIMAL(5,2) as string; null = "—"
+}
+
+/** Dropdown options for the corporate dashboard filters, scoped to the caller. */
+export interface CorpDashboardFilterOptions {
+  departments: { id: string; name: string }[];
+  expenseHeads: { id: string; name: string }[];
+  budgetCodes: { id: string; code: string }[];
 }
 
 /** Standard error envelope returned by the API. */

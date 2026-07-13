@@ -1,4 +1,5 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
+import { PortalTab } from '@portal/shared';
 import { AuthedShell } from '@/layouts/AuthedShell';
 import { ProtectedRoute } from '@/auth/ProtectedRoute';
 import { ROUTE_ROLES, roleHome } from '@/auth/roles';
@@ -18,6 +19,15 @@ import { FinanceHome } from '@/pages/finance/FinanceHome';
 import { FinanceReview } from '@/pages/finance/FinanceReview';
 import { FinanceDashboard } from '@/pages/finance/FinanceDashboard';
 import { ClinicDashboard } from '@/pages/clinic/ClinicDashboard';
+import { CorporateHome } from '@/pages/corporate/CorporateHome';
+import { CorpSubmissionEntry } from '@/pages/corporate/CorpSubmissionEntry';
+import { CorpReviewQueue } from '@/pages/corporate/CorpReviewQueue';
+import { CorpReview } from '@/pages/corporate/CorpReview';
+import { CorporateDashboard } from '@/pages/corporate/CorporateDashboard';
+import { CorpMyDashboard } from '@/pages/corporate/CorpMyDashboard';
+import { CorpDepartmentsAdmin } from '@/pages/corporate/admin/CorpDepartmentsAdmin';
+import { CorpDepartmentDetail } from '@/pages/corporate/admin/CorpDepartmentDetail';
+import { CorpSec24Admin } from '@/pages/corporate/admin/CorpSec24Admin';
 import { useAuthStore } from '@/store/auth.store';
 
 /** Root: send authenticated users to their role home, everyone else to login. */
@@ -110,7 +120,7 @@ export const router = createBrowserRouter([
         path: 'admin/audit',
         element: (
           <ProtectedRoute allowedRoles={ROUTE_ROLES['/admin/audit']}>
-            <AuditAdmin />
+            <AuditAdmin defaultPortal={PortalTab.CLINIC} />
           </ProtectedRoute>
         ),
       },
@@ -159,6 +169,102 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute allowedRoles={ROUTE_ROLES['/viewer']}>
             <RoleHome />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate']}>
+            <CorporateHome />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/submissions/:submissionId',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/submissions']}>
+            <CorpSubmissionEntry />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/review',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/review']}>
+            <CorpReviewQueue />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/review/:submissionId',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/review']}>
+            <CorpReview />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/dashboard',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/dashboard']}>
+            <CorporateDashboard />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/my-dashboard',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/my-dashboard']}>
+            <CorpMyDashboard />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/admin/departments',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/admin/departments']}>
+            <CorpDepartmentsAdmin />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/admin/departments/:departmentId',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/admin/departments']}>
+            <CorpDepartmentDetail />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/admin/sec24',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/admin/sec24']}>
+            <CorpSec24Admin />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/admin/users',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/admin/users']}>
+            <UsersAdmin defaultPortal={PortalTab.CORPORATE} />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/admin/notifications',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/admin/notifications']}>
+            <NotificationConfigAdmin portal={PortalTab.CORPORATE} />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'corporate/admin/audit',
+        element: (
+          <ProtectedRoute allowedRoles={ROUTE_ROLES['/corporate/admin/audit']}>
+            <AuditAdmin defaultPortal={PortalTab.CORPORATE} />
           </ProtectedRoute>
         ),
       },

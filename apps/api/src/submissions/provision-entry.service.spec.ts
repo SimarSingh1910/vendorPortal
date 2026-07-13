@@ -1,5 +1,8 @@
 import { Test, type TestingModule } from '@nestjs/testing';
+import { validate } from 'class-validator';
+import { plainToInstance } from 'class-transformer';
 import { SubmissionStatus, UserRole } from '@portal/shared';
+import { ProvisionEntryItemDto } from './dto/save-entries.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClinicScopeService } from '../common/clinic-scope.service';
 import { ClinicExpenseHeadsService } from '../clinic-expense-heads/clinic-expense-heads.service';
@@ -343,5 +346,211 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
     });
     expect(provisionAudits).toHaveLength(1);
     expect(provisionAudits[0].action).toBe('PROVISION_SAVE');
+  });
+
+  // ── SPOC per-expense-head vendor name ────────────────────────────────────────
+
+  it('persists a SPOC vendor name with the entry, returns it in detail, and clearing it stores null', async () => {
+    const { submission, spoc, snapshotIds } = await setup(2);
+
+    const saved = await entries.saveEntries(submission.id, spoc, [
+      { snapshotId: snapshotIds[0], amount: 500, vendorName: '  Acme Medical Supplies  ' },
+      { snapshotId: snapshotIds[1], amount: 100 }, // no vendor → null
+    ]);
+    // Stored trimmed; a head saved without a vendor stays null.
+    expect(saved.heads.find((h) => h.snapshotId === snapshotIds[0])!.vendorName).toBe(
+      'Acme Medical Supplies',
+    );
+    expect(saved.heads.find((h) => h.snapshotId === snapshotIds[1])!.vendorName).toBeNull();
+
+    // Persisted: a fresh read returns the vendor name.
+    const refetched = await submissions.getDetail(submission.id, spoc);
+    expect(refetched.heads.find((h) => h.snapshotId === snapshotIds[0])!.vendorName).toBe(
+      'Acme Medical Supplies',
+    );
+
+    // Clearing it (whitespace-only) stores null and leaves the amount intact.
+    const cleared = await entries.saveEntries(submission.id, spoc, [
+      { snapshotId: snapshotIds[0], amount: 500, vendorName: '   ' },
+    ]);
+    const h0 = cleared.heads.find((h) => h.snapshotId === snapshotIds[0])!;
+    expect(h0.vendorName).toBeNull();
+    expect(h0.amount).toBe('500.00');
+  });
+
+  it('a vendor name is editable only while SPOC-editable; once submitted the SPOC is rejected (409)', async () => {
+    const { submission, spoc, snapshotIds } = await setup(1);
+
+    const draft = await entries.saveEntries(submission.id, spoc, [
+      { snapshotId: snapshotIds[0], amount: 10, vendorName: 'Vendor A' },
+    ]);
+    expect(draft.status).toBe(SubmissionStatus.DRAFT);
+    expect(draft.heads[0].vendorName).toBe('Vendor A');
+
+    await workflow.submit(submission.id, spoc);
+    await expectStatus(
+      entries.saveEntries(submission.id, spoc, [
+        { snapshotId: snapshotIds[0], amount: 10, vendorName: 'Vendor B' },
+      ]),
+      409,
+    );
+    // The vendor from the editable state is unchanged.
+    expect((await submissions.getDetail(submission.id, spoc)).heads[0].vendorName).toBe('Vendor A');
+  });
+
+  it('reviewers receive the vendor name; a value override leaves it untouched, adding no extra audit', async () => {
+    const { clinic, submission, spoc, snapshotIds } = await setup(1);
+    await entries.saveEntries(submission.id, spoc, [
+      { snapshotId: snapshotIds[0], amount: 700, vendorName: 'Landlord LLP' },
+    ]);
+    await workflow.submit(submission.id, spoc);
+
+    const manager = (await fx.makeUser(UserRole.CLINIC_MANAGER, [clinic.id])).user;
+    const finance = (await fx.makeUser(UserRole.FINANCE_ADMIN)).user;
+
+    // Both reviewer roles see the SPOC's vendor name in submission detail.
+    expect((await submissions.getDetail(submission.id, manager)).heads[0].vendorName).toBe(
+      'Landlord LLP',
+    );
+    expect((await submissions.getDetail(submission.id, finance)).heads[0].vendorName).toBe(
+      'Landlord LLP',
+    );
+
+    // Vendor is SPOC-owned: a manager value override (even passing a vendor) doesn't change it,
+    // and rides the single MANAGER_PROVISION_OVERRIDE row (no separate audit action).
+    await runWithRequestContext({ user: { id: manager.id } }, () =>
+      entries.saveEntries(submission.id, manager, [
+        { snapshotId: snapshotIds[0], amount: 1234, vendorName: 'manager attempt' },
+      ]),
+    );
+    const after = await submissions.getDetail(submission.id, manager);
+    expect(after.heads[0].amount).toBe('1234.00'); // value overridden
+    expect(after.heads[0].vendorName).toBe('Landlord LLP'); // vendor preserved
+  });
+
+  it('submit succeeds with the vendor name blank — it is optional (completeness rule unchanged)', async () => {
+    const { submission, spoc, snapshotIds } = await setup(2);
+    await entries.saveEntries(submission.id, spoc, [
+      { snapshotId: snapshotIds[0], amount: 100 }, // no vendor
+      { snapshotId: snapshotIds[1], amount: 200, vendorName: 'Only on one line' },
+    ]);
+    await workflow.submit(submission.id, spoc);
+    expect((await submissions.getDetail(submission.id, spoc)).status).toBe(
+      SubmissionStatus.SUBMITTED,
+    );
+  });
+
+  // ── SPOC per-expense-head product code (fixed dropdown set) ───────────────────
+
+  it('persists a SPOC product code with the entry, returns it in detail, and clearing it stores null', async () => {
+    const { submission, spoc, snapshotIds } = await setup(2);
+
+    const saved = await entries.saveEntries(submission.id, spoc, [
+      { snapshotId: snapshotIds[0], amount: 500, productCode: 'p10' },
+      { snapshotId: snapshotIds[1], amount: 100 }, // no product code → null
+    ]);
+    expect(saved.heads.find((h) => h.snapshotId === snapshotIds[0])!.productCode).toBe('p10');
+    expect(saved.heads.find((h) => h.snapshotId === snapshotIds[1])!.productCode).toBeNull();
+
+    // Persisted: a fresh read returns the product code.
+    const refetched = await submissions.getDetail(submission.id, spoc);
+    expect(refetched.heads.find((h) => h.snapshotId === snapshotIds[0])!.productCode).toBe('p10');
+
+    // Clearing it (blank) stores null and leaves the amount intact.
+    const cleared = await entries.saveEntries(submission.id, spoc, [
+      { snapshotId: snapshotIds[0], amount: 500, productCode: '' },
+    ]);
+    const h0 = cleared.heads.find((h) => h.snapshotId === snapshotIds[0])!;
+    expect(h0.productCode).toBeNull();
+    expect(h0.amount).toBe('500.00');
+  });
+
+  it('rejects a product code outside the fixed set at the DTO layer (source of the 400)', async () => {
+    const invalid = await validate(
+      plainToInstance(ProvisionEntryItemDto, { snapshotId: 's', amount: 10, productCode: 'p99' }),
+    );
+    expect(invalid.some((e) => e.property === 'productCode')).toBe(true);
+
+    // A value in the fixed set passes.
+    const valid = await validate(
+      plainToInstance(ProvisionEntryItemDto, { snapshotId: 's', amount: 10, productCode: 'p18' }),
+    );
+    expect(valid).toHaveLength(0);
+
+    // Omitted is allowed (optional).
+    const omitted = await validate(
+      plainToInstance(ProvisionEntryItemDto, { snapshotId: 's', amount: 10 }),
+    );
+    expect(omitted).toHaveLength(0);
+  });
+
+  it('a product code is editable only while SPOC-editable; once submitted the SPOC is rejected (409)', async () => {
+    const { submission, spoc, snapshotIds } = await setup(1);
+
+    const draft = await entries.saveEntries(submission.id, spoc, [
+      { snapshotId: snapshotIds[0], amount: 10, productCode: 'p20' },
+    ]);
+    expect(draft.status).toBe(SubmissionStatus.DRAFT);
+    expect(draft.heads[0].productCode).toBe('p20');
+
+    await workflow.submit(submission.id, spoc);
+    await expectStatus(
+      entries.saveEntries(submission.id, spoc, [
+        { snapshotId: snapshotIds[0], amount: 10, productCode: 'p17' },
+      ]),
+      409,
+    );
+    // The product code from the editable state is unchanged.
+    expect((await submissions.getDetail(submission.id, spoc)).heads[0].productCode).toBe('p20');
+  });
+
+  it('reviewers receive the product code; a value override leaves it untouched, adding no extra audit', async () => {
+    const { clinic, submission, spoc, snapshotIds } = await setup(1);
+    await entries.saveEntries(submission.id, spoc, [
+      { snapshotId: snapshotIds[0], amount: 700, productCode: 'p10' },
+    ]);
+    await workflow.submit(submission.id, spoc);
+
+    const manager = (await fx.makeUser(UserRole.CLINIC_MANAGER, [clinic.id])).user;
+    const finance = (await fx.makeUser(UserRole.FINANCE_ADMIN)).user;
+
+    // Both reviewer roles see the SPOC's product code in submission detail.
+    expect((await submissions.getDetail(submission.id, manager)).heads[0].productCode).toBe('p10');
+    expect((await submissions.getDetail(submission.id, finance)).heads[0].productCode).toBe('p10');
+
+    // Product code is SPOC-owned: a manager value override (even passing a code) doesn't change it,
+    // and rides the single MANAGER_PROVISION_OVERRIDE row (no separate audit action).
+    await runWithRequestContext({ user: { id: manager.id } }, () =>
+      entries.saveEntries(submission.id, manager, [
+        { snapshotId: snapshotIds[0], amount: 1234, productCode: 'p18' },
+      ]),
+    );
+    const after = await submissions.getDetail(submission.id, manager);
+    expect(after.heads[0].amount).toBe('1234.00'); // value overridden
+    expect(after.heads[0].productCode).toBe('p10'); // product code preserved
+
+    const overrideAudits = await prisma.auditLog.findMany({
+      where: {
+        entityId: submission.id,
+        action: { in: ['PROVISION_SAVE', 'MANAGER_PROVISION_OVERRIDE', 'PROVISION_EDIT_OVERRIDE'] },
+      },
+    });
+    // One SPOC save + one manager override; no separate product-code audit action.
+    expect(overrideAudits.map((a) => a.action).sort()).toEqual([
+      'MANAGER_PROVISION_OVERRIDE',
+      'PROVISION_SAVE',
+    ]);
+  });
+
+  it('submit succeeds with the product code blank — it is optional (completeness rule unchanged)', async () => {
+    const { submission, spoc, snapshotIds } = await setup(2);
+    await entries.saveEntries(submission.id, spoc, [
+      { snapshotId: snapshotIds[0], amount: 100 }, // no product code
+      { snapshotId: snapshotIds[1], amount: 200, productCode: 'p20' },
+    ]);
+    await workflow.submit(submission.id, spoc);
+    expect((await submissions.getDetail(submission.id, spoc)).status).toBe(
+      SubmissionStatus.SUBMITTED,
+    );
   });
 });

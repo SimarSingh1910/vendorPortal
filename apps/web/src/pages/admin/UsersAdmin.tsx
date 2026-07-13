@@ -3,7 +3,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import {
   CLINIC_ROLES,
+  DEPT_SCOPED_ROLES,
+  PortalTab,
   ROLE_LABELS,
+  rolesForTab,
+  TAB_LABELS,
   UserRole,
   type ActiveFilter,
   type AdminUser,
@@ -29,6 +33,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { listClinics } from '@/api/clinics';
+import { listDepartments } from '@/api/departments';
 import {
   createUser,
   listUsers,
@@ -44,25 +49,50 @@ const FILTERS: { value: ActiveFilter; label: string }[] = [
 ];
 
 const isClinicRole = (role: UserRole) => (CLINIC_ROLES as readonly UserRole[]).includes(role);
+const isDeptRole = (role: UserRole) => (DEPT_SCOPED_ROLES as readonly UserRole[]).includes(role);
 
-export function UsersAdmin() {
+/** The two split admin views; FINANCE_ADMIN (cross-tab) appears in BOTH lists. */
+const PORTAL_TABS: { value: PortalTab; label: string }[] = [
+  { value: PortalTab.CLINIC, label: TAB_LABELS[PortalTab.CLINIC] },
+  { value: PortalTab.CORPORATE, label: TAB_LABELS[PortalTab.CORPORATE] },
+];
+
+/** The sensible default role when adding a user from a portal's view. */
+const defaultRoleFor = (portal: PortalTab) =>
+  portal === PortalTab.CORPORATE ? UserRole.DEPT_SPOC : UserRole.CLINIC_SPOC;
+
+/**
+ * Users & access. The same screen serves both tabs over the SAME user table:
+ * `defaultPortal` selects which portal's list opens first (Clinic from the clinic
+ * tab, Corporate from the corporate tab); the toggle still switches between them.
+ */
+export function UsersAdmin({ defaultPortal = PortalTab.CLINIC }: { defaultPortal?: PortalTab } = {}) {
+  const [portal, setPortal] = useState<PortalTab>(defaultPortal);
   const [filter, setFilter] = useState<ActiveFilter>('all');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<AdminUser | null>(null);
   const qc = useQueryClient();
 
   const { data: users = [], isLoading } = useQuery({
-    queryKey: ['users', filter],
-    queryFn: () => listUsers(filter),
+    queryKey: ['users', filter, portal],
+    queryFn: () => listUsers(filter, portal),
   });
   const { data: clinics = [] } = useQuery({
     queryKey: ['clinics', 'active'],
     queryFn: () => listClinics('active'),
   });
+  const { data: departments = [] } = useQuery({
+    queryKey: ['departments', 'active'],
+    queryFn: () => listDepartments('active'),
+  });
 
   const clinicName = useMemo(
     () => new Map(clinics.map((c) => [c.id, c.name])),
     [clinics],
+  );
+  const departmentName = useMemo(
+    () => new Map(departments.map((d) => [d.id, d.name])),
+    [departments],
   );
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['users'] });
@@ -86,14 +116,30 @@ export function UsersAdmin() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Users &amp; access</h1>
           <p className="text-sm text-muted-foreground">
-            Create users, assign one role, and map each clinic-scoped user to one or more clinics.
-            Changes take effect immediately. Finance Admin only.
+            Viewing <span className="font-medium text-foreground">{TAB_LABELS[portal]}</span> users.
+            Create users, assign one role, and map each clinic- or department-scoped user to one or
+            more clinics / departments. Changes take effect immediately. Finance Admin only.
           </p>
         </div>
         <Button onClick={openAdd}>
           <Plus />
           Add user
         </Button>
+      </div>
+
+      {/* Clinic vs Corporate split over the SAME user table. Finance Admin (the one
+          cross-tab account) shows in BOTH lists, labelled so it isn't mistaken for a duplicate. */}
+      <div className="flex gap-2 border-b pb-3">
+        {PORTAL_TABS.map((t) => (
+          <Button
+            key={t.value}
+            variant={portal === t.value ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setPortal(t.value)}
+          >
+            {t.label}
+          </Button>
+        ))}
       </div>
 
       <div className="flex gap-2">
@@ -116,7 +162,7 @@ export function UsersAdmin() {
               <TableHead>Name</TableHead>
               <TableHead>Email</TableHead>
               <TableHead>Role</TableHead>
-              <TableHead>Clinic</TableHead>
+              <TableHead>Clinic / Department</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -145,7 +191,13 @@ export function UsersAdmin() {
                       ? user.clinicIds.length === 0
                         ? '—'
                         : user.clinicIds.map((id) => clinicName.get(id) ?? id).join(', ')
-                      : 'All (finance)'}
+                      : isDeptRole(user.role)
+                        ? user.departmentIds.length === 0
+                          ? '—'
+                          : user.departmentIds.map((id) => departmentName.get(id) ?? id).join(', ')
+                        : user.role === UserRole.FINANCE_ADMIN
+                          ? 'All — Finance Admin (both portals)'
+                          : 'All (finance)'}
                   </TableCell>
                   <TableCell>
                     <Badge variant={user.isActive ? 'success' : 'muted'}>
@@ -183,7 +235,9 @@ export function UsersAdmin() {
           if (!open) setEditing(null);
         }}
         editing={editing}
+        portal={portal}
         clinics={clinics}
+        departments={departments}
         onSaved={() => {
           invalidate();
           setDialogOpen(false);
@@ -198,21 +252,44 @@ interface UserFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editing: AdminUser | null;
-  clinics: { id: string; name: string; location: string }[];
+  /** Which portal's view opened this dialog — drives the role options offered. */
+  portal: PortalTab;
+  clinics: { id: string; name: string }[];
+  departments: { id: string; name: string }[];
   onSaved: () => void;
 }
 
-function UserFormDialog({ open, onOpenChange, editing, clinics, onSaved }: UserFormDialogProps) {
+function UserFormDialog({
+  open,
+  onOpenChange,
+  editing,
+  portal,
+  clinics,
+  departments,
+  onSaved,
+}: UserFormDialogProps) {
+  // Creating from a portal view offers only that portal's roles (FINANCE_ADMIN, the
+  // cross-tab account, is in both). When editing, keep the user's own role listed.
+  const roleOptions = useMemo(() => {
+    const opts = rolesForTab(portal);
+    if (editing && !opts.includes(editing.role)) return [editing.role, ...opts];
+    return opts;
+  }, [portal, editing]);
+
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<UserRole>(UserRole.CLINIC_SPOC);
+  const [role, setRole] = useState<UserRole>(defaultRoleFor(portal));
   // One or more clinics per clinic-role user; finance roles carry none.
   const [clinicIds, setClinicIds] = useState<string[]>([]);
+  // One or more departments per Dept SPOC/Viewer; all other roles carry none.
+  const [departmentIds, setDepartmentIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const toggleClinic = (id: string) =>
     setClinicIds((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]));
+  const toggleDepartment = (id: string) =>
+    setDepartmentIds((prev) => (prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id]));
 
   useEffect(() => {
     if (!open) return;
@@ -223,26 +300,37 @@ function UserFormDialog({ open, onOpenChange, editing, clinics, onSaved }: UserF
       setEmail(editing.email);
       setRole(editing.role);
       setClinicIds(editing.clinicIds ?? []);
+      setDepartmentIds(editing.departmentIds ?? []);
     } else {
       setName('');
       setEmail('');
-      setRole(UserRole.CLINIC_SPOC);
+      setRole(defaultRoleFor(portal));
       setClinicIds([]);
+      setDepartmentIds([]);
     }
-  }, [open, editing]);
+  }, [open, editing, portal]);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
       const clinics = isClinicRole(role) ? clinicIds : [];
+      const depts = isDeptRole(role) ? departmentIds : [];
       if (editing) {
         return updateUser(editing.id, {
           name,
           role,
           clinicIds: clinics,
+          departmentIds: depts,
           ...(password ? { password } : {}),
         });
       }
-      const input: CreateUserInput = { name, email, password, role, clinicIds: clinics };
+      const input: CreateUserInput = {
+        name,
+        email,
+        password,
+        role,
+        clinicIds: clinics,
+        departmentIds: depts,
+      };
       return createUser(input);
     },
     onSuccess: onSaved,
@@ -264,6 +352,8 @@ function UserFormDialog({ open, onOpenChange, editing, clinics, onSaved }: UserF
       return setError('Password must be at least 8 characters.');
     if (isClinicRole(role) && clinicIds.length === 0)
       return setError('Select at least one clinic for clinic-scoped roles.');
+    if (isDeptRole(role) && departmentIds.length === 0)
+      return setError('Select at least one department for department-scoped roles.');
     saveMutation.mutate();
   }
 
@@ -314,9 +404,10 @@ function UserFormDialog({ open, onOpenChange, editing, clinics, onSaved }: UserF
               value={role}
               onChange={(e) => setRole(e.target.value as UserRole)}
             >
-              {Object.values(UserRole).map((r) => (
+              {roleOptions.map((r) => (
                 <option key={r} value={r}>
                   {ROLE_LABELS[r]}
+                  {r === UserRole.FINANCE_ADMIN ? ' (both portals)' : ''}
                 </option>
               ))}
             </select>
@@ -344,9 +435,7 @@ function UserFormDialog({ open, onOpenChange, editing, clinics, onSaved }: UserF
                           checked={clinicIds.includes(c.id)}
                           onChange={() => toggleClinic(c.id)}
                         />
-                        <span>
-                          {c.name} — {c.location}
-                        </span>
+                        <span>{c.name}</span>
                       </label>
                     ))}
                   </div>
@@ -356,9 +445,43 @@ function UserFormDialog({ open, onOpenChange, editing, clinics, onSaved }: UserF
                 </>
               )}
             </div>
+          ) : isDeptRole(role) ? (
+            <div className="space-y-1.5">
+              <Label>Assigned departments</Label>
+              {departments.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No active departments to assign.</p>
+              ) : (
+                <>
+                  <div
+                    className="max-h-44 space-y-1 overflow-y-auto rounded-md border p-2"
+                    data-testid="department-select"
+                  >
+                    {departments.map((d) => (
+                      <label
+                        key={d.id}
+                        className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-accent"
+                      >
+                        <input
+                          type="checkbox"
+                          className="size-4"
+                          checked={departmentIds.includes(d.id)}
+                          onChange={() => toggleDepartment(d.id)}
+                        />
+                        <span>{d.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Department-scoped users may cover one or more departments (
+                    {departmentIds.length} selected).
+                  </p>
+                </>
+              )}
+            </div>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Finance roles have org-wide access (no clinic assignment).
+              Finance &amp; Corporate Finance Manager roles have tab-wide access (no individual
+              clinic or department assignment).
             </p>
           )}
 

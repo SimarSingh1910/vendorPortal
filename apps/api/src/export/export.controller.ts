@@ -6,6 +6,7 @@ import { currentMonthIST } from '../submissions/month.util';
 import { DashboardService } from '../dashboard/dashboard.service';
 import { DashboardQueryDto } from '../dashboard/dto/dashboard-query.dto';
 import { ExportService } from './export.service';
+import { CorpExportService } from './corp-export.service';
 import { ExcelExportService } from './excel-export.service';
 import { PdfExportService } from './pdf-export.service';
 
@@ -35,6 +36,7 @@ function filterNote(q: DashboardQueryDto, asOf: string): string {
 export class ExportController {
   constructor(
     private readonly data: ExportService,
+    private readonly corpData: CorpExportService,
     private readonly excel: ExcelExportService,
     private readonly pdf: PdfExportService,
     private readonly dashboard: DashboardService,
@@ -65,7 +67,7 @@ export class ExportController {
   async consolidated(@Query() q: DashboardQueryDto, @CurrentUser() user: RequestUser, @Res() res: Response) {
     const asOf = q.to ?? q.month ?? currentMonthIST();
     const rows = await this.data.detailRows(user, q);
-    const buffer = await this.excel.consolidated(rows, filterNote(q, asOf));
+    const buffer = await this.excel.consolidated(rows);
     this.send(res, buffer, XLSX_TYPE, `consolidated-${q.from ?? 'all'}_${q.to ?? asOf}.xlsx`);
   }
 
@@ -76,6 +78,34 @@ export class ExportController {
     const data = await this.data.monthEnd(user, month);
     const buffer = await this.excel.monthEnd(data);
     this.send(res, buffer, XLSX_TYPE, `month-end-${month}.xlsx`);
+  }
+
+  /** Individual corporate export: one department-month submission's lines. */
+  @Get('corp/excel/submission')
+  async corpSubmission(
+    @Query('submissionId') submissionId: string,
+    @CurrentUser() user: RequestUser,
+    @Res() res: Response,
+  ) {
+    if (!submissionId) {
+      throw new BadRequestException('submissionId is required');
+    }
+    const data = await this.corpData.submissionExport(user, submissionId);
+    const buffer = await this.excel.corpSubmission(data.rows);
+    this.send(res, buffer, XLSX_TYPE, `corp-${slug(data.departmentName)}-${data.month}.xlsx`);
+  }
+
+  /** Combined corporate month-end: all active in-scope departments, given/current month. */
+  @Get('corp/excel/month-end')
+  async corpMonthEnd(
+    @Query('month') month: string | undefined,
+    @CurrentUser() user: RequestUser,
+    @Res() res: Response,
+  ) {
+    const target = month ?? currentMonthIST();
+    const rows = await this.corpData.monthEnd(user, target);
+    const buffer = await this.excel.corpMonthEnd(rows);
+    this.send(res, buffer, XLSX_TYPE, `corp-month-end-${target}.xlsx`);
   }
 
   /** Dashboard → PDF (Puppeteer), honoring the active filters. */

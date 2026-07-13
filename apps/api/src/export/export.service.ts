@@ -5,33 +5,35 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ClinicScopeService } from '../common/clinic-scope.service';
 import type { RequestUser } from '../auth/request-user';
 
-/** One granular provisioned line (a single head's amount for a clinic/month). */
+/**
+ * One granular provisioned LINE — the single row shape behind ALL THREE clinic
+ * Excel exports (individual / consolidated / month-end), which share one unified
+ * 10-column finance layout. Per-line fields (G/L, amount, vendor, product,
+ * description) vary per row; per-clinic (name + codes) and per-month values
+ * repeat on every line so a multi-clinic/multi-month sheet is unambiguous.
+ */
 export interface ExportRow {
   clinicId: string;
   clinicName: string;
+  // Clinic's fixed finance identifiers — repeated on every line of that clinic (read live).
+  accLocationCode: string;
+  customerCode: string;
   month: string;
   status: SubmissionStatus;
   expenseHeadId: string;
-  expenseHeadName: string;
-  category: string;
+  glAccountName: string;
+  glAccountNo: string;
+  vendorName: string | null;
+  productCode: string | null;
+  // Description = the per-line SPOC note (optional); blank on the sheet when null.
+  note: string | null;
   amount: string; // DECIMAL(14,2) as string
 }
 
+/** One clinic's month of lines, plus the clinic name (for the download filename). */
 export interface ClinicMonthExport {
-  clinicId: string;
   clinicName: string;
-  month: string;
-  status: SubmissionStatus;
-  rows: Array<{ category: string; expenseHeadName: string; amount: string }>;
-  total: string;
-}
-
-export interface MonthEndExport {
-  month: string;
-  clinics: Array<{ id: string; name: string; status: SubmissionStatus }>;
-  heads: Array<{ id: string; name: string; category: string }>;
-  /** amount[headId][clinicId] — present only where a value was entered. */
-  amounts: Record<string, Record<string, string>>;
+  rows: ExportRow[];
 }
 
 interface ExportFilters {
@@ -44,14 +46,10 @@ interface ExportFilters {
   status?: SubmissionStatus[];
 }
 
-function sum(values: string[]): string {
-  return values.reduce((acc, v) => acc + Number(v), 0).toFixed(2);
-}
-
 /**
  * Granular data feed for the Excel/PDF exporters (FR-10). Every query is
  * clinic-scoped (finance roles see all clinics, clinic roles only theirs) and
- * reads the FROZEN snapshot head name/category, so an export reflects each
+ * reads the FROZEN snapshot G/L account no/name, so an export reflects each
  * month as it was provisioned. Aggregation stays in SQL (no per-row fetch).
  */
 @Injectable()
@@ -80,22 +78,27 @@ export class ExportService {
     if (filters.status?.length) conds.push(Prisma.sql`m.status IN (${Prisma.join(filters.status)})`);
 
     const rows = await this.prisma.$queryRaw<ExportRow[]>(Prisma.sql`
-      SELECT c.id AS clinicId, c.name AS clinicName, m.month AS month, m.status AS status,
+      SELECT c.id AS clinicId, c.name AS clinicName,
+             c.accLocationCode AS accLocationCode, c.customerCode AS customerCode,
+             m.month AS month, m.status AS status,
              s.expenseHeadId AS expenseHeadId,
-             s.expenseHeadNameAtSnapshot AS expenseHeadName,
-             s.expenseHeadCategoryAtSnapshot AS category,
+             s.expenseHeadGlNameAtSnapshot AS glAccountName,
+             s.expenseHeadGlNoAtSnapshot AS glAccountNo,
+             p.vendorName AS vendorName,
+             p.productCode AS productCode,
+             p.note AS note,
              CAST(p.amount AS CHAR) AS amount
       FROM provisionentry p
       JOIN submissionexpenseheadsnapshot s ON s.id = p.snapshotId
       JOIN monthlysubmission m ON m.id = p.submissionId
       JOIN clinic c ON c.id = m.clinicId
       WHERE ${Prisma.join(conds, ' AND ')}
-      ORDER BY c.name ASC, m.month ASC, s.expenseHeadCategoryAtSnapshot ASC, s.expenseHeadNameAtSnapshot ASC
+      ORDER BY c.name ASC, m.month ASC, s.expenseHeadGlNoAtSnapshot ASC, s.expenseHeadGlNameAtSnapshot ASC
     `);
     return rows.map((r) => ({ ...r, amount: String(r.amount) }));
   }
 
-  /** One clinic's data for one month (FR-10: single-clinic Excel export). */
+  /** One clinic's month of lines (FR-10: single-clinic Excel export). */
   async clinicMonth(user: RequestUser, clinicId: string, month: string): Promise<ClinicMonthExport> {
     if (!this.scope.canAccessClinic(user, clinicId)) {
       throw new ForbiddenException('Clinic not in your accessible scope');
@@ -104,72 +107,26 @@ export class ExportService {
       where: { id: clinicId },
       select: { name: true },
     });
-    const submission = await this.prisma.monthlySubmission.findUnique({
-      where: { clinicId_month: { clinicId, month } },
-      select: { status: true },
-    });
-    const detail = await this.detailRows(user, { clinicId, month });
-
-    return {
-      clinicId,
-      clinicName: clinic?.name ?? clinicId,
-      month,
-      status: (submission?.status ?? SubmissionStatus.NOT_STARTED) as SubmissionStatus,
-      rows: detail.map((r) => ({
-        category: r.category,
-        expenseHeadName: r.expenseHeadName,
-        amount: r.amount,
-      })),
-      total: sum(detail.map((r) => r.amount)),
-    };
+    const rows = await this.detailRows(user, { clinicId, month });
+    return { clinicName: clinic?.name ?? clinicId, rows };
   }
 
   /**
-   * Month-end provision report (FR-10 one-click): every ACTIVE in-scope clinic,
-   * every head provisioned that month, as a head×clinic matrix.
+   * Month-end provision report (FR-10 one-click): every provisioned line across
+   * every ACTIVE in-scope clinic for the month, as flat per-line rows (same
+   * unified 10-column layout as the other exports — Month + Clinic Name on every
+   * row keep a multi-clinic sheet unambiguous). Clinics with no entries add no rows.
    */
-  async monthEnd(user: RequestUser, month: string): Promise<MonthEndExport> {
+  async monthEnd(user: RequestUser, month: string): Promise<ExportRow[]> {
     const accessible = await this.scope.accessibleClinicIds(user);
-    if (accessible.length === 0) {
-      return { month, clinics: [], heads: [], amounts: {} };
-    }
+    if (accessible.length === 0) return [];
 
     const activeClinics = await this.prisma.clinic.findMany({
       where: { isActive: true, id: { in: accessible } },
-      select: { id: true, name: true },
-      orderBy: { name: 'asc' },
+      select: { id: true },
     });
     const activeIds = new Set(activeClinics.map((c) => c.id));
 
-    const submissions = await this.prisma.monthlySubmission.findMany({
-      where: { month, clinicId: { in: [...activeIds] } },
-      select: { clinicId: true, status: true },
-    });
-    const statusByClinic = new Map(submissions.map((s) => [s.clinicId, s.status as SubmissionStatus]));
-
-    const detail = (await this.detailRows(user, { month })).filter((r) => activeIds.has(r.clinicId));
-
-    const headMap = new Map<string, { id: string; name: string; category: string }>();
-    const amounts: Record<string, Record<string, string>> = {};
-    for (const r of detail) {
-      if (!headMap.has(r.expenseHeadId)) {
-        headMap.set(r.expenseHeadId, { id: r.expenseHeadId, name: r.expenseHeadName, category: r.category });
-      }
-      (amounts[r.expenseHeadId] ??= {})[r.clinicId] = r.amount;
-    }
-    const heads = [...headMap.values()].sort(
-      (a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name),
-    );
-
-    return {
-      month,
-      clinics: activeClinics.map((c) => ({
-        id: c.id,
-        name: c.name,
-        status: statusByClinic.get(c.id) ?? SubmissionStatus.NOT_STARTED,
-      })),
-      heads,
-      amounts,
-    };
+    return (await this.detailRows(user, { month })).filter((r) => activeIds.has(r.clinicId));
   }
 }

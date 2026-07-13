@@ -7,13 +7,37 @@
  * exist anywhere outside this package.
  */
 
-/** The five user roles. Exactly one role per user. */
+/**
+ * User roles across BOTH portal tabs. Exactly one role per user.
+ *
+ * Clinic tab (original module): FINANCE_MANAGER, CLINIC_MANAGER, CLINIC_SPOC,
+ * CLINIC_VIEWER. Corporate tab (Corporate Provisions module): the three CORP_/
+ * DEPT_ roles below. FINANCE_ADMIN is the only role spanning both tabs.
+ *
+ * The clinic FINANCE_MANAGER and the corporate CORP_FINANCE_MANAGER are two
+ * DISTINCT roles with NO cross-tab visibility — do not merge them.
+ */
 export enum UserRole {
   FINANCE_ADMIN = 'FINANCE_ADMIN',
+  // Clinic tab
   FINANCE_MANAGER = 'FINANCE_MANAGER',
   CLINIC_MANAGER = 'CLINIC_MANAGER',
   CLINIC_SPOC = 'CLINIC_SPOC',
   CLINIC_VIEWER = 'CLINIC_VIEWER',
+  // Corporate tab (Corporate Provisions module)
+  CORP_FINANCE_MANAGER = 'CORP_FINANCE_MANAGER',
+  DEPT_SPOC = 'DEPT_SPOC',
+  DEPT_VIEWER = 'DEPT_VIEWER',
+}
+
+/**
+ * The two top-level modules of the portal, each surfaced as a tab. A user's role
+ * determines which tab(s) they may see; FINANCE_ADMIN sees both, every other
+ * role exactly one. Enforced on both frontend routing and backend (TabGuard).
+ */
+export enum PortalTab {
+  CLINIC = 'CLINIC',
+  CORPORATE = 'CORPORATE',
 }
 
 /**
@@ -37,6 +61,37 @@ export enum SubmissionStatus {
   SENT_BACK_BY_FINANCE = 'SENT_BACK_BY_FINANCE',
 }
 
+/**
+ * Corporate department classification. SHARED_COST_POOL is the single Sec 24
+ * department carrying an HCL Avitas allocation %; STANDARD and INTERNAL_BU are
+ * ordinary corporate/HQ departments.
+ */
+export enum CorpDepartmentType {
+  STANDARD = 'STANDARD',
+  INTERNAL_BU = 'INTERNAL_BU',
+  SHARED_COST_POOL = 'SHARED_COST_POOL',
+}
+
+/**
+ * Corporate submission lifecycle (per department, per month YYYY-MM) — a 2-level
+ * workflow with no intermediate approver (distinct from the clinic 9-state one):
+ *
+ *   NOT_STARTED -> DRAFT -> SUBMITTED -> FINANCE_MANAGER_REVIEW
+ *     -> FINANCE_APPROVED (locked)
+ *
+ * SENT_BACK_TO_SPOC returns the submission straight to the Dept SPOC; resubmit
+ * goes back to SUBMITTED. FINANCE_MANAGER_REVIEW here is a workflow STATE,
+ * unrelated to the CORP_FINANCE_MANAGER role name.
+ */
+export enum CorpSubmissionStatus {
+  NOT_STARTED = 'NOT_STARTED',
+  DRAFT = 'DRAFT',
+  SUBMITTED = 'SUBMITTED',
+  FINANCE_MANAGER_REVIEW = 'FINANCE_MANAGER_REVIEW',
+  FINANCE_APPROVED = 'FINANCE_APPROVED',
+  SENT_BACK_TO_SPOC = 'SENT_BACK_TO_SPOC',
+}
+
 /** Convenience: roles that belong to the Finance side (org-wide, all-clinic scope). */
 export const FINANCE_ROLES: readonly UserRole[] = [UserRole.FINANCE_ADMIN, UserRole.FINANCE_MANAGER];
 
@@ -47,6 +102,66 @@ export const CLINIC_ROLES: readonly UserRole[] = [
   UserRole.CLINIC_VIEWER,
 ];
 
+/**
+ * Convenience: the Corporate Provisions roles (Corporate tab only). The
+ * clinic-equivalent roles (DEPT_SPOC / DEPT_VIEWER) may hold MULTIPLE departments
+ * — unlike clinic roles, which are one-clinic each. CORP_FINANCE_MANAGER is the
+ * corporate approver and is distinct from the clinic FINANCE_MANAGER.
+ */
+export const CORPORATE_ROLES: readonly UserRole[] = [
+  UserRole.CORP_FINANCE_MANAGER,
+  UserRole.DEPT_SPOC,
+  UserRole.DEPT_VIEWER,
+];
+
+/**
+ * Convenience: the corporate roles scoped to one or more departments
+ * (Dept SPOC / Viewer) — the ones carrying user_department_assignments rows.
+ * CORP_FINANCE_MANAGER is deliberately EXCLUDED: like the clinic FINANCE_MANAGER
+ * it auto-sees every department and holds NO assignment rows. Unlike clinic
+ * roles (one clinic each), these may hold MULTIPLE departments.
+ */
+export const DEPT_SCOPED_ROLES: readonly UserRole[] = [
+  UserRole.DEPT_SPOC,
+  UserRole.DEPT_VIEWER,
+];
+
+/**
+ * Which tab(s) each role may see — the single source of truth for tab visibility,
+ * consumed by frontend routing and the backend TabGuard. FINANCE_ADMIN is the
+ * ONLY role spanning both tabs; every other role sees exactly one.
+ */
+export const ROLE_TABS: Record<UserRole, readonly PortalTab[]> = {
+  [UserRole.FINANCE_ADMIN]: [PortalTab.CLINIC, PortalTab.CORPORATE],
+  [UserRole.FINANCE_MANAGER]: [PortalTab.CLINIC],
+  [UserRole.CLINIC_MANAGER]: [PortalTab.CLINIC],
+  [UserRole.CLINIC_SPOC]: [PortalTab.CLINIC],
+  [UserRole.CLINIC_VIEWER]: [PortalTab.CLINIC],
+  [UserRole.CORP_FINANCE_MANAGER]: [PortalTab.CORPORATE],
+  [UserRole.DEPT_SPOC]: [PortalTab.CORPORATE],
+  [UserRole.DEPT_VIEWER]: [PortalTab.CORPORATE],
+};
+
+/** The tab(s) a role may access. */
+export function tabsForRole(role: UserRole): readonly PortalTab[] {
+  return ROLE_TABS[role] ?? [];
+}
+
+/** Whether a role may access a given tab (used by both routing and the API guard). */
+export function roleCanAccessTab(role: UserRole, tab: PortalTab): boolean {
+  return tabsForRole(role).includes(tab);
+}
+
+/**
+ * Every role belonging to a portal's user list — the single source for the
+ * user-management clinic/corporate split. Derived from ROLE_TABS, so FINANCE_ADMIN
+ * (the only cross-tab role) appears in BOTH lists and the clinic FINANCE_MANAGER
+ * stays clinic-only. Order follows the UserRole enum.
+ */
+export function rolesForTab(tab: PortalTab): UserRole[] {
+  return (Object.values(UserRole) as UserRole[]).filter((role) => roleCanAccessTab(role, tab));
+}
+
 /** Human-readable labels for roles. Centralized so UIs never hard-code strings. */
 export const ROLE_LABELS: Record<UserRole, string> = {
   [UserRole.FINANCE_ADMIN]: 'Finance Admin',
@@ -54,6 +169,15 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   [UserRole.CLINIC_MANAGER]: 'Clinic Manager',
   [UserRole.CLINIC_SPOC]: 'Clinic SPOC',
   [UserRole.CLINIC_VIEWER]: 'Clinic Viewer',
+  [UserRole.CORP_FINANCE_MANAGER]: 'Corporate Finance Manager',
+  [UserRole.DEPT_SPOC]: 'Department SPOC',
+  [UserRole.DEPT_VIEWER]: 'Department Viewer',
+};
+
+/** Human-readable labels for the portal tabs. */
+export const TAB_LABELS: Record<PortalTab, string> = {
+  [PortalTab.CLINIC]: 'Clinic Provisions',
+  [PortalTab.CORPORATE]: 'Corporate Provisions',
 };
 
 /** Human-readable labels for submission statuses. */

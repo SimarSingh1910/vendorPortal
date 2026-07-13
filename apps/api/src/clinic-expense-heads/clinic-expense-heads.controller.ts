@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Put } from '@nestjs/common';
-import { UserRole } from '@portal/shared';
+import { PortalTab, UserRole } from '@portal/shared';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { RequireTab } from '../auth/decorators/require-tab.decorator';
 import { ClinicExpenseHeadsService } from './clinic-expense-heads.service';
 import { SetMappingsDto } from './dto/set-mappings.dto';
 
@@ -12,6 +13,7 @@ import { SetMappingsDto } from './dto/set-mappings.dto';
  */
 @Controller('clinics/:clinicId/expense-heads')
 @Roles(UserRole.FINANCE_ADMIN, UserRole.FINANCE_MANAGER)
+@RequireTab(PortalTab.CLINIC)
 export class ClinicExpenseHeadsController {
   constructor(private readonly mappings: ClinicExpenseHeadsService) {}
 

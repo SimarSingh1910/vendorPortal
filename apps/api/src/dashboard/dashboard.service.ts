@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Portal, Prisma } from '@prisma/client';
 import {
   DEFAULT_MONTHWISE_PRESET,
   SubmissionStatus,
@@ -162,7 +162,7 @@ export class DashboardService {
       Array<{ month: string; expenseHeadId: string; expenseHeadName: string; total: string }>
     >(Prisma.sql`
       SELECT m.month AS month, s.expenseHeadId AS expenseHeadId,
-             MAX(e.name) AS expenseHeadName, CAST(SUM(p.amount) AS CHAR) AS total
+             MAX(e.glAccountName) AS expenseHeadName, CAST(SUM(p.amount) AS CHAR) AS total
       FROM provisionentry p
       JOIN submissionexpenseheadsnapshot s ON s.id = p.snapshotId
       JOIN monthlysubmission m ON m.id = p.submissionId
@@ -206,7 +206,10 @@ export class DashboardService {
     const priorMonth = shiftMonth(m, -1);
     const clinicIds = await this.resolveClinicIds(user, clinicId);
 
-    const config = await this.prisma.notificationConfig.findUnique({ where: { month: m } });
+    // Variance threshold from the CLINIC per-cycle config (independent of corporate).
+    const config = await this.prisma.notificationConfig.findUnique({
+      where: { month_portal: { month: m, portal: Portal.CLINIC } },
+    });
     const thresholdPercent = config ? config.varianceThresholdPercent.toFixed(2) : null;
     const thresholdNum = thresholdPercent != null ? Number(thresholdPercent) : null;
 
@@ -280,7 +283,7 @@ export class DashboardService {
     const rows = await this.prisma.$queryRaw<
       Array<{ expenseHeadId: string; expenseHeadName: string; total: string }>
     >(Prisma.sql`
-      SELECT s.expenseHeadId AS expenseHeadId, MAX(e.name) AS expenseHeadName,
+      SELECT s.expenseHeadId AS expenseHeadId, MAX(e.glAccountName) AS expenseHeadName,
              CAST(SUM(p.amount) AS CHAR) AS total
       FROM provisionentry p
       JOIN submissionexpenseheadsnapshot s ON s.id = p.snapshotId
@@ -351,7 +354,7 @@ export class DashboardService {
       Array<{ month: string; expenseHeadId: string; expenseHeadName: string; total: string }>
     >(Prisma.sql`
       SELECT m.month AS month, s.expenseHeadId AS expenseHeadId,
-             MAX(e.name) AS expenseHeadName, CAST(SUM(p.amount) AS CHAR) AS total
+             MAX(e.glAccountName) AS expenseHeadName, CAST(SUM(p.amount) AS CHAR) AS total
       FROM provisionentry p
       JOIN submissionexpenseheadsnapshot s ON s.id = p.snapshotId
       JOIN monthlysubmission m ON m.id = p.submissionId
@@ -413,8 +416,16 @@ export class DashboardService {
             orderBy: { name: 'asc' },
           })
         : Promise.resolve([]),
-      this.prisma.expenseHead.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+      this.prisma.expenseHead.findMany({
+        select: { id: true, glAccountName: true },
+        orderBy: { glAccountName: 'asc' },
+      }),
     ]);
-    return { clinics, expenseHeads };
+    // The dashboard filter/label contract stays `{ id, name }`; `name` is the head's
+    // G/L Account Name (the color map keys on id, so palette assignment is unaffected).
+    return {
+      clinics,
+      expenseHeads: expenseHeads.map((e) => ({ id: e.id, name: e.glAccountName })),
+    };
   }
 }

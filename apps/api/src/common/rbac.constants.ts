@@ -38,3 +38,25 @@ export const SENT_BACK_STATUSES: readonly SubmissionStatus[] = [
   SubmissionStatus.SENT_BACK_BY_MANAGER,
   SubmissionStatus.SENT_BACK_BY_FINANCE,
 ];
+
+// ── Corporate (Phase C2) ─────────────────────────────────────────────────────
+
+/** Corporate data-entry role (department SPOC). Dept Viewer is read-only. */
+export const CORP_DATA_ENTRY_ROLES: readonly UserRole[] = [UserRole.DEPT_SPOC];
+
+/**
+ * Corporate approver roles — review/open/approve/send-back and value override.
+ * The corporate FINANCE_MANAGER (CORP_FINANCE_MANAGER) is the dedicated approver;
+ * FINANCE_ADMIN is the only cross-tab role and shares full corporate authority.
+ * The clinic FINANCE_MANAGER is deliberately absent (it never sees corporate).
+ */
+export const CORP_FINANCE_APPROVER_ROLES: readonly UserRole[] = [
+  UserRole.FINANCE_ADMIN,
+  UserRole.CORP_FINANCE_MANAGER,
+];
+
+/** Roles with org-wide access to every corporate department (no assignment rows). */
+export const CORP_FULL_DEPARTMENT_ACCESS_ROLES: readonly UserRole[] = [
+  UserRole.FINANCE_ADMIN,
+  UserRole.CORP_FINANCE_MANAGER,
+];

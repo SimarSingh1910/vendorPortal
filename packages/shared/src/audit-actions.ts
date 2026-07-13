@@ -31,6 +31,45 @@ export const AuditAction = {
   EXPENSE_HEAD_UPDATE: 'EXPENSE_HEAD_UPDATE',
   EXPENSE_HEAD_SET_ACTIVE: 'EXPENSE_HEAD_SET_ACTIVE',
 
+  // Corporate Provisions masters (Corporate tab). Departments and their
+  // dept-specific expense heads are Finance-Admin CRUD; every mutation records
+  // one row. Corporate masters are NOT clinic-scoped, so their audit rows carry
+  // no clinicId.
+  CORP_DEPARTMENT_CREATE: 'CORP_DEPARTMENT_CREATE',
+  CORP_DEPARTMENT_UPDATE: 'CORP_DEPARTMENT_UPDATE',
+  CORP_DEPARTMENT_SET_ACTIVE: 'CORP_DEPARTMENT_SET_ACTIVE',
+
+  CORP_EXPENSE_HEAD_CREATE: 'CORP_EXPENSE_HEAD_CREATE',
+  CORP_EXPENSE_HEAD_UPDATE: 'CORP_EXPENSE_HEAD_UPDATE',
+  CORP_EXPENSE_HEAD_SET_ACTIVE: 'CORP_EXPENSE_HEAD_SET_ACTIVE',
+
+  CORP_BUDGET_CODE_CREATE: 'CORP_BUDGET_CODE_CREATE',
+  CORP_BUDGET_CODE_UPDATE: 'CORP_BUDGET_CODE_UPDATE',
+  CORP_BUDGET_CODE_SET_ACTIVE: 'CORP_BUDGET_CODE_SET_ACTIVE',
+
+  // Corporate cycle open (Step C2.1). Mirrors the clinic CYCLE_OPEN but for a
+  // department/month; recorded as SYSTEM (no actor) when the scheduler opens it,
+  // or with the admin actor on a manual open. Corp submissions are not
+  // clinic-scoped, so these rows carry no clinicId.
+  CORP_CYCLE_OPEN: 'CORP_CYCLE_OPEN',
+
+  // Corporate provision entry + review (Phase C2). CORP_PROVISION_SAVE = a dept
+  // SPOC's value save; CORP_PROVISION_EDIT_OVERRIDE = a corporate approver's
+  // value edit during SUBMITTED/REVIEW (BR-C08, records old->new);
+  // CORP_UNLOCK = a Finance-Admin unlock of an approved (locked) submission with
+  // its mandatory reason. Corporate workflow TRANSITIONS are recorded dynamically
+  // as `CORP_SUBMISSION_<ACTION>` (mirroring the clinic SUBMISSION_<ACTION>) and
+  // are intentionally not enumerated here.
+  CORP_PROVISION_SAVE: 'CORP_PROVISION_SAVE',
+  CORP_PROVISION_EDIT_OVERRIDE: 'CORP_PROVISION_EDIT_OVERRIDE',
+  CORP_UNLOCK: 'CORP_UNLOCK',
+
+  // Sec 24 shared-cost-pool allocation % (Step C3.1). APPEND-ONLY (BR-C06): every
+  // change is a new sec24_allocation_config row, so the audit records the before
+  // (previously-effective %) and after for each set. Not department-scoped (one
+  // global pool), so the row carries no clinicId.
+  CORP_SEC24_PCT_SET: 'CORP_SEC24_PCT_SET',
+
   USER_CREATE: 'USER_CREATE',
   USER_UPDATE: 'USER_UPDATE',
   USER_SET_ACTIVE: 'USER_SET_ACTIVE',
@@ -40,3 +79,26 @@ export const AuditAction = {
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
+
+/**
+ * Portal discriminator for the audit-log VIEW filter (one physical AuditLog,
+ * unchanged). Every corporate action name — enumerated CORP_* above AND the
+ * runtime-built CORP_SUBMISSION_<ACTION> transitions — starts with this prefix;
+ * nothing else does. Centralized here so the clinic/corporate split has a SINGLE
+ * source of truth and can't drift between the query, the export, and the UI.
+ */
+export const CORP_AUDIT_ACTION_PREFIX = 'CORP_';
+
+/** True when an audit action belongs to the Corporate portal (CORP_* prefix). */
+export function isCorpAuditAction(action: string): boolean {
+  return action.startsWith(CORP_AUDIT_ACTION_PREFIX);
+}
+
+/**
+ * The portal an audit action belongs to, for the viewer/export filter: corporate
+ * iff it carries the CORP_ prefix, otherwise clinic (clinic actions plus the
+ * shared admin actions like USER_ and NOTIFICATION_CONFIG_ show under Clinic).
+ */
+export function auditActionPortal(action: string): 'CLINIC' | 'CORPORATE' {
+  return isCorpAuditAction(action) ? 'CORPORATE' : 'CLINIC';
+}

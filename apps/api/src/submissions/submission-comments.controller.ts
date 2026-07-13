@@ -1,5 +1,7 @@
 import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { PortalTab } from '@portal/shared';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { RequireTab } from '../auth/decorators/require-tab.decorator';
 import type { RequestUser } from '../auth/request-user';
 import { ClinicScopeGuard } from '../common/guards/clinic-scope.guard';
 import { SubmissionCommentsService } from './submission-comments.service';
@@ -11,6 +13,7 @@ import { SubmissionCommentsService } from './submission-comments.service';
  * beyond clinic scope.
  */
 @Controller('submissions/:submissionId/comments')
+@RequireTab(PortalTab.CLINIC)
 @UseGuards(ClinicScopeGuard)
 export class SubmissionCommentsController {
   constructor(private readonly comments: SubmissionCommentsService) {}

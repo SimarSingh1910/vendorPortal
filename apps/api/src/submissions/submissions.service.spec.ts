@@ -90,4 +90,16 @@ describe('SubmissionsService queue/detail (Step 7.1 — manager review surface)'
     const reviewer = await prisma.user.findUniqueOrThrow({ where: { id: actors.manager.id } });
     expect(detail.reviewStartedByName).toBe(reviewer.name);
   });
+
+  it('getDetail returns the clinic’s Acc. Location Code + Customer Code for the context panel', async () => {
+    const clinic = await fx.makeClinic({ accLocationCode: 'LOC-PUN', customerCode: 'CUST-PUN' });
+    const head = await fx.makeExpenseHead();
+    await fx.mapHeads(clinic.id, [head.id]);
+    const { submission } = await cycle.openClinicCycle(clinic.id, MONTH);
+    const spoc = (await fx.makeUser(UserRole.CLINIC_SPOC, [clinic.id])).user;
+
+    const detail = await submissions.getDetail(submission.id, spoc);
+    expect(detail.clinicAccLocationCode).toBe('LOC-PUN');
+    expect(detail.clinicCustomerCode).toBe('CUST-PUN');
+  });
 });

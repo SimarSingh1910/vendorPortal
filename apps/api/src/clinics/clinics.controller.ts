@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { UserRole } from '@portal/shared';
+import { PortalTab, UserRole } from '@portal/shared';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { RequireTab } from '../auth/decorators/require-tab.decorator';
 import { ClinicsService } from './clinics.service';
 import { CreateClinicDto } from './dto/create-clinic.dto';
 import { ListClinicsQuery } from './dto/list-clinics.query';
@@ -15,6 +16,7 @@ import { UpdateClinicDto } from './dto/update-clinic.dto';
  */
 @Controller('clinics')
 @Roles(UserRole.FINANCE_ADMIN, UserRole.FINANCE_MANAGER)
+@RequireTab(PortalTab.CLINIC)
 export class ClinicsController {
   constructor(private readonly clinics: ClinicsService) {}
 

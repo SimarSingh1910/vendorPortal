@@ -1,10 +1,12 @@
-import type { AuditLogPage } from '@portal/shared';
+import type { AuditLogPage, PortalTab } from '@portal/shared';
 import { apiClient } from '@/lib/apiClient';
 
 export interface AuditFilter {
   clinicId?: string;
   performedById?: string;
   action?: string;
+  /** CLINIC | CORPORATE portal filter (clinic actions vs CORP_* actions); absent = both. */
+  portal?: PortalTab;
   from?: string; // ISO-8601
   to?: string; // ISO-8601
   page?: number;

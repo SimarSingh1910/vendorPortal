@@ -146,12 +146,10 @@ describe('Audit logging (Step 9.1 — append-only, unified write path)', () => {
     // Master edit (clinic update).
     const clinic = await clinics.create({
       name: 'Alpha',
-      location: 'Pune',
-      corporateClient: 'Acme',
+      accLocationCode: 'LOC-ALPHA',
+      customerCode: 'CUST-ALPHA',
     });
-    await asUser(admin.id, () =>
-      clinics.update(clinic.id, { name: 'Alpha 2', location: 'Pune', corporateClient: 'Acme' }),
-    );
+    await asUser(admin.id, () => clinics.update(clinic.id, { name: 'Alpha 2' }));
     const clinicRows = await rowsFor('CLINIC_UPDATE', clinic.id);
     expect(clinicRows).toHaveLength(1);
     expect(clinicRows[0].clinicId).toBe(clinic.id);

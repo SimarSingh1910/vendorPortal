@@ -1,6 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { UserRole } from '@portal/shared';
+import { PortalTab, UserRole } from '@portal/shared';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { RequireTab } from '../auth/decorators/require-tab.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { RequestUser } from '../auth/request-user';
 import { DashboardService } from './dashboard.service';
@@ -14,6 +15,7 @@ import { ClinicMonthwiseQueryDto } from './dto/clinic-monthwise-query.dto';
  * central dashboard (11.1) and the SPOC/Manager dashboard (11.2).
  */
 @Controller('dashboard')
+@RequireTab(PortalTab.CLINIC)
 export class DashboardController {
   constructor(private readonly dashboard: DashboardService) {}
 

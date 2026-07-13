@@ -4,19 +4,39 @@
 // the CJS output statically analyzable for both Nest (tsc) and Vite (rollup).
 export {
   UserRole,
+  PortalTab,
   SubmissionStatus,
+  CorpDepartmentType,
+  CorpSubmissionStatus,
   FINANCE_ROLES,
   CLINIC_ROLES,
+  CORPORATE_ROLES,
+  DEPT_SCOPED_ROLES,
+  ROLE_TABS,
+  tabsForRole,
+  roleCanAccessTab,
+  rolesForTab,
   ROLE_LABELS,
+  TAB_LABELS,
   SUBMISSION_STATUS_LABELS,
 } from './enums';
 
-export { AuditAction } from './audit-actions';
+export {
+  AuditAction,
+  CORP_AUDIT_ACTION_PREFIX,
+  isCorpAuditAction,
+  auditActionPortal,
+} from './audit-actions';
 
 export { isActionPending, pendingCount } from './attention';
 
+export { isCorpActionPending, corpPendingCount } from './corp-attention';
+
 // Runtime constants from types.ts (values, not types).
 export { MONTHWISE_PRESETS, DEFAULT_MONTHWISE_PRESET } from './types';
+
+export { PRODUCT_CODES } from './product-codes';
+export type { ProductCode } from './product-codes';
 
 export type {
   HealthResponse,
@@ -29,6 +49,22 @@ export type {
   ExpenseHead,
   ClinicExpenseHead,
   ActiveFilter,
+  CorpDepartment,
+  CorpProvisionEntryInput,
+  CorpDepartmentMonthStatus,
+  CorpSubmissionListItem,
+  CorpBudgetCodeOption,
+  CorpProvisionHeadRow,
+  CorpSubmissionDetail,
+  Sec24AllocationConfigView,
+  Sec24AllocationInput,
+  CorpDashboardStatusTile,
+  CorpMonthlyTotalPoint,
+  CorpDeptMonthlyTotalPoint,
+  CorpHeadTrendPoint,
+  CorpDepartmentTotalPoint,
+  CorpSec24MonthPoint,
+  CorpDashboardFilterOptions,
   MappedExpenseHead,
   AdminUser,
   SubmissionCommentAction,

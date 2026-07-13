@@ -56,8 +56,8 @@ describe('SchedulerService (Step 10.4)', () => {
     return prisma.clinic.create({
       data: {
         name: opts.name ?? 'Clinic',
-        location: 'L',
-        corporateClient: 'C',
+        accLocationCode: 'ACC-1',
+        customerCode: 'CUST-1',
         isActive: opts.active ?? true,
       },
     });
@@ -77,7 +77,7 @@ describe('SchedulerService (Step 10.4)', () => {
 
   async function mapHead(clinicId: string) {
     const head = await prisma.expenseHead.create({
-      data: { name: nextEmail(), category: 'Cat', isActive: true },
+      data: { glAccountName: nextEmail(), glAccountNo: nextEmail(), isActive: true },
     });
     await prisma.clinicExpenseHead.create({
       data: { clinicId, expenseHeadId: head.id, isActive: true },
