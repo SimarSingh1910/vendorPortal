@@ -8,7 +8,10 @@ import { AppModule } from './app.module';
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
-  const isProd = config.get<string>('NODE_ENV') === 'prod';
+  // Accept both our own 'prod' convention and Node/Railway's default
+  // NODE_ENV=production so a platform-injected value still counts as production.
+  const nodeEnv = config.get<string>('NODE_ENV');
+  const isProd = nodeEnv === 'prod' || nodeEnv === 'production';
 
   // Security headers, incl. HSTS (effective once served over TLS — see
   // docs/DEPLOYMENT.md for the HTTPS termination + TLS-to-MySQL requirements).
@@ -29,15 +32,23 @@ async function bootstrap(): Promise<void> {
   );
 
   // Credentialed CORS so the browser sends/stores the httpOnly refresh cookie.
-  const corsOrigin = config.get<string>('CORS_ORIGIN', 'http://localhost:5173');
+  // CORS_ORIGIN is the canonical name; WEB_ORIGIN is accepted as an alias so a
+  // deployment configured with either the web app's origin works.
+  const corsOrigin =
+    config.get<string>('CORS_ORIGIN') ??
+    config.get<string>('WEB_ORIGIN') ??
+    'http://localhost:5173';
   app.enableCors({
     origin: corsOrigin.split(',').map((o) => o.trim()),
     credentials: true,
   });
 
+  // Bind to 0.0.0.0 (all interfaces) and the platform-injected PORT. Railway (and
+  // most PaaS) route to the container on $PORT and require binding to 0.0.0.0,
+  // not localhost, or the health check never connects.
   const port = Number(config.get<string>('PORT', '3000'));
-  await app.listen(port);
-  Logger.log(`API listening on http://localhost:${port}/api`, 'Bootstrap');
+  await app.listen(port, '0.0.0.0');
+  Logger.log(`API listening on port ${port} (path /api)`, 'Bootstrap');
 }
 
 void bootstrap();

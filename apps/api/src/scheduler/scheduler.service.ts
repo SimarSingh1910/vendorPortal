@@ -59,6 +59,13 @@ export class SchedulerService {
 
   @Cron('0 0 8 * * *', { name: 'cpp-daily-cycle-jobs', timeZone: IST_TZ })
   async runDailyJobs(now: Date = new Date()): Promise<void> {
+    // Kill-switch for the automated daily cron (SCHEDULER_ENABLED=false). The demo
+    // opens/reminds via the admin "open now" endpoints, which call the work methods
+    // below directly — so disabling the cron never disables that manual path.
+    if (process.env.SCHEDULER_ENABLED === 'false') {
+      this.logger.log('daily cron skipped (SCHEDULER_ENABLED=false)');
+      return;
+    }
     const today = istDateKey(now);
     const configs = await this.prisma.notificationConfig.findMany();
     this.logger.log(`daily jobs for IST ${today}: evaluating ${configs.length} cycle config(s)`);

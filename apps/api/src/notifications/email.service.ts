@@ -5,9 +5,10 @@ import type { Transporter } from 'nodemailer';
 import * as aws from '@aws-sdk/client-ses';
 
 /**
- * Email sender — Nodemailer over AWS SES. If SES isn't configured (no
- * region/from/credentials — the usual dev case) it logs and no-ops, so the app
- * and tests run without AWS credentials. When configured it sends via SES.
+ * Email sender — Nodemailer over AWS SES. Disabled (logs and no-ops) when either
+ * MAIL_ENABLED=false is set OR SES isn't configured (no region/from/credentials —
+ * the usual dev/demo case), so the app and tests run without AWS credentials and
+ * the demo can stay in-app-only. When enabled and configured it sends via SES.
  */
 @Injectable()
 export class EmailService {
@@ -20,8 +21,11 @@ export class EmailService {
     this.from = this.config.get<string>('SES_FROM_EMAIL', '');
     const accessKeyId = this.config.get<string>('AWS_ACCESS_KEY_ID');
     const secretAccessKey = this.config.get<string>('AWS_SECRET_ACCESS_KEY');
+    // Explicit kill-switch: MAIL_ENABLED=false forces in-app-only even if SES
+    // credentials happen to be present. Any other value falls back to auto-detect.
+    const mailEnabled = this.config.get<string>('MAIL_ENABLED') !== 'false';
 
-    if (region && this.from && accessKeyId && secretAccessKey) {
+    if (mailEnabled && region && this.from && accessKeyId && secretAccessKey) {
       const ses = new aws.SES({ region, credentials: { accessKeyId, secretAccessKey } });
       // The SES transport option isn't in @types/nodemailer's TransportOptions.
       this.transporter = nodemailer.createTransport({
