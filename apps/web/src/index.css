@@ -39,7 +39,7 @@
     --error: 5.9 100% 92%; /* #FFDAD6 error-container */
     --error-foreground: 355.9 100% 28.8%; /* #93000A on-error-container */
     /* Dark-navy sidebar shell (brand deep-blue, not the CTA primary). */
-    --sidebar: 225 100% 8%; /* #000A29 — much deeper navy sidebar surface */
+    --sidebar: 225 100% 6%; /* #00081F — deeper navy sidebar surface */
     --sidebar-active: 223.1 100% 27.8%; /* #00288E primary-container — active item */
     --sidebar-foreground: 228.3 98.5% 74.5%; /* #7E97FE on-primary-container — inactive */
     --sidebar-active-foreground: 0 0% 100%; /* white — active item text/icon */
