@@ -52,7 +52,7 @@ export function ClinicApprovedHistory({
                 {item.approvedByFinanceAt ? formatIST(item.approvedByFinanceAt) : '—'}
               </TableCell>
               <TableCell className="text-right">
-                <Button asChild size="sm" variant="ghost">
+                <Button asChild size="sm" variant="ghostPrimary">
                   <Link to={`${linkBase}/${item.id}`}>View (locked)</Link>
                 </Button>
               </TableCell>

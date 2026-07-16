@@ -27,17 +27,26 @@ const CORP_STATUS_LABELS: Record<CorpSubmissionStatus, string> = {
 export const corpStatusLabel = (status: CorpSubmissionStatus): string =>
   CORP_STATUS_LABELS[status] ?? status;
 
-/** Map a corporate submission status to a Badge variant for consistent colouring. */
+/**
+ * Map a corporate submission status to a Badge variant for consistent colouring.
+ * Mirrors the clinic `statusBadgeVariant` tones (same meaning → same colour); the
+ * variant → colour definitions live once in `badge.tsx`.
+ */
 export function corpStatusBadgeVariant(status: CorpSubmissionStatus): BadgeProps['variant'] {
   switch (status) {
+    case CorpSubmissionStatus.NOT_STARTED:
+    case CorpSubmissionStatus.DRAFT:
+      return 'muted';
+    case CorpSubmissionStatus.SUBMITTED:
+      return 'secondary';
+    case CorpSubmissionStatus.FINANCE_MANAGER_REVIEW:
+      return 'warning';
     case CorpSubmissionStatus.FINANCE_APPROVED:
       return 'success';
     case CorpSubmissionStatus.SENT_BACK_TO_SPOC:
-      return 'secondary';
-    case CorpSubmissionStatus.NOT_STARTED:
-      return 'muted';
+      return 'error';
     default:
-      return 'default';
+      return 'muted';
   }
 }
 

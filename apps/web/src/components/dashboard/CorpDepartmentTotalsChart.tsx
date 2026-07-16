@@ -9,7 +9,22 @@ import {
 } from 'recharts';
 import type { CorpDepartmentTotalPoint } from '@portal/shared';
 import { formatINR } from '@/lib/format';
-import { colorByIndex } from '@/lib/chartColors';
+import {
+  CHART_ANCHOR,
+  CHART_ANCHOR_HOVER,
+  CHART_AXIS_LABEL,
+  CHART_GRID,
+  CHART_TOOLTIP_STYLE,
+  CHART_TOOLTIP_TEXT,
+} from '@/lib/chartColors';
+
+/** Token-aligned chart chrome: hairline grid + axis lines, muted tick labels. */
+const axisTick = { fill: CHART_AXIS_LABEL } as const;
+const tooltipProps = {
+  contentStyle: CHART_TOOLTIP_STYLE,
+  labelStyle: { color: CHART_TOOLTIP_TEXT },
+  itemStyle: { color: CHART_TOOLTIP_TEXT },
+} as const;
 
 /** Compact INR for the X-axis ticks (₹1.2L / ₹3.4Cr) — mirrors charts.tsx. */
 function compactINR(n: number): string {
@@ -37,11 +52,32 @@ export function CorpDepartmentTotalsChart({ data }: { data: CorpDepartmentTotalP
     <div className="w-full" style={{ height: Math.max(180, rows.length * 40 + 40) }}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={rows} layout="vertical" margin={{ top: 8, right: 24, bottom: 0, left: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-          <XAxis type="number" tickFormatter={compactINR} fontSize={12} />
-          <YAxis type="category" dataKey="department" width={160} fontSize={12} />
-          <Tooltip formatter={(v: number | string) => formatINR(v as number)} />
-          <Bar dataKey="total" name="Total" fill={colorByIndex(1)} radius={[0, 4, 4, 0]} />
+          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={CHART_GRID} />
+          <XAxis
+            type="number"
+            tickFormatter={compactINR}
+            fontSize={12}
+            stroke={CHART_GRID}
+            tick={axisTick}
+          />
+          <YAxis
+            type="category"
+            dataKey="department"
+            width={160}
+            fontSize={12}
+            stroke={CHART_GRID}
+            tick={axisTick}
+          />
+          <Tooltip {...tooltipProps} formatter={(v: number | string) => formatINR(v as number)} />
+          <Bar
+            dataKey="total"
+            name="Total"
+            fill={CHART_ANCHOR}
+            stroke={CHART_ANCHOR}
+            strokeWidth={1}
+            activeBar={{ fill: CHART_ANCHOR_HOVER, stroke: CHART_ANCHOR_HOVER }}
+            radius={[0, 4, 4, 0]}
+          />
         </BarChart>
       </ResponsiveContainer>
     </div>

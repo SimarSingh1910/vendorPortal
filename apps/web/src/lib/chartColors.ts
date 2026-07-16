@@ -9,17 +9,52 @@
  * per-chart subset, so a chart filtered to a single head keeps that head's colour.
  */
 
-/** Refined, reasonably colour-blind-friendly palette (ordered). */
+/**
+ * Chart chrome colours, aligned to the "Precision Ops" tokens: hairline grid
+ * (#E2E8F0), axis lines / ticks / labels in muted-foreground (#444652), axis
+ * captions in the lighter #757684. Legend text stays neutral (#444652) — the
+ * swatch carries the series colour. Tooltip is a white hairline-bordered card.
+ */
+export const CHART_GRID = '#E2E8F0';
+export const CHART_AXIS_LABEL = '#444652';
+export const CHART_CAPTION = '#757684';
+export const CHART_LEGEND_TEXT = '#444652';
+export const CHART_TOOLTIP_TEXT = '#1A1B22';
+
+/** Recharts Tooltip `contentStyle`: white surface, hairline border, soft shadow. */
+export const CHART_TOOLTIP_STYLE = {
+  background: '#FFFFFF',
+  border: `1px solid ${CHART_GRID}`,
+  borderRadius: '0.5rem',
+  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
+  color: CHART_TOOLTIP_TEXT,
+} as const;
+
+/**
+ * On-theme categorical series palette (soft, chalky, low-saturation — steel blue,
+ * amber, pale aqua, coral … extended in the same key). These sit on white cards,
+ * so the charts read a touch lighter than the navy shell, which is intended.
+ * Ordered for maximum separation — assigned by slot in `buildHeadColorMap` and
+ * keyed by head id, so a given head keeps its colour in every chart / month /
+ * filter. Cycles past slot 10; never random.
+ */
 export const CHART_PALETTE = [
-  '#3B5BDB',
-  '#2F9E44',
-  '#E03131',
-  '#F08C00',
-  '#7048E8',
-  '#1098AD',
-  '#D6336C',
-  '#9C6B3F',
+  '#5A7C9C', // steel blue (anchor)
+  '#FBC04A', // amber
+  '#B6E3DD', // pale aqua
+  '#F19FAD', // coral pink
+  '#C8B6E2', // lavender
+  '#A8C99A', // sage
+  '#F5C9A0', // peach
+  '#8FB3C9', // sky blue
+  '#F9CFD7', // pale pink
+  '#D4C5A9', // sand
 ] as const;
+
+/** The anchor steel-blue — used for single-series charts (§3). */
+export const CHART_ANCHOR = CHART_PALETTE[0];
+/** One step deeper than the anchor — optional single-series bar hover (§3). */
+export const CHART_ANCHOR_HOVER = '#4A6A88';
 
 /** Palette colour for a 0-based index, cycling when there are more heads than colours. */
 export function colorByIndex(i: number): string {

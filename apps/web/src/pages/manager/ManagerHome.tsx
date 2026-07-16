@@ -99,14 +99,14 @@ export function ManagerHome() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant={inReview ? 'default' : 'secondary'}>
+                          <Badge variant={inReview ? 'warning' : 'secondary'}>
                             {inReview ? 'In review' : 'Submitted — waiting'}
                           </Badge>
                           {pending && <ActionNeededBadge />}
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button asChild size="sm" variant="outline">
+                        <Button asChild size="sm" variant={inReview ? 'default' : 'outline'}>
                           <Link to={`/manager/submissions/${item.id}`}>
                             {inReview ? 'Continue review' : 'Open'}
                           </Link>

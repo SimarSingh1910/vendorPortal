@@ -177,7 +177,7 @@ export function NotificationConfigAdmin({ portal = PortalTab.CLINIC }: { portal?
             {openCycleMutation.isPending ? 'Opening…' : 'Open cycle'}
           </Button>
         </form>
-        {openResult && <p className="text-sm text-emerald-600 dark:text-emerald-400">{openResult}</p>}
+        {openResult && <p className="text-sm text-success-foreground">{openResult}</p>}
         {openError && <p className="text-sm text-destructive">{openError}</p>}
       </div>
       )}

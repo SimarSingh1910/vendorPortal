@@ -133,7 +133,7 @@ export function UsersAdmin({ defaultPortal = PortalTab.CLINIC }: { defaultPortal
         {PORTAL_TABS.map((t) => (
           <Button
             key={t.value}
-            variant={portal === t.value ? 'default' : 'ghost'}
+            variant={portal === t.value ? 'default' : 'outline'}
             size="sm"
             onClick={() => setPortal(t.value)}
           >
@@ -206,11 +206,11 @@ export function UsersAdmin({ defaultPortal = PortalTab.CLINIC }: { defaultPortal
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      <Button variant="outline" size="sm" onClick={() => openEdit(user)}>
+                      <Button variant="ghostPrimary" size="sm" onClick={() => openEdit(user)}>
                         Edit
                       </Button>
                       <Button
-                        variant={user.isActive ? 'destructive' : 'secondary'}
+                        variant={user.isActive ? 'ghostDestructive' : 'ghostPrimary'}
                         size="sm"
                         disabled={activeMutation.isPending}
                         onClick={() =>

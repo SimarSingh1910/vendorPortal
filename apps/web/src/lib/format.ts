@@ -41,18 +41,29 @@ export function formatIST(iso: string): string {
 
 export const statusLabel = (status: SubmissionStatus): string => SUBMISSION_STATUS_LABELS[status];
 
-/** Map a submission status to a Badge variant for consistent colouring. */
+/**
+ * Map a submission status to a Badge variant for consistent colouring. The
+ * variant → colour definitions live once in `badge.tsx`; this only routes each
+ * status to its tone (neutral / soft-blue / amber / green / red per the palette).
+ */
 export function statusBadgeVariant(status: SubmissionStatus): BadgeProps['variant'] {
   switch (status) {
+    case SubmissionStatus.NOT_STARTED:
+    case SubmissionStatus.DRAFT:
+      return 'muted';
+    case SubmissionStatus.SUBMITTED:
+      return 'secondary';
+    case SubmissionStatus.CLINIC_MANAGER_REVIEW:
+    case SubmissionStatus.FINANCE_REVIEW:
+      return 'warning';
+    case SubmissionStatus.CLINIC_APPROVED:
     case SubmissionStatus.FINANCE_APPROVED:
       return 'success';
     case SubmissionStatus.SENT_BACK_BY_MANAGER:
     case SubmissionStatus.SENT_BACK_BY_FINANCE:
-      return 'secondary';
-    case SubmissionStatus.NOT_STARTED:
-      return 'muted';
+      return 'error';
     default:
-      return 'default';
+      return 'muted';
   }
 }
 

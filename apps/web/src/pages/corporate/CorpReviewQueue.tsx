@@ -88,14 +88,14 @@ export function CorpReviewQueue() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant={inReview ? 'default' : 'secondary'}>
+                          <Badge variant={inReview ? 'warning' : 'secondary'}>
                             {inReview ? 'In finance review' : 'Submitted — waiting'}
                           </Badge>
                           <ActionNeededBadge />
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button asChild size="sm" variant="outline">
+                        <Button asChild size="sm" variant={inReview ? 'default' : 'outline'}>
                           <Link to={`/corporate/review/${item.id}`}>
                             {inReview ? 'Continue review' : 'Open'}
                           </Link>

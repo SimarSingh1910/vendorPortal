@@ -149,14 +149,14 @@ export function CorpDepartmentsAdmin() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      <Button asChild variant="outline" size="sm">
+                      <Button asChild variant="ghostPrimary" size="sm">
                         <Link to={`/corporate/admin/departments/${dept.id}`}>Manage</Link>
                       </Button>
-                      <Button variant="outline" size="sm" onClick={() => openEdit(dept)}>
+                      <Button variant="ghostPrimary" size="sm" onClick={() => openEdit(dept)}>
                         Edit
                       </Button>
                       <Button
-                        variant={dept.isActive ? 'destructive' : 'secondary'}
+                        variant={dept.isActive ? 'ghostDestructive' : 'ghostPrimary'}
                         size="sm"
                         disabled={activeMutation.isPending}
                         onClick={() =>

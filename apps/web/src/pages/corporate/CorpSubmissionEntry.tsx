@@ -233,7 +233,7 @@ export function CorpSubmissionEntry() {
       )}
 
       {isSentBack && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+        <div className="rounded-lg border border-warning-foreground/25 bg-warning p-4 text-sm text-warning-foreground">
           This submission was sent back for revision. Review the comments below, update the values
           and resubmit.
         </div>

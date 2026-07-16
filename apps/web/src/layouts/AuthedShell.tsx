@@ -73,9 +73,24 @@ export function AuthedShell() {
   const workPath = WORK_PATH_BY_ROLE[user.role];
   const corpWorkPath = CORP_WORK_PATH_BY_ROLE[user.role];
 
+  // Nav highlight: longest-prefix wins. A route matches an item when it equals
+  // the item's path or sits under it, but a child item (e.g. /finance/dashboard)
+  // wins over its parent (/finance) so only one item lights up at a time.
+  const isNavActive = (itemPath: string): boolean => {
+    const p = location.pathname;
+    const matches = p === itemPath || p.startsWith(`${itemPath}/`);
+    if (!matches) return false;
+    return !navItems.some(
+      (other) =>
+        other.path !== itemPath &&
+        other.path.length > itemPath.length &&
+        (p === other.path || p.startsWith(`${other.path}/`)),
+    );
+  };
+
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
-      <header className="flex h-14 items-center gap-3 border-b px-4">
+    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+      <header className="relative z-30 flex h-14 shrink-0 items-center gap-3 border-b px-4">
         <Button variant="ghost" size="icon" onClick={toggleSidebar} aria-label="Toggle sidebar">
           <PanelLeft />
         </Button>
@@ -99,11 +114,11 @@ export function AuthedShell() {
         </div>
       </header>
 
-      <div className="flex flex-1">
+      <div className="flex flex-1 overflow-hidden">
         <aside
           className={cn(
-            'border-r bg-muted/30 transition-all duration-200',
-            sidebarOpen ? 'w-60' : 'w-0 overflow-hidden',
+            'shrink-0 border-r border-white/[0.12] bg-sidebar text-sidebar-foreground transition-all duration-200',
+            sidebarOpen ? 'w-60 overflow-y-auto' : 'w-0 overflow-hidden',
           )}
         >
           <nav className="flex flex-col gap-1 p-3 text-sm">
@@ -111,12 +126,16 @@ export function AuthedShell() {
               <NavLink
                 key={item.path}
                 to={item.path}
-                className={({ isActive }) =>
-                  cn(
-                    'flex items-center justify-between gap-2 rounded-md px-3 py-2 transition-colors hover:bg-accent hover:text-accent-foreground',
-                    isActive && 'bg-accent font-medium text-accent-foreground',
-                  )
-                }
+                className={cn(
+                  // Focus ring is white so it stays visible on the navy surface
+                  // (the #1E40AF ring would disappear against it).
+                  'flex items-center justify-between gap-2 rounded-md px-3 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70',
+                  // Idle and active are mutually exclusive so exactly one text
+                  // colour ever applies — no ambiguous same-property overrides.
+                  isNavActive(item.path)
+                    ? 'bg-sidebar-active font-medium text-sidebar-active-foreground'
+                    : 'text-sidebar-foreground hover:bg-white/[0.08] hover:text-white',
+                )}
               >
                 <span>{item.label}</span>
                 {item.path === workPath && <PendingCountBadge count={pendingCount} />}
@@ -126,7 +145,7 @@ export function AuthedShell() {
           </nav>
         </aside>
 
-        <main className="flex-1 p-6">
+        <main className="flex-1 overflow-y-auto p-6">
           <Outlet />
         </main>
       </div>

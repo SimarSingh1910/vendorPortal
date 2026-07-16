@@ -43,7 +43,7 @@ export function ActionNeededBadge({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900',
+        'inline-flex items-center gap-1.5 rounded-md border border-warning-foreground/20 bg-warning px-2 py-0.5 text-xs font-semibold text-warning-foreground',
         className,
       )}
     >
@@ -60,11 +60,11 @@ export function PendingCountBadge({ count, className }: { count: number; classNa
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full bg-amber-500 px-2 py-0.5 text-xs font-semibold text-white',
+        'inline-flex items-center gap-1.5 rounded-full bg-warning px-2 py-0.5 text-xs font-semibold text-warning-foreground',
         className,
       )}
     >
-      <PulseDot className="[&_*]:bg-white" />
+      <PulseDot />
       Pending: {count}
     </span>
   );
@@ -82,7 +82,7 @@ export function AttentionBanner({
     <div
       role="status"
       className={cn(
-        'flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900',
+        'flex items-center gap-2 rounded-lg border border-warning-foreground/25 bg-warning px-4 py-3 text-sm font-medium text-warning-foreground',
         className,
       )}
     >

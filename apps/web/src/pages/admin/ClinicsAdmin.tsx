@@ -147,11 +147,11 @@ export function ClinicsAdmin() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      <Button variant="outline" size="sm" onClick={() => openEdit(clinic)}>
+                      <Button variant="ghostPrimary" size="sm" onClick={() => openEdit(clinic)}>
                         Edit
                       </Button>
                       <Button
-                        variant={clinic.isActive ? 'destructive' : 'secondary'}
+                        variant={clinic.isActive ? 'ghostDestructive' : 'ghostPrimary'}
                         size="sm"
                         disabled={activeMutation.isPending}
                         onClick={() =>

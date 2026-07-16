@@ -1,21 +1,18 @@
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Navigate } from 'react-router-dom';
-import { Building2 } from 'lucide-react';
+import { CircleAlert, Eye, EyeOff, Lock, ShieldCheck, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth.store';
 import { useAuthActions } from '@/auth/useAuthActions';
 import { roleHome } from '@/auth/roles';
+import hclLogo from '@/assets/hcl-healthcare-logo.png';
 
 const loginSchema = z.object({
   email: z.string().min(1, 'Email is required').email('Enter a valid email'),
@@ -24,10 +21,24 @@ const loginSchema = z.object({
 
 type LoginValues = z.infer<typeof loginSchema>;
 
+/**
+ * Purely cosmetic portal tabs. Both render the same form and submit to the same
+ * login endpoint — the active tab is local UI state and drives nothing else
+ * (wiring them to real behaviour is a possible later step). Corporate is default.
+ */
+const PORTAL_TABS = [
+  { key: 'corporate', label: 'Corporate' },
+  { key: 'clinic', label: 'Clinic' },
+] as const;
+type PortalTab = (typeof PORTAL_TABS)[number]['key'];
+
 export function Login() {
   const status = useAuthStore((s) => s.status);
   const user = useAuthStore((s) => s.user);
   const { login } = useAuthActions();
+
+  const [activeTab, setActiveTab] = useState<PortalTab>('corporate');
+  const [showPassword, setShowPassword] = useState(false);
 
   const {
     register,
@@ -45,53 +56,131 @@ export function Login() {
 
   const onSubmit = handleSubmit((values) => login.mutate(values));
 
+  const fieldClass = (invalid: boolean) =>
+    cn('h-11 bg-background pl-10', invalid && 'border-destructive');
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="space-y-2">
-          <div className="flex items-center gap-2 font-semibold">
-            <Building2 className="text-primary" />
-            <span>Cost Provision Portal</span>
-          </div>
-          <CardTitle className="text-xl">Sign in</CardTitle>
-          <CardDescription>Enter your credentials to access the portal.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={onSubmit} className="space-y-4" noValidate>
+    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-[400px] overflow-hidden rounded-2xl shadow-lg">
+        {/* (1) Cosmetic tab strip — changes only which tab looks active. */}
+        <div role="tablist" aria-label="Portal" className="flex border-b border-border">
+          {PORTAL_TABS.map((tab) => {
+            const active = tab.key === activeTab;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setActiveTab(tab.key)}
+                className={cn(
+                  '-mb-px flex-1 border-b-2 px-4 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                  active
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="p-6">
+          {/* (2) HCL Healthcare lockup. */}
+          <img
+            src={hclLogo}
+            alt="HCL Healthcare — Making Corporate India Healthier"
+            className="mx-auto my-6 w-[200px]"
+          />
+
+          {/* (3) Title + (4) subtitle. */}
+          <h1 className="text-center text-2xl font-bold text-foreground">Staff Portal</h1>
+          <p className="mt-1 text-center text-sm text-muted-foreground">
+            Cost Provisions · HCL Healthcare
+          </p>
+
+          <form onSubmit={onSubmit} className="mt-6 space-y-4" noValidate>
+            {/* (5) Error banner — same condition/text as before, restyled. */}
+            {login.isError && (
+              <div
+                role="alert"
+                className="flex items-center gap-2 rounded-md bg-error px-3 py-3 text-sm text-error-foreground"
+              >
+                <CircleAlert className="size-4 shrink-0" aria-hidden />
+                <span>Invalid email or password.</span>
+              </div>
+            )}
+
+            {/* (6) Email — the app authenticates by email; label/validation unchanged. */}
             <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="username"
-                placeholder="you@example.com"
-                {...register('email')}
-              />
+              <Label htmlFor="email" className="text-[13px] font-semibold text-foreground">
+                Email
+              </Label>
+              <div className="relative">
+                <User
+                  className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden
+                />
+                <Input
+                  id="email"
+                  type="email"
+                  autoComplete="username"
+                  placeholder="you@example.com"
+                  className={fieldClass(!!errors.email)}
+                  {...register('email')}
+                />
+              </div>
               {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
             </div>
 
+            {/* (7) Password — leading lock + trailing show/hide toggle (client-only). */}
             <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                {...register('password')}
-              />
+              <Label htmlFor="password" className="text-[13px] font-semibold text-foreground">
+                Password
+              </Label>
+              <div className="relative">
+                <Lock
+                  className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden
+                />
+                <Input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  className={cn(fieldClass(!!errors.password), 'pr-10')}
+                  {...register('password')}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  {showPassword ? (
+                    <EyeOff className="size-4" aria-hidden />
+                  ) : (
+                    <Eye className="size-4" aria-hidden />
+                  )}
+                </button>
+              </div>
               {errors.password && (
                 <p className="text-xs text-destructive">{errors.password.message}</p>
               )}
             </div>
 
-            {login.isError && (
-              <p className="text-sm text-destructive">Invalid email or password.</p>
-            )}
-
-            <Button type="submit" className="w-full" disabled={login.isPending}>
+            {/* (8) Sign in — handler, label and loading/disabled states unchanged. */}
+            <Button type="submit" className="h-11 w-full" disabled={login.isPending}>
               {login.isPending ? 'Signing in…' : 'Sign in'}
             </Button>
           </form>
-        </CardContent>
+
+          {/* (9) Footer. */}
+          <p className="mt-6 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+            <ShieldCheck className="size-3.5" aria-hidden />
+            Secured with encryption
+          </p>
+        </div>
       </Card>
     </div>
   );

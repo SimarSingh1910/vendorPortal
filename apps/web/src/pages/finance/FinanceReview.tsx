@@ -189,7 +189,7 @@ export function FinanceReview() {
       )}
 
       {detail.unlockedReason && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+        <div className="rounded-lg border border-warning-foreground/25 bg-warning p-3 text-sm text-warning-foreground">
           <span className="font-medium">Unlocked for correction:</span> {detail.unlockedReason}
         </div>
       )}

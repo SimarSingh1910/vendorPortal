@@ -15,6 +15,10 @@ const buttonVariants = cva(
           'border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground',
         secondary: 'bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80',
         ghost: 'hover:bg-accent hover:text-accent-foreground',
+        // Quiet row actions: primary-coloured text, no fill/border at rest.
+        ghostPrimary: 'text-primary hover:bg-accent hover:text-primary',
+        // Quiet destructive row action: destructive text, light error tint on hover only.
+        ghostDestructive: 'text-destructive hover:bg-error hover:text-error-foreground',
         link: 'text-primary underline-offset-4 hover:underline',
       },
       size: {

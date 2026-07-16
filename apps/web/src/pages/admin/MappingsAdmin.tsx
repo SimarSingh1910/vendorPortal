@@ -124,7 +124,7 @@ export function MappingsAdmin() {
               {saveMutation.isPending ? 'Saving…' : 'Save mapping'}
             </Button>
             {saveMutation.isSuccess && !dirty && (
-              <span className="text-sm text-emerald-600">Saved.</span>
+              <span className="text-sm text-success-foreground">Saved.</span>
             )}
           </div>
         </div>

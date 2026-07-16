@@ -98,14 +98,14 @@ export function FinanceHome() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant={inReview ? 'default' : 'secondary'}>
+                          <Badge variant={inReview ? 'warning' : 'secondary'}>
                             {inReview ? 'In finance review' : 'Clinic-approved — waiting'}
                           </Badge>
                           {pending && <ActionNeededBadge />}
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button asChild size="sm" variant="outline">
+                        <Button asChild size="sm" variant={inReview ? 'default' : 'outline'}>
                           <Link to={`/finance/submissions/${item.id}`}>
                             {inReview ? 'Continue review' : 'Open'}
                           </Link>

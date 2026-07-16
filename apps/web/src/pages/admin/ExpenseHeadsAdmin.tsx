@@ -154,11 +154,11 @@ export function ExpenseHeadsAdmin() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      <Button variant="outline" size="sm" onClick={() => openEdit(head)}>
+                      <Button variant="ghostPrimary" size="sm" onClick={() => openEdit(head)}>
                         Edit
                       </Button>
                       <Button
-                        variant={head.isActive ? 'destructive' : 'secondary'}
+                        variant={head.isActive ? 'ghostDestructive' : 'ghostPrimary'}
                         size="sm"
                         disabled={activeMutation.isPending}
                         onClick={() =>

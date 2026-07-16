@@ -188,7 +188,7 @@ function ExpenseHeadsSection({ departmentId }: { departmentId: string }) {
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
                       <Button
-                        variant="outline"
+                        variant="ghostPrimary"
                         size="sm"
                         onClick={() => {
                           setEditing(head);
@@ -198,7 +198,7 @@ function ExpenseHeadsSection({ departmentId }: { departmentId: string }) {
                         Edit
                       </Button>
                       <Button
-                        variant={head.isActive ? 'destructive' : 'secondary'}
+                        variant={head.isActive ? 'ghostDestructive' : 'ghostPrimary'}
                         size="sm"
                         disabled={activeMutation.isPending}
                         onClick={() =>
@@ -375,7 +375,7 @@ function BudgetCodesSection({ departmentId }: { departmentId: string }) {
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
                       <Button
-                        variant="outline"
+                        variant="ghostPrimary"
                         size="sm"
                         onClick={() => {
                           setEditing(code);
@@ -385,7 +385,7 @@ function BudgetCodesSection({ departmentId }: { departmentId: string }) {
                         Edit
                       </Button>
                       <Button
-                        variant={code.isActive ? 'destructive' : 'secondary'}
+                        variant={code.isActive ? 'ghostDestructive' : 'ghostPrimary'}
                         size="sm"
                         disabled={activeMutation.isPending}
                         onClick={() =>

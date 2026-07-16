@@ -18,7 +18,31 @@ import type {
   MonthwiseReport,
 } from '@portal/shared';
 import { formatINR } from '@/lib/format';
-import { buildHeadColorMap, colorByIndex, headColor } from '@/lib/chartColors';
+import {
+  buildHeadColorMap,
+  headColor,
+  CHART_ANCHOR,
+  CHART_ANCHOR_HOVER,
+  CHART_AXIS_LABEL,
+  CHART_GRID,
+  CHART_LEGEND_TEXT,
+  CHART_TOOLTIP_STYLE,
+  CHART_TOOLTIP_TEXT,
+} from '@/lib/chartColors';
+
+/** Token-aligned chart chrome: hairline grid + axis lines, muted tick labels. */
+const gridStroke = CHART_GRID;
+const axisTick = { fill: CHART_AXIS_LABEL } as const;
+/** Tooltip surface + dark, neutral text (swatch/bullet keeps the series colour). */
+const tooltipProps = {
+  contentStyle: CHART_TOOLTIP_STYLE,
+  labelStyle: { color: CHART_TOOLTIP_TEXT },
+  itemStyle: { color: CHART_TOOLTIP_TEXT },
+} as const;
+/** Legend: neutral label text; the coloured swatch carries the series colour. */
+const legendTextFormatter = (value: string) => (
+  <span style={{ color: CHART_LEGEND_TEXT }}>{value}</span>
+);
 
 /** 'YYYY-MM' → 'Jun 26' for compact axis labels. */
 function shortMonth(month: string): string {
@@ -91,11 +115,23 @@ export function MonthlyTotalsChart({ data }: { data: MonthlyTotalPoint[] }) {
     <div className="h-72 w-full">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={rows} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridStroke} />
           <XAxis dataKey="month" tickFormatter={shortMonth} fontSize={12} />
           <YAxis tickFormatter={compactINR} fontSize={12} width={70} />
-          <Tooltip formatter={moneyTooltip} labelFormatter={(l) => shortMonth(String(l))} />
-          <Bar dataKey="total" name="Total" fill={colorByIndex(0)} radius={[4, 4, 0, 0]} />
+          <Tooltip
+            {...tooltipProps}
+            formatter={moneyTooltip}
+            labelFormatter={(l) => shortMonth(String(l))}
+          />
+          <Bar
+            dataKey="total"
+            name="Total"
+            fill={CHART_ANCHOR}
+            stroke={CHART_ANCHOR}
+            strokeWidth={1}
+            activeBar={{ fill: CHART_ANCHOR_HOVER, stroke: CHART_ANCHOR_HOVER }}
+            radius={[4, 4, 0, 0]}
+          />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -150,14 +186,37 @@ export function HeadTrendCharts({
       <div className="h-72 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={rows} margin={{ top: 20, right: 16, bottom: 0, left: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="month" tickFormatter={shortMonth} fontSize={12} />
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridStroke} />
+            <XAxis
+              dataKey="month"
+              tickFormatter={shortMonth}
+              fontSize={12}
+              stroke={gridStroke}
+              tick={axisTick}
+            />
             {/* Bars stay zero-based: bar length encodes magnitude. */}
-            <YAxis tickFormatter={compactINR} fontSize={12} width={70} />
-            <Tooltip formatter={moneyTooltip} labelFormatter={(l) => shortMonth(String(l))} />
-            <Legend />
+            <YAxis
+              tickFormatter={compactINR}
+              fontSize={12}
+              width={70}
+              stroke={gridStroke}
+              tick={axisTick}
+            />
+            <Tooltip
+            {...tooltipProps}
+            formatter={moneyTooltip}
+            labelFormatter={(l) => shortMonth(String(l))}
+          />
+            <Legend formatter={legendTextFormatter} />
             {heads.map((head) => (
-              <Bar key={head.id} dataKey={head.name} fill={resolve(head.id)} radius={[3, 3, 0, 0]}>
+              <Bar
+                key={head.id}
+                dataKey={head.name}
+                fill={resolve(head.id)}
+                stroke={resolve(head.id)}
+                strokeWidth={1}
+                radius={[3, 3, 0, 0]}
+              >
                 {single && (
                   <LabelList
                     dataKey={head.name}
@@ -174,20 +233,37 @@ export function HeadTrendCharts({
       <div className="h-72 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="month" tickFormatter={shortMonth} fontSize={12} />
+            <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+            <XAxis
+              dataKey="month"
+              tickFormatter={shortMonth}
+              fontSize={12}
+              stroke={gridStroke}
+              tick={axisTick}
+            />
             {/* Single head: fit the axis to the data so month-on-month movement
                 is visible. All heads: defer to the default zero-based domain. */}
-            <YAxis tickFormatter={compactINR} fontSize={12} width={70} domain={lineDomain} />
-            <Tooltip formatter={moneyTooltip} labelFormatter={(l) => shortMonth(String(l))} />
-            <Legend />
+            <YAxis
+              tickFormatter={compactINR}
+              fontSize={12}
+              width={70}
+              domain={lineDomain}
+              stroke={gridStroke}
+              tick={axisTick}
+            />
+            <Tooltip
+            {...tooltipProps}
+            formatter={moneyTooltip}
+            labelFormatter={(l) => shortMonth(String(l))}
+          />
+            <Legend formatter={legendTextFormatter} />
             {heads.map((head) => (
               <Line
                 key={head.id}
                 type="monotone"
                 dataKey={head.name}
                 stroke={resolve(head.id)}
-                strokeWidth={2}
+                strokeWidth={2.5}
                 dot={false}
               />
             ))}
@@ -214,18 +290,22 @@ export function MonthwiseChart({ report }: { report: MonthwiseReport }) {
     <div className="h-72 w-full">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" />
+          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
           <XAxis dataKey="month" tickFormatter={shortMonth} fontSize={12} />
           <YAxis tickFormatter={compactINR} fontSize={12} width={70} />
-          <Tooltip formatter={moneyTooltip} labelFormatter={(l) => shortMonth(String(l))} />
-          <Legend />
+          <Tooltip
+            {...tooltipProps}
+            formatter={moneyTooltip}
+            labelFormatter={(l) => shortMonth(String(l))}
+          />
+          <Legend formatter={legendTextFormatter} />
           {report.rows.map((head) => (
             <Line
               key={head.expenseHeadId}
               type="monotone"
               dataKey={head.expenseHeadName}
               stroke={headColor(colorMap, head.expenseHeadId)}
-              strokeWidth={2}
+              strokeWidth={2.5}
               dot={false}
             />
           ))}
@@ -243,11 +323,32 @@ export function ClinicTotalsChart({ data }: { data: ClinicTotalPoint[] }) {
     <div className="w-full" style={{ height: Math.max(180, rows.length * 40 + 40) }}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={rows} layout="vertical" margin={{ top: 8, right: 24, bottom: 0, left: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-          <XAxis type="number" tickFormatter={compactINR} fontSize={12} />
-          <YAxis type="category" dataKey="clinic" width={140} fontSize={12} />
-          <Tooltip formatter={moneyTooltip} />
-          <Bar dataKey="total" name="Total" fill={colorByIndex(1)} radius={[0, 4, 4, 0]} />
+          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={gridStroke} />
+          <XAxis
+            type="number"
+            tickFormatter={compactINR}
+            fontSize={12}
+            stroke={gridStroke}
+            tick={axisTick}
+          />
+          <YAxis
+            type="category"
+            dataKey="clinic"
+            width={140}
+            fontSize={12}
+            stroke={gridStroke}
+            tick={axisTick}
+          />
+          <Tooltip {...tooltipProps} formatter={moneyTooltip} />
+          <Bar
+            dataKey="total"
+            name="Total"
+            fill={CHART_ANCHOR}
+            stroke={CHART_ANCHOR}
+            strokeWidth={1}
+            activeBar={{ fill: CHART_ANCHOR_HOVER, stroke: CHART_ANCHOR_HOVER }}
+            radius={[0, 4, 4, 0]}
+          />
         </BarChart>
       </ResponsiveContainer>
     </div>

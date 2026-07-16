@@ -175,6 +175,7 @@ export function FinanceDashboard() {
             {exporting === 'month-end' ? 'Exporting…' : 'Month-end report'}
           </Button>
           <Button
+            variant="outline"
             size="sm"
             disabled={!!exporting}
             onClick={() => runExport('pdf', () => exportDashboardPdf(rangeFilter))}

@@ -3,26 +3,46 @@
 @tailwind utilities;
 
 @layer base {
+  /*
+   * "Precision Ops" palette. Values are HSL triplets (shadcn convention) derived
+   * from the brand hexes:
+   *   canvas #F8FAFC · surface #FFFFFF · surface-container #EEEDF7 · border #E2E8F0
+   *   on-surface #1A1B22 · muted-fg #444652 · cta #1E40AF · secondary-container
+   *   #D7DFF9 (on #213DA0) · destructive #BA1A1A. The status-chip containers
+   *   (success/warning/error) are added below — the base palette lacks them.
+   */
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --background: 210 40% 98%; /* #F8FAFC canvas */
+    --foreground: 232.5 13.3% 11.8%; /* #1A1B22 on-surface */
+    --card: 0 0% 100%; /* #FFFFFF surface */
+    --card-foreground: 232.5 13.3% 11.8%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
+    --popover-foreground: 232.5 13.3% 11.8%;
+    --primary: 225.9 70.7% 40.2%; /* #1E40AF cta — buttons, links, active */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 225.9 73.9% 91%; /* #D7DFF9 secondary-container */
+    --secondary-foreground: 226.8 65.8% 37.8%; /* #213DA0 on-secondary-container */
+    --muted: 246 38.5% 94.9%; /* #EEEDF7 surface-container */
+    --muted-foreground: 231.4 9.3% 29.4%; /* #444652 */
+    --accent: 246 38.5% 94.9%; /* #EEEDF7 — hover rows, active nav */
+    --accent-foreground: 232.5 13.3% 11.8%;
+    --destructive: 0 75.5% 41.6%; /* #BA1A1A */
+    --destructive-foreground: 0 0% 100%;
+    --border: 214.3 31.8% 91.4%; /* #E2E8F0 hairline */
     --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --ring: 225.9 70.7% 40.2%; /* #1E40AF cta / focus ring */
+    /* Status-chip containers (added — not in the base shadcn set). */
+    --success: 140.6 84.2% 92.5%; /* #DCFCE7 */
+    --success-foreground: 142.8 64.2% 24.1%; /* #166534 */
+    --warning: 48 96.5% 88.8%; /* #FEF3C7 */
+    --warning-foreground: 22.7 82.5% 31.4%; /* #92400E */
+    --error: 5.9 100% 92%; /* #FFDAD6 error-container */
+    --error-foreground: 355.9 100% 28.8%; /* #93000A on-error-container */
+    /* Dark-navy sidebar shell (brand deep-blue, not the CTA primary). */
+    --sidebar: 225 100% 12.5%; /* #001040 — deeper navy sidebar surface */
+    --sidebar-active: 223.1 100% 27.8%; /* #00288E primary-container — active item */
+    --sidebar-foreground: 228.3 98.5% 74.5%; /* #7E97FE on-primary-container — inactive */
+    --sidebar-active-foreground: 0 0% 100%; /* white — active item text/icon */
     --radius: 0.5rem;
   }
 
