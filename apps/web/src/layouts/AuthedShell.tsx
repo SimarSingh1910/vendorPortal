@@ -130,10 +130,10 @@ export function AuthedShell() {
                   // Focus ring is white so it stays visible on the navy surface
                   // (the #1E40AF ring would disappear against it).
                   'flex items-center justify-between gap-2 rounded-md px-3 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70',
-                  // Idle and active are mutually exclusive so exactly one text
-                  // colour ever applies — no ambiguous same-property overrides.
+                  // Active renders identical to the hover state (white/8% fill +
+                  // white text); idle is the muted foreground with that same hover.
                   isNavActive(item.path)
-                    ? 'bg-sidebar-active font-medium text-sidebar-active-foreground'
+                    ? 'bg-white/[0.08] text-white'
                     : 'text-sidebar-foreground hover:bg-white/[0.08] hover:text-white',
                 )}
               >
