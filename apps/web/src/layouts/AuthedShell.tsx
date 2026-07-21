@@ -1,7 +1,10 @@
 import { useCallback } from 'react';
 import { NavLink, Navigate, Outlet, useLocation } from 'react-router-dom';
-import { Building2, LogOut, PanelLeft } from 'lucide-react';
+import { LogOut, PanelLeft } from 'lucide-react';
 import { ROLE_LABELS, UserRole } from '@portal/shared';
+// Coloured HCL lockup on the light header (mirrors hclhealthcare.in, where the
+// coloured logo sits on light headers).
+import hclLogo from '@/assets/hcl-healthcare-logo.png';
 import { Button } from '@/components/ui/button';
 import { useUiStore } from '@/store/ui.store';
 import { useAuthStore } from '@/store/auth.store';
@@ -95,7 +98,7 @@ export function AuthedShell() {
           <PanelLeft />
         </Button>
         <div className="flex items-center gap-2 font-semibold">
-          <Building2 className="text-primary" />
+          <img src={hclLogo} alt="HCL Healthcare" className="h-7 w-auto" />
           <span>Cost Provision Portal</span>
         </div>
         <div className="ml-6">
@@ -117,7 +120,7 @@ export function AuthedShell() {
       <div className="flex flex-1 overflow-hidden">
         <aside
           className={cn(
-            'shrink-0 border-r border-white/[0.12] bg-sidebar text-sidebar-foreground transition-all duration-200',
+            'shrink-0 border-r border-white/[0.16] bg-sidebar text-sidebar-foreground transition-all duration-200',
             sidebarOpen ? 'w-60 overflow-y-auto' : 'w-0 overflow-hidden',
           )}
         >
@@ -127,14 +130,16 @@ export function AuthedShell() {
                 key={item.path}
                 to={item.path}
                 className={cn(
-                  // Focus ring is white so it stays visible on the navy surface
-                  // (the #1E40AF ring would disappear against it).
-                  'flex items-center justify-between gap-2 rounded-md px-3 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70',
-                  // Active renders identical to the hover state (white/8% fill +
-                  // white text); idle is the muted foreground with that same hover.
+                  // A 3px left bar marks the active item; idle keeps a transparent
+                  // bar of the same width so nothing shifts. Focus ring is white
+                  // (the brand-accent ring would disappear against the blue).
+                  'flex items-center justify-between gap-2 rounded-md border-l-[3px] px-3 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white',
+                  // Active = white text on the #004F8C pill with the white bar;
+                  // idle is the soft light-blue text, brightening to white on a
+                  // white/12% hover.
                   isNavActive(item.path)
-                    ? 'bg-white/[0.08] text-white'
-                    : 'text-sidebar-foreground hover:bg-white/[0.08] hover:text-white',
+                    ? 'border-white bg-sidebar-active text-sidebar-active-foreground'
+                    : 'border-transparent text-sidebar-foreground hover:bg-white/[0.10] hover:text-white',
                 )}
               >
                 <span>{item.label}</span>

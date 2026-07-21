@@ -1,4 +1,5 @@
 import type { Config } from 'tailwindcss';
+import defaultTheme from 'tailwindcss/defaultTheme';
 import animate from 'tailwindcss-animate';
 
 const config: Config = {
@@ -64,10 +65,21 @@ const config: Config = {
           'active-foreground': 'hsl(var(--sidebar-active-foreground))',
         },
       },
+      fontFamily: {
+        // Inter = HCL Healthcare brand UI face (measured from hclhealthcare.in,
+        // "Inter, sans-serif"). One family for display + body. JetBrains Mono
+        // stays the figures/codes/IDs face for a data portal.
+        sans: ['Inter Variable', 'Inter', ...defaultTheme.fontFamily.sans],
+        mono: ['JetBrains Mono Variable', 'JetBrains Mono', ...defaultTheme.fontFamily.mono],
+      },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
+      },
+      boxShadow: {
+        // Soft, low-emphasis card shadow to match the site's rounded cards.
+        card: '0 1px 2px rgba(0, 0, 0, 0.05)',
       },
     },
   },

@@ -1,15 +1,17 @@
 import { useMemo, useState } from 'react';
 import type { HeadTrendPoint } from '@portal/shared';
 import { ChartTableView } from './ChartTableView';
+import { HeadMultiSelect } from './HeadMultiSelect';
 import { HeadTrendCharts } from './charts';
 import { HeadTrendTable } from './dataTables';
 
 /**
- * Expense-head-wise trend block: a single-head dropdown next to the chart/table
- * toggle. "All heads" (default) keeps the full view; selecting a head filters
- * BOTH the chart and the table to just that head's monthly trend — client-side,
- * no refetch. `colorOf` comes from the dashboard's master head→colour map, so a
- * filtered head keeps its app-wide colour.
+ * Expense-head-wise trend block: a multi-select head filter next to the
+ * chart/table toggle. "All heads" (default, the empty set) keeps the full view;
+ * picking any subset filters BOTH the chart and the table to just those heads —
+ * client-side, no refetch. `colorOf` comes from the dashboard's master head→
+ * colour map (built over ALL heads), so a head keeps its app-wide colour whether
+ * 8 or 2 are shown — subsetting never reshuffles colours.
  */
 export function HeadTrendBlock({
   data,
@@ -18,9 +20,10 @@ export function HeadTrendBlock({
   data: HeadTrendPoint[];
   colorOf: (id: string) => string;
 }) {
-  const [headId, setHeadId] = useState('');
+  // Selected head ids; an EMPTY set means "All heads".
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  // In-scope heads present in the data, name-sorted, for the dropdown.
+  // In-scope heads present in the data, name-sorted, for the checkbox list.
   const heads = useMemo(() => {
     const byId = new Map<string, string>();
     for (const d of data) byId.set(d.expenseHeadId, d.expenseHeadName);
@@ -29,29 +32,22 @@ export function HeadTrendBlock({
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [data]);
 
-  // If the selected head leaves the dataset (e.g. range change), fall back to All.
-  const activeId = headId && heads.some((h) => h.id === headId) ? headId : '';
-  const filtered = activeId ? data.filter((d) => d.expenseHeadId === activeId) : data;
-
-  const dropdown = (
-    <select
-      aria-label="Filter by expense head"
-      value={activeId}
-      onChange={(e) => setHeadId(e.target.value)}
-      className="flex h-8 rounded-md border border-input bg-transparent px-2 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-    >
-      <option value="">All heads</option>
-      {heads.map((h) => (
-        <option key={h.id} value={h.id}>
-          {h.name}
-        </option>
-      ))}
-    </select>
+  // Drop any selected id that has left the dataset (e.g. a range change) so the
+  // selection can't get stuck on a head that's no longer present.
+  const valid = useMemo(
+    () => new Set([...selected].filter((id) => heads.some((h) => h.id === id))),
+    [selected, heads],
   );
+
+  // Empty selection = all heads; otherwise render only the chosen subset. A head
+  // with no value in a month is still a gap in the charts — never coerced to 0.
+  const filtered = valid.size === 0 ? data : data.filter((d) => valid.has(d.expenseHeadId));
+
+  const control = <HeadMultiSelect heads={heads} selected={valid} onChange={setSelected} />;
 
   return (
     <ChartTableView
-      controls={dropdown}
+      controls={control}
       chart={<HeadTrendCharts data={filtered} colorOf={colorOf} />}
       table={<HeadTrendTable data={filtered} />}
     />

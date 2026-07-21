@@ -365,7 +365,9 @@ export function CorporateDashboard() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Expense-head-wise trend</CardTitle>
-          <CardDescription>Per-head totals across the selected months (bar &amp; line).</CardDescription>
+          <CardDescription>
+            Per-head totals (bars) and momentum indexed to each head&apos;s first month (line).
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <HeadTrendBlock data={headTrends} colorOf={colorOf} />

@@ -10,16 +10,17 @@
  */
 
 /**
- * Chart chrome colours, aligned to the "Precision Ops" tokens: hairline grid
- * (#E2E8F0), axis lines / ticks / labels in muted-foreground (#444652), axis
- * captions in the lighter #757684. Legend text stays neutral (#444652) — the
- * swatch carries the series colour. Tooltip is a white hairline-bordered card.
+ * Chart chrome colours, aligned to the HCL brand tokens: hairline grid
+ * (#E3E8F0 border), axis lines / ticks / labels in muted-foreground (#47505C),
+ * axis captions in the lighter placeholder grey (#7A8595). Legend text stays
+ * neutral (#47505C) — the swatch carries the series colour. Tooltip is a white
+ * hairline-bordered card with near-black (#212529) text.
  */
-export const CHART_GRID = '#E2E8F0';
-export const CHART_AXIS_LABEL = '#444652';
-export const CHART_CAPTION = '#757684';
-export const CHART_LEGEND_TEXT = '#444652';
-export const CHART_TOOLTIP_TEXT = '#1A1B22';
+export const CHART_GRID = '#E3E8F0';
+export const CHART_AXIS_LABEL = '#47505C';
+export const CHART_CAPTION = '#7A8595';
+export const CHART_LEGEND_TEXT = '#47505C';
+export const CHART_TOOLTIP_TEXT = '#212529';
 
 /** Recharts Tooltip `contentStyle`: white surface, hairline border, soft shadow. */
 export const CHART_TOOLTIP_STYLE = {

@@ -4,33 +4,36 @@
 
 @layer base {
   /*
-   * "Precision Ops" palette. Values are HSL triplets (shadcn convention) derived
-   * from the brand hexes:
-   *   canvas #F8FAFC · surface #FFFFFF · surface-container #EEEDF7 · border #E2E8F0
-   *   on-surface #1A1B22 · muted-fg #444652 · cta #1E40AF · secondary-container
-   *   #D7DFF9 (on #213DA0) · destructive #BA1A1A. The status-chip containers
-   *   (success/warning/error) are added below — the base palette lacks them.
+   * HCL Healthcare brand palette. Values are HSL triplets (shadcn convention)
+   * tuned to values measured live from hclhealthcare.in (DevTools, 2026-07-20):
+   *   brand accent (CTA/link blue) #0F6CB6 · heading/body text #212529 ·
+   *   canvas #F8F9FA→#F7F9FC · surface #FFFFFF · dark footer #000000 (navy
+   *   analogue in-app). Single blue accent + neutrals; green/amber/red are
+   *   reserved for status meaning only. Font = Inter (see tailwind fontFamily).
+   *   Layout hexes below:
+   *   canvas #F7F9FC · surface-container #EEF2F8 · border #E3E8F0 ·
+   *   muted-fg #47505C · navy sidebar #00175C (active #00288E, idle #7E97FE).
    */
   :root {
-    --background: 210 40% 98%; /* #F8FAFC canvas */
-    --foreground: 232.5 13.3% 11.8%; /* #1A1B22 on-surface */
+    --background: 216 45.5% 97.8%; /* #F7F9FC canvas (near-white, faint cool) */
+    --foreground: 210 10.8% 14.5%; /* #212529 heading/body (measured) */
     --card: 0 0% 100%; /* #FFFFFF surface */
-    --card-foreground: 232.5 13.3% 11.8%;
+    --card-foreground: 210 10.8% 14.5%;
     --popover: 0 0% 100%;
-    --popover-foreground: 232.5 13.3% 11.8%;
-    --primary: 225.9 70.7% 40.2%; /* #1E40AF cta — buttons, links, active */
+    --popover-foreground: 210 10.8% 14.5%;
+    --primary: 206.6 84.8% 38.6%; /* #0F6CB6 BRAND ACCENT — buttons, links, active, focus */
     --primary-foreground: 0 0% 100%;
-    --secondary: 225.9 73.9% 91%; /* #D7DFF9 secondary-container */
-    --secondary-foreground: 226.8 65.8% 37.8%; /* #213DA0 on-secondary-container */
-    --muted: 246 38.5% 94.9%; /* #EEEDF7 surface-container */
-    --muted-foreground: 231.4 9.3% 29.4%; /* #444652 */
-    --accent: 246 38.5% 94.9%; /* #EEEDF7 — hover rows, active nav */
-    --accent-foreground: 232.5 13.3% 11.8%;
+    --secondary: 216 41.7% 95.3%; /* #EEF2F8 surface-container (subtle neutral fill) */
+    --secondary-foreground: 206.6 84.8% 38.6%; /* #0F6CB6 accent text on secondary */
+    --muted: 216 41.7% 95.3%; /* #EEF2F8 surface-container */
+    --muted-foreground: 214.3 12.9% 32%; /* #47505C secondary text */
+    --accent: 216 41.7% 95.3%; /* #EEF2F8 — hover rows, active nav fills */
+    --accent-foreground: 210 10.8% 14.5%;
     --destructive: 0 75.5% 41.6%; /* #BA1A1A */
     --destructive-foreground: 0 0% 100%;
-    --border: 214.3 31.8% 91.4%; /* #E2E8F0 hairline */
-    --input: 214.3 31.8% 91.4%;
-    --ring: 225.9 70.7% 40.2%; /* #1E40AF cta / focus ring */
+    --border: 216.9 30.2% 91.6%; /* #E3E8F0 hairline borders + dividers */
+    --input: 216.9 30.2% 91.6%;
+    --ring: 206.6 84.8% 38.6%; /* #0F6CB6 BRAND ACCENT / focus ring */
     /* Status-chip containers (added — not in the base shadcn set). */
     --success: 140.6 84.2% 92.5%; /* #DCFCE7 */
     --success-foreground: 142.8 64.2% 24.1%; /* #166534 */
@@ -38,12 +41,16 @@
     --warning-foreground: 22.7 82.5% 31.4%; /* #92400E */
     --error: 5.9 100% 92%; /* #FFDAD6 error-container */
     --error-foreground: 355.9 100% 28.8%; /* #93000A on-error-container */
-    /* Dark-navy sidebar shell (brand deep-blue, not the CTA primary). */
-    --sidebar: 225 100% 5%; /* #00061A — near-black navy (between deep navy & black) */
-    --sidebar-active: 223.1 100% 27.8%; /* #00288E primary-container — active item */
-    --sidebar-foreground: 215 16% 70%; /* #A6B0BF — light grey, inactive nav text */
-    --sidebar-active-foreground: 0 0% 100%; /* white — active item text/icon */
-    --radius: 0.5rem;
+    /* Sidebar shell on a deep corporate blue that frames (not competes with)
+     * the white content. Text is tuned for this darker surface: idle is a soft
+     * light blue that brightens to full white on hover/active. Active goes
+     * LIGHTER than the surface (same hue) so the current page "lifts" — a darker
+     * active would look muddy against an already-deep base. */
+    --sidebar: 205.1 100% 26.3%; /* #004E86 — sidebar surface */
+    --sidebar-active: 205.7 100% 35.3%; /* #0067B4 — active item (lighter, lifts) */
+    --sidebar-foreground: 206.4 54.3% 82%; /* #B8D4EA — idle nav text (legible on #004E86) */
+    --sidebar-active-foreground: 0 0% 100%; /* white — hover/active item text/icon */
+    --radius: 0.75rem;
   }
 
   .dark {

@@ -6,6 +6,7 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -103,6 +104,70 @@ function fitLineDomain(values: number[]): [number, number] | undefined {
   return [Math.max(0, Math.floor((min - pad) / step) * step), Math.ceil((max + pad) / step) * step];
 }
 
+/**
+ * Rebase each head to 100 at its first month with a positive value, so heads of
+ * very different sizes are comparable by momentum (an ₹8L head and an ₹80k head
+ * share one scale). Months before a head's first positive value stay `null`
+ * (blank — never a fabricated 100), honouring NULL ≠ 0; a later 0/gap month is
+ * likewise `null` so the line breaks rather than dropping to a fake baseline.
+ */
+function buildIndexedRows(
+  rows: Array<Record<string, number | string>>,
+  heads: Array<{ id: string; name: string }>,
+): Array<Record<string, number | string | null>> {
+  const baseline = new Map<string, number>();
+  for (const head of heads) {
+    for (const row of rows) {
+      const v = Number(row[head.name]);
+      if (Number.isFinite(v) && v > 0) {
+        baseline.set(head.name, v);
+        break;
+      }
+    }
+  }
+  return rows.map((row) => {
+    const out: Record<string, number | string | null> = { month: row.month as string };
+    for (const head of heads) {
+      const base = baseline.get(head.name);
+      const v = Number(row[head.name]);
+      out[head.name] =
+        base && Number.isFinite(v) && v > 0 ? Math.round((v / base) * 1000) / 10 : null;
+    }
+    return out;
+  });
+}
+
+/**
+ * Fit the indexed y-axis around the data while always keeping the 100 baseline
+ * in view, padded out to tidy tick bounds. Falls back to [80, 120] when empty.
+ */
+function fitIndexDomain(
+  rows: Array<Record<string, number | string | null>>,
+  heads: Array<{ name: string }>,
+): [number, number] {
+  const vals: number[] = [];
+  for (const row of rows) {
+    for (const head of heads) {
+      const v = row[head.name];
+      if (typeof v === 'number' && Number.isFinite(v)) vals.push(v);
+    }
+  }
+  if (vals.length === 0) return [80, 120];
+  const min = Math.min(100, ...vals);
+  const max = Math.max(100, ...vals);
+  const pad = Math.max((max - min) * 0.1, 5);
+  const step = niceStep(max - min || 20);
+  return [Math.max(0, Math.floor((min - pad) / step) * step), Math.ceil((max + pad) / step) * step];
+}
+
+/** Indexed-line tooltip: the index value plus its signed % change vs the base. */
+const indexTooltip = (value: number | string) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '—';
+  const pct = n - 100;
+  return `${n.toFixed(1)}  ·  ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% vs first month`;
+};
+
 function Empty({ label }: { label: string }) {
   return <p className="py-12 text-center text-sm text-muted-foreground">{label}</p>;
 }
@@ -181,6 +246,11 @@ export function HeadTrendCharts({
     ? fitLineDomain(rows.map((r) => Number(r[single.name])))
     : undefined;
 
+  // All-heads line becomes a momentum view: rebase each head to 100 at its
+  // first month so growth rates are comparable across very different sizes.
+  const indexedRows = single ? [] : buildIndexedRows(rows, heads);
+  const indexDomain = single ? undefined : fitIndexDomain(indexedRows, heads);
+
   return (
     <div className="space-y-6">
       <div className="h-72 w-full">
@@ -230,46 +300,101 @@ export function HeadTrendCharts({
           </BarChart>
         </ResponsiveContainer>
       </div>
-      <div className="h-72 w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
-            <XAxis
-              dataKey="month"
-              tickFormatter={shortMonth}
-              fontSize={12}
-              stroke={gridStroke}
-              tick={axisTick}
-            />
-            {/* Single head: fit the axis to the data so month-on-month movement
-                is visible. All heads: defer to the default zero-based domain. */}
-            <YAxis
-              tickFormatter={compactINR}
-              fontSize={12}
-              width={70}
-              domain={lineDomain}
-              stroke={gridStroke}
-              tick={axisTick}
-            />
-            <Tooltip
-            {...tooltipProps}
-            formatter={moneyTooltip}
-            labelFormatter={(l) => shortMonth(String(l))}
-          />
-            <Legend formatter={legendTextFormatter} />
-            {heads.map((head) => (
+      {single ? (
+        // Single head: actual-rupee line with the axis fitted to the data, so
+        // one head's month-on-month movement is legible in real figures.
+        <div className="h-72 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+              <XAxis
+                dataKey="month"
+                tickFormatter={shortMonth}
+                fontSize={12}
+                stroke={gridStroke}
+                tick={axisTick}
+              />
+              <YAxis
+                tickFormatter={compactINR}
+                fontSize={12}
+                width={70}
+                domain={lineDomain}
+                stroke={gridStroke}
+                tick={axisTick}
+              />
+              <Tooltip
+                {...tooltipProps}
+                formatter={moneyTooltip}
+                labelFormatter={(l) => shortMonth(String(l))}
+              />
+              <Legend formatter={legendTextFormatter} />
               <Line
-                key={head.id}
                 type="monotone"
-                dataKey={head.name}
-                stroke={resolve(head.id)}
+                dataKey={single.name}
+                stroke={resolve(single.id)}
                 strokeWidth={2.5}
                 dot={false}
               />
-            ))}
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      ) : (
+        // All heads: momentum view. Each head is rebased to 100 at its first
+        // month, so heads of wildly different sizes are comparable by growth
+        // rate instead of collapsing into a magnitude-dominated spaghetti.
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">
+            Momentum — each head indexed to 100 at its first month (a value of 120 = up 20% since
+            then). Compares growth, not size.
+          </p>
+          <div className="h-72 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={indexedRows} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+                <XAxis
+                  dataKey="month"
+                  tickFormatter={shortMonth}
+                  fontSize={12}
+                  stroke={gridStroke}
+                  tick={axisTick}
+                />
+                <YAxis
+                  fontSize={12}
+                  width={70}
+                  domain={indexDomain}
+                  stroke={gridStroke}
+                  tick={axisTick}
+                />
+                {/* The 100 baseline every head starts from (the axis tick at
+                    100 and the caption name it — no overflowing text label). */}
+                <ReferenceLine
+                  y={100}
+                  stroke={CHART_AXIS_LABEL}
+                  strokeDasharray="4 4"
+                  strokeOpacity={0.5}
+                />
+                <Tooltip
+                  {...tooltipProps}
+                  formatter={indexTooltip}
+                  labelFormatter={(l) => shortMonth(String(l))}
+                />
+                <Legend formatter={legendTextFormatter} />
+                {heads.map((head) => (
+                  <Line
+                    key={head.id}
+                    type="monotone"
+                    dataKey={head.name}
+                    stroke={resolve(head.id)}
+                    strokeWidth={2.5}
+                    dot={false}
+                    connectNulls={false}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
