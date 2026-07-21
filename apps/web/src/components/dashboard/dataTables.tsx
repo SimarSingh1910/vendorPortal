@@ -15,6 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { formatINR, statusBadgeVariant, statusLabel } from '@/lib/format';
+import { deriveHeadChanges, formatSignedINR, formatSignedPct } from '@/lib/headChange';
 
 /** 'YYYY-MM' → 'Jun 26' for compact column headers (matches the chart axis). */
 function shortMonth(month: string): string {
@@ -83,54 +84,60 @@ export function MonthlyTotalsTable({ data }: { data: MonthlyTotalPoint[] }) {
   );
 }
 
-/** (c) Expense-head trends as a pivot table: rows = heads, columns = months. */
+/**
+ * (c) Expense-head change over the range: first & last month values, ₹ change,
+ * and % change per head, ranked by ₹ change. The tabular companion to the
+ * diverging change chart. Heads missing a first- or last-month value can't have
+ * a change computed off 0 (NULL ≠ 0), so they're listed separately below.
+ */
 export function HeadTrendTable({ data }: { data: HeadTrendPoint[] }) {
   if (data.length === 0) return <Empty label="No expense-head data for the selected range." />;
-  const months = [...new Set(data.map((d) => d.month))].sort();
-  const heads = [...new Map(data.map((d) => [d.expenseHeadId, d.expenseHeadName])).entries()].sort(
-    (a, b) => a[1].localeCompare(b[1]),
-  );
-  const value = new Map(data.map((d) => [`${d.expenseHeadId}|${d.month}`, d.total]));
-  const colTotal = (month: string) =>
-    data.filter((d) => d.month === month).reduce((s, d) => s + Number(d.total), 0);
+  const { firstMonth, lastMonth, changes, omitted } = deriveHeadChanges(data);
+  const rows = [...changes].sort((a, b) => b.absChange - a.absChange);
+  const tone = (n: number) => (n >= 0 ? 'text-success-foreground' : 'text-destructive');
+
+  if (rows.length === 0) {
+    return <Empty label="No head has a value in both the first and last month of this range." />;
+  }
 
   return (
-    <div className="overflow-x-auto">
+    <div className="space-y-2 overflow-x-auto">
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead className="min-w-40">Expense head</TableHead>
-            {months.map((m) => (
-              <TableHead key={m} className="text-right whitespace-nowrap">
-                {shortMonth(m)}
-              </TableHead>
-            ))}
+            <TableHead className="text-right whitespace-nowrap">First ({shortMonth(firstMonth)})</TableHead>
+            <TableHead className="text-right whitespace-nowrap">Last ({shortMonth(lastMonth)})</TableHead>
+            <TableHead className="text-right whitespace-nowrap">₹ change</TableHead>
+            <TableHead className="text-right whitespace-nowrap">% change</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {heads.map(([id, name]) => (
-            <TableRow key={id}>
-              <TableCell className="font-medium">{name}</TableCell>
-              {months.map((m) => {
-                const v = value.get(`${id}|${m}`);
-                return (
-                  <TableCell key={m} className="text-right tabular-nums">
-                    {v != null ? formatINR(v) : <span className="text-muted-foreground">—</span>}
-                  </TableCell>
-                );
-              })}
+          {rows.map((c) => (
+            <TableRow key={c.id}>
+              <TableCell className="font-medium">{c.name}</TableCell>
+              <TableCell className="text-right tabular-nums">{formatINR(c.firstValue)}</TableCell>
+              <TableCell className="text-right tabular-nums">{formatINR(c.lastValue)}</TableCell>
+              <TableCell className={`text-right tabular-nums ${tone(c.absChange)}`}>
+                {formatSignedINR(c.absChange)}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {c.pctChange == null ? (
+                  <span className="text-muted-foreground">—</span>
+                ) : (
+                  <span className={tone(c.pctChange)}>{formatSignedPct(c.pctChange)}</span>
+                )}
+              </TableCell>
             </TableRow>
           ))}
-          <TableRow className="border-t-2">
-            <TableCell className="font-semibold">Total</TableCell>
-            {months.map((m) => (
-              <TableCell key={m} className="text-right font-semibold tabular-nums">
-                {formatINR(colTotal(m).toFixed(2))}
-              </TableCell>
-            ))}
-          </TableRow>
         </TableBody>
       </Table>
+      {omitted.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Omitted (no value in {shortMonth(firstMonth)} or {shortMonth(lastMonth)}):{' '}
+          {omitted.map((o) => o.name).join(', ')}.
+        </p>
+      )}
     </div>
   );
 }

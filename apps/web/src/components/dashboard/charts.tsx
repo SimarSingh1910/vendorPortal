@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   LabelList,
   Legend,
   Line,
@@ -18,7 +20,9 @@ import type {
   MonthlyTotalPoint,
   MonthwiseReport,
 } from '@portal/shared';
+import { Button } from '@/components/ui/button';
 import { formatINR } from '@/lib/format';
+import { deriveHeadChanges, formatSignedINR, formatSignedPct } from '@/lib/headChange';
 import {
   buildHeadColorMap,
   headColor,
@@ -27,6 +31,8 @@ import {
   CHART_AXIS_LABEL,
   CHART_GRID,
   CHART_LEGEND_TEXT,
+  CHART_NEGATIVE,
+  CHART_POSITIVE,
   CHART_TOOLTIP_STYLE,
   CHART_TOOLTIP_TEXT,
 } from '@/lib/chartColors';
@@ -80,93 +86,6 @@ function niceStep(span: number): number {
   const nice = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
   return nice * mag;
 }
-
-/**
- * Fit a line-chart y-axis to its data so month-on-month movement is readable:
- * domain = [min − pad, max + pad] (pad ≈ 13% of the spread) rounded out to clean
- * tick bounds. Returns `undefined` to defer to recharts' default (zero-based)
- * domain when there's no data. Edge cases — a single point or a flat series
- * (max == min) — fall back to value ± ~10% so the axis can't collapse. The lower
- * bound is clamped at ₹0 (expenses are non-negative).
- */
-function fitLineDomain(values: number[]): [number, number] | undefined {
-  const nums = values.filter((v) => Number.isFinite(v));
-  if (nums.length === 0) return undefined;
-  const min = Math.min(...nums);
-  const max = Math.max(...nums);
-  if (nums.length === 1 || min === max) {
-    const pad = Math.abs(max) * 0.1 || 1;
-    const step = niceStep(pad);
-    return [Math.max(0, Math.floor((max - pad) / step) * step), Math.ceil((max + pad) / step) * step];
-  }
-  const pad = (max - min) * 0.13;
-  const step = niceStep(max - min);
-  return [Math.max(0, Math.floor((min - pad) / step) * step), Math.ceil((max + pad) / step) * step];
-}
-
-/**
- * Rebase each head to 100 at its first month with a positive value, so heads of
- * very different sizes are comparable by momentum (an ₹8L head and an ₹80k head
- * share one scale). Months before a head's first positive value stay `null`
- * (blank — never a fabricated 100), honouring NULL ≠ 0; a later 0/gap month is
- * likewise `null` so the line breaks rather than dropping to a fake baseline.
- */
-function buildIndexedRows(
-  rows: Array<Record<string, number | string>>,
-  heads: Array<{ id: string; name: string }>,
-): Array<Record<string, number | string | null>> {
-  const baseline = new Map<string, number>();
-  for (const head of heads) {
-    for (const row of rows) {
-      const v = Number(row[head.name]);
-      if (Number.isFinite(v) && v > 0) {
-        baseline.set(head.name, v);
-        break;
-      }
-    }
-  }
-  return rows.map((row) => {
-    const out: Record<string, number | string | null> = { month: row.month as string };
-    for (const head of heads) {
-      const base = baseline.get(head.name);
-      const v = Number(row[head.name]);
-      out[head.name] =
-        base && Number.isFinite(v) && v > 0 ? Math.round((v / base) * 1000) / 10 : null;
-    }
-    return out;
-  });
-}
-
-/**
- * Fit the indexed y-axis around the data while always keeping the 100 baseline
- * in view, padded out to tidy tick bounds. Falls back to [80, 120] when empty.
- */
-function fitIndexDomain(
-  rows: Array<Record<string, number | string | null>>,
-  heads: Array<{ name: string }>,
-): [number, number] {
-  const vals: number[] = [];
-  for (const row of rows) {
-    for (const head of heads) {
-      const v = row[head.name];
-      if (typeof v === 'number' && Number.isFinite(v)) vals.push(v);
-    }
-  }
-  if (vals.length === 0) return [80, 120];
-  const min = Math.min(100, ...vals);
-  const max = Math.max(100, ...vals);
-  const pad = Math.max((max - min) * 0.1, 5);
-  const step = niceStep(max - min || 20);
-  return [Math.max(0, Math.floor((min - pad) / step) * step), Math.ceil((max + pad) / step) * step];
-}
-
-/** Indexed-line tooltip: the index value plus its signed % change vs the base. */
-const indexTooltip = (value: number | string) => {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return '—';
-  const pct = n - 100;
-  return `${n.toFixed(1)}  ·  ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% vs first month`;
-};
 
 function Empty({ label }: { label: string }) {
   return <p className="py-12 text-center text-sm text-muted-foreground">{label}</p>;
@@ -238,18 +157,9 @@ export function HeadTrendCharts({
   const localMap = buildHeadColorMap(heads);
   const resolve = colorOf ?? ((id: string) => headColor(localMap, id));
 
-  // Single-head mode: one series, so we can fit the line axis to the data and
-  // label each bar. "All heads" stays multi-series — fitting/labelling a wide
-  // grouped view doesn't help, so it keeps the default zero-based axis.
+  // Single-head mode still labels each grouped bar with its rupee value; a wide
+  // multi-head grouping doesn't benefit from per-bar labels.
   const single = heads.length === 1 ? heads[0] : null;
-  const lineDomain = single
-    ? fitLineDomain(rows.map((r) => Number(r[single.name])))
-    : undefined;
-
-  // All-heads line becomes a momentum view: rebase each head to 100 at its
-  // first month so growth rates are comparable across very different sizes.
-  const indexedRows = single ? [] : buildIndexedRows(rows, heads);
-  const indexDomain = single ? undefined : fitIndexDomain(indexedRows, heads);
 
   return (
     <div className="space-y-6">
@@ -300,100 +210,184 @@ export function HeadTrendCharts({
           </BarChart>
         </ResponsiveContainer>
       </div>
-      {single ? (
-        // Single head: actual-rupee line with the axis fitted to the data, so
-        // one head's month-on-month movement is legible in real figures.
-        <div className="h-72 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
-              <XAxis
-                dataKey="month"
-                tickFormatter={shortMonth}
-                fontSize={12}
-                stroke={gridStroke}
-                tick={axisTick}
-              />
-              <YAxis
-                tickFormatter={compactINR}
-                fontSize={12}
-                width={70}
-                domain={lineDomain}
-                stroke={gridStroke}
-                tick={axisTick}
-              />
-              <Tooltip
-                {...tooltipProps}
-                formatter={moneyTooltip}
-                labelFormatter={(l) => shortMonth(String(l))}
-              />
-              <Legend formatter={legendTextFormatter} />
-              <Line
-                type="monotone"
-                dataKey={single.name}
-                stroke={resolve(single.id)}
-                strokeWidth={2.5}
-                dot={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      ) : (
-        // All heads: momentum view. Each head is rebased to 100 at its first
-        // month, so heads of wildly different sizes are comparable by growth
-        // rate instead of collapsing into a magnitude-dominated spaghetti.
-        <div className="space-y-1">
-          <p className="text-xs text-muted-foreground">
-            Momentum — each head indexed to 100 at its first month (a value of 120 = up 20% since
-            then). Compares growth, not size.
-          </p>
-          <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={indexedRows} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
-                <XAxis
-                  dataKey="month"
-                  tickFormatter={shortMonth}
-                  fontSize={12}
-                  stroke={gridStroke}
-                  tick={axisTick}
+      {/* Change over the range: increases right/green, decreases left/red,
+          ranked by the chosen metric. Replaces the old momentum line. */}
+      <HeadChangeChart data={data} />
+    </div>
+  );
+}
+
+type ChangeMetric = 'pct' | 'inr';
+
+/** Value label at the end of each diverging bar, placed outward of the bar end. */
+function ChangeBarLabel({
+  x,
+  y,
+  width,
+  height,
+  value,
+  metric,
+}: {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  value?: number;
+  metric: ChangeMetric;
+}) {
+  if (x == null || y == null || width == null || height == null || value == null) return null;
+  const positive = value >= 0;
+  // For a diverging bar, `x` is the left edge and `width` the drawn length; the
+  // outward end is x+width for a rightward (positive) bar, x for a leftward one.
+  const tx = positive ? x + width + 6 : x - 6;
+  const text = metric === 'pct' ? formatSignedPct(value) : formatSignedINR(value);
+  return (
+    <text
+      x={tx}
+      y={y + height / 2}
+      dy={4}
+      fontSize={11}
+      fill={CHART_AXIS_LABEL}
+      textAnchor={positive ? 'start' : 'end'}
+    >
+      {text}
+    </text>
+  );
+}
+
+/**
+ * (c) Diverging "change over the range" bar chart — one horizontal bar per head,
+ * extending right (green) for an increase and left (red) for a decrease, ranked
+ * largest-increase-first. A "% | ₹" toggle switches the metric (default %); ₹
+ * restores the rupee magnitude the old momentum view hid. Derived client-side
+ * from the same per-head series; heads missing a first- or last-month value are
+ * omitted (never computed off 0) and reported below the chart.
+ */
+export function HeadChangeChart({ data }: { data: HeadTrendPoint[] }) {
+  const [metric, setMetric] = useState<ChangeMetric>('pct');
+  const { firstMonth, lastMonth, changes, omitted } = deriveHeadChanges(data);
+
+  // % mode can only plot heads with a non-null % (a ₹0 baseline has none); ₹ mode
+  // plots every derived change. Sort largest-increase → largest-decrease.
+  const noPctBaseline = metric === 'pct' ? changes.filter((c) => c.pctChange === null) : [];
+  const usable = changes
+    .filter((c) => (metric === 'pct' ? c.pctChange !== null : true))
+    .map((c) => ({
+      name: c.name,
+      value: metric === 'pct' ? (c.pctChange as number) : c.absChange,
+    }))
+    .sort((a, b) => b.value - a.value);
+
+  const toggle = (
+    <div className="inline-flex" role="group" aria-label="Change metric">
+      <Button
+        type="button"
+        size="sm"
+        variant={metric === 'pct' ? 'default' : 'outline'}
+        className="rounded-r-none"
+        aria-pressed={metric === 'pct'}
+        onClick={() => setMetric('pct')}
+      >
+        %
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant={metric === 'inr' ? 'default' : 'outline'}
+        className="-ml-px rounded-l-none"
+        aria-pressed={metric === 'inr'}
+        onClick={() => setMetric('inr')}
+      >
+        ₹
+      </Button>
+    </div>
+  );
+
+  const header = (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <p className="text-xs text-muted-foreground">
+        Change from {shortMonth(firstMonth)} to {shortMonth(lastMonth)} — increases right, decreases
+        left, ranked by size.
+      </p>
+      {toggle}
+    </div>
+  );
+
+  if (usable.length === 0) {
+    return (
+      <div className="space-y-2">
+        {header}
+        <Empty label="No head has a value in both the first and last month of this range." />
+      </div>
+    );
+  }
+
+  // Symmetric-ish domain that always includes 0 so the zero line sits inside.
+  const values = usable.map((u) => u.value);
+  const rawMin = Math.min(0, ...values);
+  const rawMax = Math.max(0, ...values);
+  const spread = rawMax - rawMin;
+  const step = niceStep(spread || 1);
+  let domain: [number, number] = [
+    Math.floor((rawMin - spread * 0.12) / step) * step,
+    Math.ceil((rawMax + spread * 0.12) / step) * step,
+  ];
+  // All changes exactly 0 (e.g. a one-month range) would collapse to [0, 0].
+  if (domain[0] === domain[1]) domain = [-step, step];
+  const tickFmt = (v: number) => (metric === 'pct' ? `${v}%` : compactINR(v));
+
+  return (
+    <div className="space-y-2">
+      {header}
+      <div className="w-full" style={{ height: Math.max(160, usable.length * 38 + 48) }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={usable} layout="vertical" margin={{ top: 8, right: 64, bottom: 0, left: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={gridStroke} />
+            <XAxis
+              type="number"
+              domain={domain}
+              tickFormatter={tickFmt}
+              fontSize={12}
+              stroke={gridStroke}
+              tick={axisTick}
+            />
+            <YAxis
+              type="category"
+              dataKey="name"
+              width={150}
+              fontSize={12}
+              stroke={gridStroke}
+              tick={axisTick}
+            />
+            <Tooltip
+              {...tooltipProps}
+              formatter={(v: number | string) =>
+                metric === 'pct' ? formatSignedPct(Number(v)) : formatSignedINR(Number(v))
+              }
+            />
+            {/* Zero baseline. */}
+            <ReferenceLine x={0} stroke={CHART_GRID} />
+            <Bar dataKey="value" radius={2} isAnimationActive={false}>
+              {usable.map((u) => (
+                <Cell
+                  key={u.name}
+                  fill={u.value >= 0 ? CHART_POSITIVE : CHART_NEGATIVE}
+                  stroke={u.value >= 0 ? CHART_POSITIVE : CHART_NEGATIVE}
                 />
-                <YAxis
-                  fontSize={12}
-                  width={70}
-                  domain={indexDomain}
-                  stroke={gridStroke}
-                  tick={axisTick}
-                />
-                {/* The 100 baseline every head starts from (the axis tick at
-                    100 and the caption name it — no overflowing text label). */}
-                <ReferenceLine
-                  y={100}
-                  stroke={CHART_AXIS_LABEL}
-                  strokeDasharray="4 4"
-                  strokeOpacity={0.5}
-                />
-                <Tooltip
-                  {...tooltipProps}
-                  formatter={indexTooltip}
-                  labelFormatter={(l) => shortMonth(String(l))}
-                />
-                <Legend formatter={legendTextFormatter} />
-                {heads.map((head) => (
-                  <Line
-                    key={head.id}
-                    type="monotone"
-                    dataKey={head.name}
-                    stroke={resolve(head.id)}
-                    strokeWidth={2.5}
-                    dot={false}
-                    connectNulls={false}
-                  />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+              ))}
+              <LabelList dataKey="value" content={(p) => <ChangeBarLabel {...p} metric={metric} />} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      {(omitted.length > 0 || noPctBaseline.length > 0) && (
+        <p className="text-xs text-muted-foreground">
+          {omitted.length > 0 &&
+            `${omitted.length} head${omitted.length > 1 ? 's' : ''} hidden — no value in the first or last month of the range.`}
+          {omitted.length > 0 && noPctBaseline.length > 0 && ' '}
+          {noPctBaseline.length > 0 &&
+            `${noPctBaseline.length} head${noPctBaseline.length > 1 ? 's' : ''} started at ₹0 — no % baseline; switch to ₹ to see ${noPctBaseline.length > 1 ? 'them' : 'it'}.`}
+        </p>
       )}
     </div>
   );

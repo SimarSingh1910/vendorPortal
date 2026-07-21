@@ -52,6 +52,15 @@ export const CHART_PALETTE = [
   '#D4C5A9', // sand
 ] as const;
 
+/**
+ * Direction colours for the diverging change chart ONLY: increase = the app's
+ * success green, decrease = its destructive red. This chart is intentionally
+ * direction-coded (up/down is real meaning), so it does NOT use the per-head id
+ * palette — a deliberate exception, not an oversight.
+ */
+export const CHART_POSITIVE = '#166534'; // success green — increases
+export const CHART_NEGATIVE = '#BA1A1A'; // destructive red — decreases
+
 /** The anchor steel-blue — used for single-series charts (§3). */
 export const CHART_ANCHOR = CHART_PALETTE[0];
 /** One step deeper than the anchor — optional single-series bar hover (§3). */

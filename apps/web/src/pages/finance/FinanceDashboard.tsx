@@ -325,7 +325,7 @@ export function FinanceDashboard() {
         <CardHeader>
           <CardTitle className="text-base">Expense-head-wise trend</CardTitle>
           <CardDescription>
-            Per-head totals (bars) and momentum indexed to each head&apos;s first month (line).
+            Per-head totals (bars) and each head&apos;s change over the selected range (diverging bars).
           </CardDescription>
         </CardHeader>
         <CardContent>
