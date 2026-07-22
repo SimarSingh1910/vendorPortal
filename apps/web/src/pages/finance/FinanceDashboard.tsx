@@ -3,7 +3,6 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { Download, FileText } from 'lucide-react';
 import { SubmissionStatus, SUBMISSION_STATUS_LABELS } from '@portal/shared';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -23,7 +22,11 @@ import {
   type DashboardFilter,
 } from '@/api/dashboard';
 import { StatusTiles } from '@/components/dashboard/StatusTiles';
-import { ClinicTotalsChart, MonthlyTotalsChart } from '@/components/dashboard/charts';
+import {
+  ClinicTotalsChart,
+  MonthlyTotalsChart,
+  VarianceDivergingChart,
+} from '@/components/dashboard/charts';
 import { ChartTableView } from '@/components/dashboard/ChartTableView';
 import { HeadTrendBlock } from '@/components/dashboard/HeadTrendBlock';
 import { KpiRow, SubmissionPipeline } from '@/components/dashboard/DashboardKpis';
@@ -33,7 +36,7 @@ import {
   StatusTable,
   VarianceTable,
 } from '@/components/dashboard/dataTables';
-import { formatINR, formatMonth } from '@/lib/format';
+import { formatMonth } from '@/lib/format';
 import { buildHeadColorMap, headColor } from '@/lib/chartColors';
 
 /** Current cost-provision month (YYYY-MM) in IST. */
@@ -128,8 +131,6 @@ export function FinanceDashboard() {
     queryFn: () => getClinicTotals(rangeFilter),
     placeholderData: keepPreviousData,
   });
-
-  const alerts = variance?.rows.filter((r) => r.flagged) ?? [];
 
   // Master head→colour map (built from the full in-scope head list) so every
   // chart colours a head identically and a filtered head keeps its colour.
@@ -315,42 +316,12 @@ export function FinanceDashboard() {
           <CardContent>
             {variance && variance.rows.length > 0 ? (
               <ChartTableView
-                chart={
-                  alerts.length > 0 ? (
-                    <div className="space-y-2">
-                      {alerts.map((row) => (
-                        <div
-                          key={row.expenseHeadId}
-                          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm"
-                        >
-                          <span className="font-medium">{row.expenseHeadName}</span>
-                          <span className="flex items-center gap-3 text-muted-foreground">
-                            <span>
-                              {formatINR(row.prior)} → {formatINR(row.current)}
-                            </span>
-                            <Badge variant="secondary">
-                              {row.deviationPercent != null
-                                ? `${Number(row.deviationPercent) > 0 ? '+' : ''}${row.deviationPercent}%`
-                                : 'no prior baseline'}
-                            </Badge>
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      No heads breached the threshold this month. Switch to the table to see every
-                      head&apos;s movement.
-                    </p>
-                  )
-                }
+                chart={<VarianceDivergingChart report={variance} />}
                 table={<VarianceTable report={variance} />}
               />
             ) : (
               <p className="text-sm text-muted-foreground">
-                {variance?.thresholdPercent == null
-                  ? `Set a variance threshold for ${formatMonth(asOf)} in Notification Config to enable alerts.`
-                  : 'No variance data for this month.'}
+                No variance data for {formatMonth(asOf)} yet.
               </p>
             )}
           </CardContent>

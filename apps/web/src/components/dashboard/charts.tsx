@@ -2,10 +2,12 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   LabelList,
   Legend,
   Line,
   LineChart,
+  ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -17,13 +19,13 @@ import type {
   HeadTrendPoint,
   MonthlyTotalPoint,
   MonthwiseReport,
+  VarianceReport,
 } from '@portal/shared';
 import { formatINR } from '@/lib/format';
 import {
   buildHeadColorMap,
   headColor,
   CHART_ANCHOR,
-  CHART_ANCHOR_HOVER,
   CHART_AXIS_LABEL,
   CHART_GRID,
   CHART_LEGEND_TEXT,
@@ -172,31 +174,53 @@ function Empty({ label }: { label: string }) {
   return <p className="py-12 text-center text-sm text-muted-foreground">{label}</p>;
 }
 
-/** (b) Month-on-month total expense, as bars. */
+/**
+ * (b) Month-on-month total expense, as labelled bars. The current (last) month
+ * is highlighted in the brand accent; the rest are the steel anchor. A dashed
+ * line marks the range average.
+ */
 export function MonthlyTotalsChart({ data }: { data: MonthlyTotalPoint[] }) {
   if (data.length === 0) return <Empty label="No expense data for the selected range." />;
   const rows = data.map((p) => ({ month: p.month, total: Number(p.total) }));
+  const lastIdx = rows.length - 1;
+  const avg = rows.reduce((s, r) => s + r.total, 0) / rows.length;
   return (
     <div className="h-72 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={rows} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
+        <BarChart data={rows} margin={{ top: 24, right: 56, bottom: 0, left: 8 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridStroke} />
-          <XAxis dataKey="month" tickFormatter={shortMonth} fontSize={12} />
-          <YAxis tickFormatter={compactINR} fontSize={12} width={70} />
+          <XAxis dataKey="month" tickFormatter={shortMonth} fontSize={12} stroke={gridStroke} tick={axisTick} />
+          <YAxis tickFormatter={compactINR} fontSize={12} width={70} stroke={gridStroke} tick={axisTick} />
           <Tooltip
             {...tooltipProps}
             formatter={moneyTooltip}
             labelFormatter={(l) => shortMonth(String(l))}
           />
-          <Bar
-            dataKey="total"
-            name="Total"
-            fill={CHART_ANCHOR}
-            stroke={CHART_ANCHOR}
-            strokeWidth={1}
-            activeBar={{ fill: CHART_ANCHOR_HOVER, stroke: CHART_ANCHOR_HOVER }}
-            radius={[4, 4, 0, 0]}
+          {/* Range-average reference line. */}
+          <ReferenceLine
+            y={avg}
+            strokeDasharray="5 4"
+            stroke={CHART_AXIS_LABEL}
+            strokeOpacity={0.7}
+            label={{
+              value: `avg ${compactINR(avg)}`,
+              position: 'right',
+              fontSize: 11,
+              fill: CHART_AXIS_LABEL,
+            }}
           />
+          <Bar dataKey="total" name="Total" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+            {rows.map((r, i) => (
+              <Cell key={r.month} fill={i === lastIdx ? '#0F6CB6' : CHART_ANCHOR} />
+            ))}
+            <LabelList
+              dataKey="total"
+              position="top"
+              fontSize={10}
+              fill={CHART_AXIS_LABEL}
+              formatter={(v: number | string) => compactINR(Number(v))}
+            />
+          </Bar>
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -440,42 +464,144 @@ export function MonthwiseChart({ report }: { report: MonthwiseReport }) {
   );
 }
 
-/** (d) Clinic-wise totals over the range, as horizontal bars. */
+/**
+ * (d) Clinic-wise totals over the range: a ranked list of track bars with each
+ * clinic's total and its share of the grand total. The largest clinic is
+ * highlighted in the brand accent; the bar length is relative to the top clinic.
+ */
 export function ClinicTotalsChart({ data }: { data: ClinicTotalPoint[] }) {
   if (data.length === 0) return <Empty label="No clinic totals for the selected range." />;
-  const rows = data.map((c) => ({ clinic: c.clinicName, total: Number(c.total) }));
+  const rows = data
+    .map((c) => ({ name: c.clinicName, total: Number(c.total) }))
+    .sort((a, b) => b.total - a.total);
+  const grand = rows.reduce((s, r) => s + r.total, 0);
+  const max = rows[0]?.total || 1;
   return (
-    <div className="w-full" style={{ height: Math.max(180, rows.length * 40 + 40) }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={rows} layout="vertical" margin={{ top: 8, right: 24, bottom: 0, left: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={gridStroke} />
-          <XAxis
-            type="number"
-            tickFormatter={compactINR}
-            fontSize={12}
-            stroke={gridStroke}
-            tick={axisTick}
-          />
-          <YAxis
-            type="category"
-            dataKey="clinic"
-            width={140}
-            fontSize={12}
-            stroke={gridStroke}
-            tick={axisTick}
-          />
-          <Tooltip {...tooltipProps} formatter={moneyTooltip} />
-          <Bar
-            dataKey="total"
-            name="Total"
-            fill={CHART_ANCHOR}
-            stroke={CHART_ANCHOR}
-            strokeWidth={1}
-            activeBar={{ fill: CHART_ANCHOR_HOVER, stroke: CHART_ANCHOR_HOVER }}
-            radius={[0, 4, 4, 0]}
-          />
-        </BarChart>
-      </ResponsiveContainer>
+    <div className="space-y-2">
+      {rows.map((r, i) => (
+        <div key={r.name} className="flex items-center gap-3 text-sm">
+          <span className="w-36 shrink-0 truncate text-right text-muted-foreground">{r.name}</span>
+          <div className="h-5 flex-1 overflow-hidden rounded bg-muted">
+            <div
+              className="h-full rounded"
+              style={{
+                width: `${max > 0 ? (r.total / max) * 100 : 0}%`,
+                backgroundColor: i === 0 ? '#0F6CB6' : CHART_ANCHOR,
+              }}
+            />
+          </div>
+          <span className="w-20 shrink-0 text-right font-mono tabular-nums">{compactINR(r.total)}</span>
+          <span className="w-12 shrink-0 text-right tabular-nums text-muted-foreground">
+            {grand > 0 ? `${((r.total / grand) * 100).toFixed(1)}%` : '—'}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Signed Δ% label at the outward end of a diverging variance bar. Recharts hands
+ * the content renderer loosely-typed geometry props, so coerce to numbers.
+ */
+function DivergingPctLabel(props: {
+  x?: number | string;
+  y?: number | string;
+  width?: number | string;
+  height?: number | string;
+  value?: number | string;
+}) {
+  const x = Number(props.x);
+  const y = Number(props.y);
+  const width = Number(props.width);
+  const height = Number(props.height);
+  const value = Number(props.value);
+  if (![x, y, width, height, value].every(Number.isFinite)) return null;
+  const positive = value >= 0;
+  const tx = positive ? x + width + 6 : x - 6;
+  return (
+    <text
+      x={tx}
+      y={y + height / 2}
+      dy={4}
+      fontSize={11}
+      fill={CHART_AXIS_LABEL}
+      textAnchor={positive ? 'start' : 'end'}
+    >
+      {`${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(1)}%`}
+    </text>
+  );
+}
+
+/**
+ * (e) Variance vs prior month: a diverging Δ% bar per head, ranked. Heads that
+ * breach the ±threshold are red; those within are a muted blue. A shaded band
+ * marks the ±threshold zone. Heads with no prior baseline (null Δ%) are omitted
+ * rather than drawn off an implied 0 (NULL ≠ 0), and listed below.
+ */
+export function VarianceDivergingChart({ report }: { report: VarianceReport }) {
+  const threshold = report.thresholdPercent != null ? Number(report.thresholdPercent) : null;
+  const rows = report.rows
+    .filter((r) => r.deviationPercent != null)
+    .map((r) => ({ name: r.expenseHeadName, value: Number(r.deviationPercent), flagged: r.flagged }))
+    .sort((a, b) => b.value - a.value);
+  const omitted = report.rows.filter((r) => r.deviationPercent == null);
+
+  if (rows.length === 0) {
+    return <Empty label="No head has a prior-month baseline to compare against." />;
+  }
+
+  const maxAbs = Math.max(...rows.map((r) => Math.abs(r.value)), threshold ?? 0, 1);
+  const bound = Math.ceil((maxAbs * 1.15) / 5) * 5;
+  const domain: [number, number] = [-bound, bound];
+
+  return (
+    <div className="space-y-2">
+      <div className="w-full" style={{ height: Math.max(160, rows.length * 38 + 40) }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={rows} layout="vertical" margin={{ top: 8, right: 56, bottom: 0, left: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={gridStroke} />
+            <XAxis
+              type="number"
+              domain={domain}
+              tickFormatter={(v: number) => `${v}%`}
+              fontSize={12}
+              stroke={gridStroke}
+              tick={axisTick}
+            />
+            <YAxis
+              type="category"
+              dataKey="name"
+              width={140}
+              fontSize={12}
+              stroke={gridStroke}
+              tick={axisTick}
+            />
+            {/* ±threshold band. */}
+            {threshold != null && (
+              <ReferenceArea x1={-threshold} x2={threshold} fill={CHART_AXIS_LABEL} fillOpacity={0.07} />
+            )}
+            <ReferenceLine x={0} stroke={CHART_GRID} />
+            <Tooltip
+              {...tooltipProps}
+              formatter={(v: number | string) =>
+                `${Number(v) >= 0 ? '+' : '−'}${Math.abs(Number(v)).toFixed(1)}%`
+              }
+            />
+            <Bar dataKey="value" radius={2} isAnimationActive={false}>
+              {rows.map((r) => (
+                <Cell key={r.name} fill={r.flagged ? '#D9636F' : '#8FB3C9'} />
+              ))}
+              <LabelList dataKey="value" content={(p) => <DivergingPctLabel {...p} />} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      {omitted.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          No prior baseline: {omitted.map((o) => o.expenseHeadName).join(', ')}.
+        </p>
+      )}
     </div>
   );
 }
