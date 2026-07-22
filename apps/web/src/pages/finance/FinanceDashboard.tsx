@@ -26,6 +26,7 @@ import { StatusTiles } from '@/components/dashboard/StatusTiles';
 import { ClinicTotalsChart, MonthlyTotalsChart } from '@/components/dashboard/charts';
 import { ChartTableView } from '@/components/dashboard/ChartTableView';
 import { HeadTrendBlock } from '@/components/dashboard/HeadTrendBlock';
+import { KpiRow, SubmissionPipeline } from '@/components/dashboard/DashboardKpis';
 import {
   ClinicTotalsTable,
   MonthlyTotalsTable,
@@ -246,28 +247,73 @@ export function FinanceDashboard() {
         )}
       </section>
 
-      {/* (e) Variance alerts */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-medium text-muted-foreground">
-          Variance alerts — {formatMonth(asOf)} vs {variance ? formatMonth(variance.priorMonth) : '—'}
-        </h2>
+      {/* KPI headline row */}
+      <KpiRow monthly={monthly} tiles={tiles} variance={variance} asOf={asOf} />
+
+      {/* (b) Month-on-month total + submission pipeline */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-base">Month-on-month total provision</CardTitle>
+            <CardDescription>Bars labelled; dashed line = range average.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ChartTableView
+              chart={<MonthlyTotalsChart data={monthly} />}
+              table={<MonthlyTotalsTable data={monthly} />}
+            />
+          </CardContent>
+        </Card>
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">
-              {variance?.thresholdPercent != null
-                ? `Heads deviating beyond ±${variance.thresholdPercent}%`
-                : 'No variance threshold configured'}
-            </CardTitle>
+          <CardHeader>
+            <CardTitle className="text-base">Submission pipeline</CardTitle>
+            <CardDescription>Where clinics stand for {formatMonth(asOf)}.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SubmissionPipeline tiles={tiles} />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* (c) Expense-head-wise trends */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Expense-head-wise trend</CardTitle>
+          <CardDescription>
+            Per-head totals (bars) and momentum indexed to each head&apos;s first month (line).
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <HeadTrendBlock data={headTrends} colorOf={colorOf} />
+        </CardContent>
+      </Card>
+
+      {/* (d) Clinic-wise total + (e) Variance vs prior month */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Clinic-wise total</CardTitle>
+            <CardDescription>Ranked, with share of total.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ChartTableView
+              chart={<ClinicTotalsChart data={clinicTotals} />}
+              table={<ClinicTotalsTable data={clinicTotals} />}
+            />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Variance vs prior month</CardTitle>
             <CardDescription>
-              {variance?.thresholdPercent == null
-                ? `Set a variance threshold for ${formatMonth(asOf)} in Notification Config to enable alerts.`
-                : alerts.length === 0
-                  ? 'No heads breached the threshold this month.'
-                  : `${alerts.length} head(s) flagged.`}
+              Δ% {variance ? formatMonth(variance.priorMonth) : '—'} → {formatMonth(asOf)}
+              {variance?.thresholdPercent != null
+                ? ` · shaded band = ±${variance.thresholdPercent}% threshold`
+                : ''}
             </CardDescription>
           </CardHeader>
-          {variance && variance.rows.length > 0 && (
-            <CardContent>
+          <CardContent>
+            {variance && variance.rows.length > 0 ? (
               <ChartTableView
                 chart={
                   alerts.length > 0 ? (
@@ -279,7 +325,9 @@ export function FinanceDashboard() {
                         >
                           <span className="font-medium">{row.expenseHeadName}</span>
                           <span className="flex items-center gap-3 text-muted-foreground">
-                            <span>{formatINR(row.prior)} → {formatINR(row.current)}</span>
+                            <span>
+                              {formatINR(row.prior)} → {formatINR(row.current)}
+                            </span>
                             <Badge variant="secondary">
                               {row.deviationPercent != null
                                 ? `${Number(row.deviationPercent) > 0 ? '+' : ''}${row.deviationPercent}%`
@@ -292,60 +340,22 @@ export function FinanceDashboard() {
                   ) : (
                     <p className="text-sm text-muted-foreground">
                       No heads breached the threshold this month. Switch to the table to see every
-                      head’s movement.
+                      head&apos;s movement.
                     </p>
                   )
                 }
                 table={<VarianceTable report={variance} />}
               />
-            </CardContent>
-          )}
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {variance?.thresholdPercent == null
+                  ? `Set a variance threshold for ${formatMonth(asOf)} in Notification Config to enable alerts.`
+                  : 'No variance data for this month.'}
+              </p>
+            )}
+          </CardContent>
         </Card>
-      </section>
-
-      {/* (b) Month-on-month expense comparison */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Month-on-month total expense</CardTitle>
-          <CardDescription>
-            {clinicId ? 'Selected clinic' : 'All clinics combined'}, {formatMonth(fromMonth)} –{' '}
-            {formatMonth(toMonth)}.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ChartTableView
-            chart={<MonthlyTotalsChart data={monthly} />}
-            table={<MonthlyTotalsTable data={monthly} />}
-          />
-        </CardContent>
-      </Card>
-
-      {/* (c) Expense-head-wise trends */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Expense-head-wise trend</CardTitle>
-          <CardDescription>
-            Per-head totals (bars) and each head&apos;s change over the selected range (diverging bars).
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <HeadTrendBlock data={headTrends} colorOf={colorOf} />
-        </CardContent>
-      </Card>
-
-      {/* (d) Clinic-wise total comparison */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Clinic-wise total comparison</CardTitle>
-          <CardDescription>Total provision per clinic over the selected range.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ChartTableView
-            chart={<ClinicTotalsChart data={clinicTotals} />}
-            table={<ClinicTotalsTable data={clinicTotals} />}
-          />
-        </CardContent>
-      </Card>
+      </div>
     </div>
   );
 }
