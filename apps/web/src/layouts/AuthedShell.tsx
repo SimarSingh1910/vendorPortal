@@ -185,7 +185,7 @@ export function AuthedShell() {
                       // idle is the soft light-blue text, brightening to white on a
                       // white/10% hover.
                       isNavActive(item.path)
-                        ? 'border-white bg-sidebar-active text-sidebar-active-foreground'
+                        ? 'border-[#4579B3] bg-sidebar-active text-sidebar-active-foreground'
                         : 'border-transparent text-sidebar-foreground hover:bg-white/[0.10] hover:text-white',
                     )}
                   >

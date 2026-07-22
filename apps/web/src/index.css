@@ -47,7 +47,7 @@
      * LIGHTER than the surface (same hue) so the current page "lifts" — a darker
      * active would look muddy against an already-deep base. */
     --sidebar: 220 48.8% 8.4%; /* #0B1220 — near-black navy sidebar surface (Clarity) */
-    --sidebar-active: 205.7 100% 35.3%; /* #0067B4 — active item (lifts off the near-black) */
+    --sidebar-active: 221.7 39.1% 18%; /* #1C2740 — active item (lifts off the near-black) */
     --sidebar-foreground: 206.4 54.3% 82%; /* #B8D4EA — idle nav text (legible on #0B1220) */
     --sidebar-active-foreground: 0 0% 100%; /* white — hover/active item text/icon */
     --radius: 0.75rem;
