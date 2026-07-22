@@ -1,13 +1,22 @@
 import type { ReactNode } from 'react';
 import { TrendingDown, TrendingUp } from 'lucide-react';
-import {
-  SubmissionStatus,
-  type DashboardStatusTile,
-  type MonthlyTotalPoint,
-  type VarianceReport,
-} from '@portal/shared';
+import type { VarianceReport } from '@portal/shared';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+
+/**
+ * Minimal shapes shared by the clinic and corporate dashboards. Status is a raw
+ * string so both SubmissionStatus and CorpSubmissionStatus values flow through —
+ * the two enums share the key values (NOT_STARTED, SUBMITTED, FINANCE_APPROVED …).
+ */
+interface MonthPoint {
+  month: string;
+  total: string;
+}
+interface StatusTileLike {
+  status: string;
+  total?: string | null;
+}
 
 /** Compact en-IN money: ₹1.21 Cr / ₹71.4 L / ₹8.3 k. NULL-safe (returns "—"). */
 function compactINR(n: number | null | undefined): string {
@@ -92,7 +101,7 @@ function KpiCard({
 }
 
 /** Sum monthly totals over an inclusive [from, to] YYYY-MM window (present months only). */
-function sumMonths(monthly: MonthlyTotalPoint[], from: string, to: string): { sum: number; count: number } {
+function sumMonths(monthly: MonthPoint[], from: string, to: string): { sum: number; count: number } {
   let sum = 0;
   let count = 0;
   for (const p of monthly) {
@@ -121,11 +130,14 @@ export function KpiRow({
   tiles,
   variance,
   asOf,
+  unit = 'clinic',
 }: {
-  monthly: MonthlyTotalPoint[];
-  tiles: DashboardStatusTile[];
+  monthly: MonthPoint[];
+  tiles: StatusTileLike[];
   variance: VarianceReport | undefined;
   asOf: string;
+  /** Singular noun for the counted entity ("clinic" | "department"). */
+  unit?: string;
 }) {
   const sorted = [...monthly].sort((a, b) => a.month.localeCompare(b.month));
   const series = sorted.map((p) => Number(p.total));
@@ -153,8 +165,8 @@ export function KpiRow({
   const totalRows = variance?.rows.length ?? 0;
   const threshold = variance?.thresholdPercent;
 
-  // Awaiting = clinics not yet finance-approved; ₹ = sum of their (non-null) totals.
-  const pending = tiles.filter((t) => t.status !== SubmissionStatus.FINANCE_APPROVED);
+  // Awaiting = units not yet finance-approved; ₹ = sum of their (non-null) totals.
+  const pending = tiles.filter((t) => t.status !== 'FINANCE_APPROVED');
   const pendingTotal = pending.reduce((s, t) => s + (t.total != null ? Number(t.total) : 0), 0);
   const approvedCount = tiles.length - pending.length;
 
@@ -199,7 +211,8 @@ export function KpiRow({
 
       <KpiCard label="Awaiting Approval" value={compactINR(pendingTotal)}>
         <p className="text-xs text-muted-foreground">
-          {pending.length} clinic{pending.length === 1 ? '' : 's'} pending
+          {pending.length} {unit}
+          {pending.length === 1 ? '' : 's'} pending
         </p>
         {tiles.length > 0 && (
           <div className="mt-1 flex h-2 overflow-hidden rounded-full bg-border">
@@ -231,40 +244,56 @@ const BUCKETS: Array<{ key: Bucket; label: string; color: string }> = [
   { key: 'approved', label: 'Approved', color: '#8FC7A6' },
 ];
 
-function bucketOf(status: SubmissionStatus): Bucket {
+/**
+ * Map a raw status value (from either the clinic SubmissionStatus or the
+ * corporate CorpSubmissionStatus enum) to a display bucket. Both enums' review
+ * and sent-back variants collapse into the shared "In review" / "Sent back".
+ */
+function bucketOf(status: string): Bucket {
   switch (status) {
-    case SubmissionStatus.NOT_STARTED:
+    case 'NOT_STARTED':
       return 'notStarted';
-    case SubmissionStatus.DRAFT:
+    case 'DRAFT':
       return 'draft';
-    case SubmissionStatus.SUBMITTED:
+    case 'SUBMITTED':
       return 'submitted';
-    case SubmissionStatus.CLINIC_MANAGER_REVIEW:
-    case SubmissionStatus.CLINIC_APPROVED:
-    case SubmissionStatus.FINANCE_REVIEW:
+    case 'CLINIC_MANAGER_REVIEW':
+    case 'CLINIC_APPROVED':
+    case 'FINANCE_REVIEW':
+    case 'FINANCE_MANAGER_REVIEW':
       return 'inReview';
-    case SubmissionStatus.SENT_BACK_BY_MANAGER:
-    case SubmissionStatus.SENT_BACK_BY_FINANCE:
+    case 'SENT_BACK_BY_MANAGER':
+    case 'SENT_BACK_BY_FINANCE':
+    case 'SENT_BACK_TO_SPOC':
       return 'sentBack';
-    case SubmissionStatus.FINANCE_APPROVED:
+    case 'FINANCE_APPROVED':
       return 'approved';
+    default:
+      return 'submitted';
   }
 }
 
 /**
- * Submission pipeline: a stacked status bar across all clinics for the month,
- * with a per-bucket count legend. "Reported" counts clinics past Not-started.
+ * Submission pipeline: a stacked status bar across all units for the month, with
+ * a per-bucket count legend. "Reported" counts units past Not-started.
  */
-export function SubmissionPipeline({ tiles }: { tiles: DashboardStatusTile[] }) {
+export function SubmissionPipeline({
+  tiles,
+  unit = 'clinic',
+}: {
+  tiles: Array<{ status: string }>;
+  unit?: string;
+}) {
   const counts = new Map<Bucket, number>();
   for (const t of tiles) counts.set(bucketOf(t.status), (counts.get(bucketOf(t.status)) ?? 0) + 1);
   const total = tiles.length;
-  const reported = tiles.filter((t) => t.status !== SubmissionStatus.NOT_STARTED).length;
+  const reported = tiles.filter((t) => t.status !== 'NOT_STARTED').length;
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        {total} clinic{total === 1 ? '' : 's'} · {reported} reported.
+        {total} {unit}
+        {total === 1 ? '' : 's'} · {reported} reported.
       </p>
       <div className="flex h-3 overflow-hidden rounded-full bg-border">
         {BUCKETS.map((b) => {

@@ -15,6 +15,7 @@ import { MonthlyTotalsChart } from '@/components/dashboard/charts';
 import { CorpStatusTiles, CorpStatusTable } from '@/components/dashboard/CorpStatusTiles';
 import { ChartTableView } from '@/components/dashboard/ChartTableView';
 import { HeadTrendBlock } from '@/components/dashboard/HeadTrendBlock';
+import { SubmissionPipeline } from '@/components/dashboard/DashboardKpis';
 import { MonthlyTotalsTable } from '@/components/dashboard/dataTables';
 import { buildHeadColorMap, headColor } from '@/lib/chartColors';
 import { formatMonth } from '@/lib/format';
@@ -79,18 +80,29 @@ export function CorpMyDashboard() {
         )}
       </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Month-on-month total provision</CardTitle>
-          <CardDescription>Your department’s total over the recent months.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ChartTableView
-            chart={<MonthlyTotalsChart data={monthly} />}
-            table={<MonthlyTotalsTable data={monthly} />}
-          />
-        </CardContent>
-      </Card>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-base">Month-on-month total provision</CardTitle>
+            <CardDescription>Bars labelled; dashed line = range average.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ChartTableView
+              chart={<MonthlyTotalsChart data={monthly} />}
+              table={<MonthlyTotalsTable data={monthly} />}
+            />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Submission pipeline</CardTitle>
+            <CardDescription>Where your departments stand for {formatMonth(month)}.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SubmissionPipeline tiles={tiles} unit="department" />
+          </CardContent>
+        </Card>
+      </div>
 
       <Card>
         <CardHeader>

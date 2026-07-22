@@ -1,43 +1,20 @@
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
 import type { CorpDepartmentTotalPoint } from '@portal/shared';
-import { formatINR } from '@/lib/format';
-import {
-  CHART_ANCHOR,
-  CHART_ANCHOR_HOVER,
-  CHART_AXIS_LABEL,
-  CHART_GRID,
-  CHART_TOOLTIP_STYLE,
-  CHART_TOOLTIP_TEXT,
-} from '@/lib/chartColors';
+import { CHART_ANCHOR } from '@/lib/chartColors';
 
-/** Token-aligned chart chrome: hairline grid + axis lines, muted tick labels. */
-const axisTick = { fill: CHART_AXIS_LABEL } as const;
-const tooltipProps = {
-  contentStyle: CHART_TOOLTIP_STYLE,
-  labelStyle: { color: CHART_TOOLTIP_TEXT },
-  itemStyle: { color: CHART_TOOLTIP_TEXT },
-} as const;
-
-/** Compact INR for the X-axis ticks (₹1.2L / ₹3.4Cr) — mirrors charts.tsx. */
+/** Compact INR for the value column (₹1.2 L / ₹3.4 Cr). */
 function compactINR(n: number): string {
   const abs = Math.abs(n);
-  if (abs >= 1e7) return `₹${(n / 1e7).toFixed(1)}Cr`;
-  if (abs >= 1e5) return `₹${(n / 1e5).toFixed(1)}L`;
-  if (abs >= 1e3) return `₹${(n / 1e3).toFixed(1)}k`;
-  return `₹${n}`;
+  if (abs >= 1e7) return `₹${(n / 1e7).toFixed(2)} Cr`;
+  if (abs >= 1e5) return `₹${(n / 1e5).toFixed(1)} L`;
+  if (abs >= 1e3) return `₹${(n / 1e3).toFixed(1)} k`;
+  return `₹${Math.round(n)}`;
 }
 
 /**
- * (d) Cross-department totals over the range, as horizontal bars. The corporate
- * analogue of clinic `ClinicTotalsChart` — same layout, keyed on department name.
+ * (d) Cross-department totals over the range: a ranked list of track bars with
+ * each department's total and its share of the grand total. The corporate
+ * analogue of the clinic-wise chart; the top department is highlighted and bar
+ * length is relative to it.
  */
 export function CorpDepartmentTotalsChart({ data }: { data: CorpDepartmentTotalPoint[] }) {
   if (data.length === 0) {
@@ -47,39 +24,31 @@ export function CorpDepartmentTotalsChart({ data }: { data: CorpDepartmentTotalP
       </p>
     );
   }
-  const rows = data.map((d) => ({ department: d.departmentName, total: Number(d.total) }));
+  const rows = data
+    .map((d) => ({ name: d.departmentName, total: Number(d.total) }))
+    .sort((a, b) => b.total - a.total);
+  const grand = rows.reduce((s, r) => s + r.total, 0);
+  const max = rows[0]?.total || 1;
   return (
-    <div className="w-full" style={{ height: Math.max(180, rows.length * 40 + 40) }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={rows} layout="vertical" margin={{ top: 8, right: 24, bottom: 0, left: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={CHART_GRID} />
-          <XAxis
-            type="number"
-            tickFormatter={compactINR}
-            fontSize={12}
-            stroke={CHART_GRID}
-            tick={axisTick}
-          />
-          <YAxis
-            type="category"
-            dataKey="department"
-            width={160}
-            fontSize={12}
-            stroke={CHART_GRID}
-            tick={axisTick}
-          />
-          <Tooltip {...tooltipProps} formatter={(v: number | string) => formatINR(v as number)} />
-          <Bar
-            dataKey="total"
-            name="Total"
-            fill={CHART_ANCHOR}
-            stroke={CHART_ANCHOR}
-            strokeWidth={1}
-            activeBar={{ fill: CHART_ANCHOR_HOVER, stroke: CHART_ANCHOR_HOVER }}
-            radius={[0, 4, 4, 0]}
-          />
-        </BarChart>
-      </ResponsiveContainer>
+    <div className="space-y-2">
+      {rows.map((r, i) => (
+        <div key={r.name} className="flex items-center gap-3 text-sm">
+          <span className="w-40 shrink-0 truncate text-right text-muted-foreground">{r.name}</span>
+          <div className="h-5 flex-1 overflow-hidden rounded bg-muted">
+            <div
+              className="h-full rounded"
+              style={{
+                width: `${max > 0 ? (r.total / max) * 100 : 0}%`,
+                backgroundColor: i === 0 ? '#0F6CB6' : CHART_ANCHOR,
+              }}
+            />
+          </div>
+          <span className="w-20 shrink-0 text-right font-mono tabular-nums">{compactINR(r.total)}</span>
+          <span className="w-12 shrink-0 text-right tabular-nums text-muted-foreground">
+            {grand > 0 ? `${((r.total / grand) * 100).toFixed(1)}%` : '—'}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
