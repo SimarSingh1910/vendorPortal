@@ -140,22 +140,7 @@ export function AuthedShell() {
   };
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-      <header className="relative z-30 flex h-14 shrink-0 items-center gap-3 border-b px-4">
-        <Button variant="ghost" size="icon" onClick={toggleSidebar} aria-label="Toggle sidebar">
-          <PanelLeft />
-        </Button>
-        <TabSwitch />
-        <div className="ml-auto flex items-center gap-3">
-          <NotificationTray />
-          <Button variant="outline" size="sm" onClick={() => void logout()}>
-            <LogOut />
-            Logout
-          </Button>
-        </div>
-      </header>
-
-      <div className="flex flex-1 overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-background text-foreground">
         <aside
           className={cn(
             'flex shrink-0 flex-col border-r border-white/[0.16] bg-sidebar text-sidebar-foreground transition-all duration-200',
@@ -225,10 +210,26 @@ export function AuthedShell() {
           </div>
         </aside>
 
-        <main className="flex-1 overflow-y-auto p-6">
-          <Outlet />
-        </main>
-      </div>
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <header className="relative z-30 flex h-14 shrink-0 items-center gap-3 px-4">
+            <Button variant="ghost" size="icon" onClick={toggleSidebar} aria-label="Toggle sidebar">
+              <PanelLeft />
+            </Button>
+            <TabSwitch />
+            <div className="ml-auto flex items-center gap-3">
+              <NotificationTray />
+              {/* Minimalist vertical divider between the bell and Logout. */}
+              <div className="h-5 w-px bg-border" aria-hidden="true" />
+              <Button variant="outline" size="sm" onClick={() => void logout()}>
+                <LogOut />
+                Logout
+              </Button>
+            </div>
+          </header>
+          <main className="flex-1 overflow-y-auto p-6">
+            <Outlet />
+          </main>
+        </div>
     </div>
   );
 }
