@@ -182,7 +182,6 @@ function Empty({ label }: { label: string }) {
 export function MonthlyTotalsChart({ data }: { data: MonthlyTotalPoint[] }) {
   if (data.length === 0) return <Empty label="No expense data for the selected range." />;
   const rows = data.map((p) => ({ month: p.month, total: Number(p.total) }));
-  const lastIdx = rows.length - 1;
   const avg = rows.reduce((s, r) => s + r.total, 0) / rows.length;
   return (
     <div className="h-72 w-full">
@@ -209,10 +208,13 @@ export function MonthlyTotalsChart({ data }: { data: MonthlyTotalPoint[] }) {
               fill: CHART_AXIS_LABEL,
             }}
           />
-          <Bar dataKey="total" name="Total" radius={[4, 4, 0, 0]} isAnimationActive={false}>
-            {rows.map((r, i) => (
-              <Cell key={r.month} fill={i === lastIdx ? '#0F6CB6' : CHART_ANCHOR} />
-            ))}
+          <Bar
+            dataKey="total"
+            name="Total"
+            fill={CHART_ANCHOR}
+            radius={[4, 4, 0, 0]}
+            isAnimationActive={false}
+          >
             <LabelList
               dataKey="total"
               position="top"
@@ -455,7 +457,7 @@ export function ClinicTotalsChart({ data }: { data: ClinicTotalPoint[] }) {
   const max = rows[0]?.total || 1;
   return (
     <div className="space-y-2">
-      {rows.map((r, i) => (
+      {rows.map((r) => (
         <div key={r.name} className="flex items-center gap-3 text-sm">
           <span className="w-36 shrink-0 truncate text-right text-muted-foreground">{r.name}</span>
           <div className="h-5 flex-1 overflow-hidden rounded bg-muted">
@@ -463,7 +465,7 @@ export function ClinicTotalsChart({ data }: { data: ClinicTotalPoint[] }) {
               className="h-full rounded"
               style={{
                 width: `${max > 0 ? (r.total / max) * 100 : 0}%`,
-                backgroundColor: i === 0 ? '#0F6CB6' : CHART_ANCHOR,
+                backgroundColor: CHART_ANCHOR,
               }}
             />
           </div>

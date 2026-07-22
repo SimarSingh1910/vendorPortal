@@ -31,7 +31,7 @@ export function CorpDepartmentTotalsChart({ data }: { data: CorpDepartmentTotalP
   const max = rows[0]?.total || 1;
   return (
     <div className="space-y-2">
-      {rows.map((r, i) => (
+      {rows.map((r) => (
         <div key={r.name} className="flex items-center gap-3 text-sm">
           <span className="w-40 shrink-0 truncate text-right text-muted-foreground">{r.name}</span>
           <div className="h-5 flex-1 overflow-hidden rounded bg-muted">
@@ -39,7 +39,7 @@ export function CorpDepartmentTotalsChart({ data }: { data: CorpDepartmentTotalP
               className="h-full rounded"
               style={{
                 width: `${max > 0 ? (r.total / max) * 100 : 0}%`,
-                backgroundColor: i === 0 ? '#0F6CB6' : CHART_ANCHOR,
+                backgroundColor: CHART_ANCHOR,
               }}
             />
           </div>
