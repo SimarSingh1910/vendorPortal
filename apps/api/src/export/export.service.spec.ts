@@ -229,6 +229,43 @@ describe('Export (Phase 12, FR-10)', () => {
     expect(approvedOnly.map((r) => r.amount)).toEqual(['100.00']);
   });
 
+  it('emits one row per vendor line for a multi-vendor head (repeated G/L No./Name), excluding blank lines', async () => {
+    const clinic = await fx.makeClinic();
+    const head = await fx.makeExpenseHead({
+      glAccountName: 'Other Outsourced Services',
+      glAccountNo: '41117004',
+      allowsMultipleVendors: true,
+    });
+    await fx.mapHeads(clinic.id, [head.id]);
+    const { submission } = await cycle.openClinicCycle(clinic.id, '2026-06');
+    await prisma.monthlySubmission.update({
+      where: { id: submission.id },
+      data: { status: SubmissionStatus.SUBMITTED },
+    });
+    const snap = await prisma.submissionExpenseHeadSnapshot.findFirstOrThrow({
+      where: { submissionId: submission.id, expenseHeadId: head.id },
+    });
+    await prisma.provisionEntry.createMany({
+      data: [
+        { submissionId: submission.id, snapshotId: snap.id, lineOrder: 0, amount: 100, vendorName: 'Quess Corp', enteredById: spocId, lastModifiedById: spocId },
+        { submissionId: submission.id, snapshotId: snap.id, lineOrder: 1, amount: 250, vendorName: 'Sodexo', enteredById: spocId, lastModifiedById: spocId },
+        // A blank (null-amount) line must NOT appear as a "0" row.
+        { submissionId: submission.id, snapshotId: snap.id, lineOrder: 2, amount: null, vendorName: 'Draft only', enteredById: spocId, lastModifiedById: spocId },
+      ],
+    });
+
+    const rows = await exportService.detailRows(finance, { clinicId: clinic.id, month: '2026-06' });
+    expect(rows).toHaveLength(2); // two real lines; the blank line is excluded
+    // Same frozen G/L No./Name on every line of the head; vendor + amount differ.
+    expect(rows.map((r) => r.glAccountNo)).toEqual(['41117004', '41117004']);
+    expect(rows.map((r) => r.glAccountName)).toEqual([
+      'Other Outsourced Services',
+      'Other Outsourced Services',
+    ]);
+    expect(rows.map((r) => r.vendorName)).toEqual(['Quess Corp', 'Sodexo']);
+    expect(rows.map((r) => r.amount)).toEqual(['100.00', '250.00']);
+  });
+
   it('month-end is one row per line for ACTIVE clinics only (no matrix, no dead clinics)', async () => {
     const a = await fx.makeClinic({ name: 'Active A' });
     const b = await fx.makeClinic({ name: 'Active B' });

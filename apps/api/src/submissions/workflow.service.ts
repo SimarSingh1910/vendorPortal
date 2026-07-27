@@ -477,26 +477,44 @@ export class WorkflowService {
   }
 
   /**
-   * BR-03: a submission may be SUBMITTED only when every snapshot head has an
-   * explicitly entered value (0 is valid; blank is not). A submission with no
-   * mapped heads has nothing to provision and cannot be submitted.
+   * BR-03 (multi-vendor): a submission may be SUBMITTED only when every snapshot
+   * head has at least one line AND every line carries an explicit amount (0 is
+   * valid; blank is not). A submission with no mapped heads has nothing to
+   * provision and cannot be submitted. The error names the offending head(s) and,
+   * for a half-filled multi-vendor head, the specific blank line.
    */
   private async assertAllHeadsValued(submissionId: string): Promise<void> {
-    const total = await this.prisma.submissionExpenseHeadSnapshot.count({
+    const snapshots = await this.prisma.submissionExpenseHeadSnapshot.findMany({
       where: { submissionId },
+      select: {
+        expenseHeadGlNameAtSnapshot: true,
+        entries: { orderBy: { lineOrder: 'asc' }, select: { amount: true } },
+      },
+      orderBy: [{ expenseHeadGlNoAtSnapshot: 'asc' }, { expenseHeadGlNameAtSnapshot: 'asc' }],
     });
-    if (total === 0) {
+    if (snapshots.length === 0) {
       throw new UnprocessableEntityException(
         'Cannot submit: no expense heads are mapped for this clinic',
       );
     }
-    const missing = await this.prisma.submissionExpenseHeadSnapshot.count({
-      where: { submissionId, entry: { is: null } },
-    });
-    if (missing > 0) {
-      throw new UnprocessableEntityException(
-        `Cannot submit: ${missing} expense head(s) have no value entered`,
-      );
+    const problems: string[] = [];
+    for (const snap of snapshots) {
+      const name = snap.expenseHeadGlNameAtSnapshot;
+      if (snap.entries.length === 0) {
+        problems.push(`“${name}” has no value entered`);
+        continue;
+      }
+      // A null-amount line is a half-filled row — name which line (1-based).
+      const blankLines = snap.entries
+        .map((e, i) => (e.amount === null ? i + 1 : 0))
+        .filter((n) => n > 0);
+      if (blankLines.length > 0) {
+        const label = snap.entries.length > 1 ? ` line ${blankLines.join(', ')}` : '';
+        problems.push(`“${name}”${label} has no amount`);
+      }
+    }
+    if (problems.length > 0) {
+      throw new UnprocessableEntityException(`Cannot submit: ${problems.join('; ')}`);
     }
   }
 }

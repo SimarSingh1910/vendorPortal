@@ -32,16 +32,16 @@ describe('ExpenseHeadsService (G/L account expense heads)', () => {
   });
 
   it('create persists glAccountNo + glAccountName; the list returns them', async () => {
-    const head = await service.create({ glAccountNo: '400100', glAccountName: 'Facility Rent' });
-    expect(head).toMatchObject({ glAccountNo: '400100', glAccountName: 'Facility Rent' });
+    const head = await service.create({ glAccountNo: '400100', glAccountName: 'Radiology Services' });
+    expect(head).toMatchObject({ glAccountNo: '400100', glAccountName: 'Radiology Services' });
 
     const list = await service.list('all');
     expect(list).toHaveLength(1);
-    expect(list[0]).toMatchObject({ glAccountNo: '400100', glAccountName: 'Facility Rent' });
+    expect(list[0]).toMatchObject({ glAccountNo: '400100', glAccountName: 'Radiology Services' });
   });
 
   it('rejects a duplicate glAccountNo on create with a 409 Conflict', async () => {
-    await service.create({ glAccountNo: '400100', glAccountName: 'Facility Rent' });
+    await service.create({ glAccountNo: '400100', glAccountName: 'Radiology Services' });
     await expect(
       service.create({ glAccountNo: '400100', glAccountName: 'Something Else' }),
     ).rejects.toBeInstanceOf(ConflictException);
@@ -70,13 +70,13 @@ describe('ExpenseHeadsService (G/L account expense heads)', () => {
 
   it('the update audit old→new payload uses the G/L field keys', async () => {
     const head = await service.create({ glAccountNo: '400100', glAccountName: 'Rent' });
-    await service.update(head.id, { glAccountName: 'Facility Rent' });
+    await service.update(head.id, { glAccountName: 'Radiology Services' });
 
     const rows = await prisma.auditLog.findMany({
       where: { action: AuditAction.EXPENSE_HEAD_UPDATE, entityId: head.id },
     });
     expect(rows).toHaveLength(1);
     expect(rows[0].oldValue).toMatchObject({ glAccountNo: '400100', glAccountName: 'Rent' });
-    expect(rows[0].newValue).toMatchObject({ glAccountName: 'Facility Rent' });
+    expect(rows[0].newValue).toMatchObject({ glAccountName: 'Radiology Services' });
   });
 });

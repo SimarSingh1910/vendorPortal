@@ -107,6 +107,7 @@ export class CycleService {
               expenseHeadId: head.expenseHeadId,
               expenseHeadGlNameAtSnapshot: head.glAccountName,
               expenseHeadGlNoAtSnapshot: head.glAccountNo,
+              expenseHeadAllowsMultipleVendorsAtSnapshot: head.allowsMultipleVendors,
             })),
           },
         },

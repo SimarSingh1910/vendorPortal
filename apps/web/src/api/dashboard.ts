@@ -3,6 +3,7 @@ import type {
   DashboardFilterOptions,
   DashboardStatusTile,
   HeadTrendPoint,
+  HeadVendorTrendPoint,
   MonthlyTotalPoint,
   MonthwiseReport,
   SubmissionStatus,
@@ -49,6 +50,15 @@ export async function getMonthlyTotals(filter: DashboardFilter): Promise<Monthly
 
 export async function getHeadTrends(filter: DashboardFilter): Promise<HeadTrendPoint[]> {
   const { data } = await apiClient.get<HeadTrendPoint[]>('/dashboard/head-trends', {
+    params: clean(filter),
+  });
+  return data;
+}
+
+export async function getHeadVendorTrends(
+  filter: DashboardFilter,
+): Promise<HeadVendorTrendPoint[]> {
+  const { data } = await apiClient.get<HeadVendorTrendPoint[]>('/dashboard/head-vendor-trends', {
     params: clean(filter),
   });
   return data;

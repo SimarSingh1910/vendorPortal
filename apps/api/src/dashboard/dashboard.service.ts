@@ -7,6 +7,7 @@ import {
   type DashboardFilterOptions,
   type DashboardStatusTile,
   type HeadTrendPoint,
+  type HeadVendorTrendPoint,
   type MonthlyTotalPoint,
   type MonthwiseReport,
   type MonthwiseReportRow,
@@ -175,6 +176,50 @@ export class DashboardService {
       month: r.month,
       expenseHeadId: r.expenseHeadId,
       expenseHeadName: r.expenseHeadName,
+      total: String(r.total),
+    }));
+  }
+
+  /**
+   * (c′) Per-vendor breakdown behind the head trends — the same aggregation as
+   * headTrends but split one more level by vendor. Feeds the dashboard Table
+   * views (charts stay head-level). A null vendorName forms its own bucket
+   * (rendered "—"); blank lines (null amount) are excluded so the vendor totals
+   * reconcile exactly with the head totals (NULL ≠ 0).
+   */
+  async headVendorTrends(user: RequestUser, filters: DashboardFilters): Promise<HeadVendorTrendPoint[]> {
+    const clinicIds = await this.resolveClinicIds(user, filters.clinicId);
+    if (clinicIds.length === 0) return [];
+    const { from, to } = this.resolveRange(filters);
+
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        month: string;
+        expenseHeadId: string;
+        expenseHeadName: string;
+        glAccountNo: string;
+        vendorName: string | null;
+        total: string;
+      }>
+    >(Prisma.sql`
+      SELECT m.month AS month, s.expenseHeadId AS expenseHeadId,
+             MAX(e.glAccountName) AS expenseHeadName, MAX(e.glAccountNo) AS glAccountNo,
+             p.vendorName AS vendorName, CAST(SUM(p.amount) AS CHAR) AS total
+      FROM provisionentry p
+      JOIN submissionexpenseheadsnapshot s ON s.id = p.snapshotId
+      JOIN monthlysubmission m ON m.id = p.submissionId
+      JOIN expensehead e ON e.id = s.expenseHeadId
+      ${this.entryWhere(clinicIds, { from, to, expenseHeadId: filters.expenseHeadId, statuses: filters.status })}
+        AND p.amount IS NOT NULL
+      GROUP BY m.month, s.expenseHeadId, p.vendorName
+      ORDER BY m.month ASC, expenseHeadName ASC, p.vendorName ASC
+    `);
+    return rows.map((r) => ({
+      month: r.month,
+      expenseHeadId: r.expenseHeadId,
+      expenseHeadName: r.expenseHeadName,
+      glAccountNo: r.glAccountNo,
+      vendorName: r.vendorName ?? null,
       total: String(r.total),
     }));
   }

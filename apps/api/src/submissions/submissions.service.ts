@@ -134,7 +134,7 @@ export class SubmissionsService {
         clinic: { select: { name: true, accLocationCode: true, customerCode: true } },
         reviewStartedBy: { select: { name: true } },
         snapshots: {
-          include: { entry: true },
+          include: { entries: { orderBy: { lineOrder: 'asc' } } },
           orderBy: [{ expenseHeadGlNoAtSnapshot: 'asc' }, { expenseHeadGlNameAtSnapshot: 'asc' }],
         },
       },
@@ -171,10 +171,29 @@ export class SubmissionsService {
         expenseHeadId: snap.expenseHeadId,
         glAccountNo: snap.expenseHeadGlNoAtSnapshot,
         glAccountName: snap.expenseHeadGlNameAtSnapshot,
-        amount: snap.entry ? snap.entry.amount.toFixed(2) : null,
-        note: snap.entry?.note ?? null,
-        vendorName: snap.entry?.vendorName ?? null,
-        productCode: snap.entry?.productCode ?? null,
+        allowsMultipleVendors: snap.expenseHeadAllowsMultipleVendorsAtSnapshot,
+        // Always at least one line: a head with no entries shows a single blank
+        // line so the form/review renders a row (null amount, not "0.00").
+        lines:
+          snap.entries.length > 0
+            ? snap.entries.map((e) => ({
+                entryId: e.id,
+                amount: e.amount === null ? null : e.amount.toFixed(2),
+                note: e.note ?? null,
+                vendorName: e.vendorName ?? null,
+                productCode: e.productCode ?? null,
+                lineOrder: e.lineOrder,
+              }))
+            : [
+                {
+                  entryId: null,
+                  amount: null,
+                  note: null,
+                  vendorName: null,
+                  productCode: null,
+                  lineOrder: 0,
+                },
+              ],
       })),
     };
   }

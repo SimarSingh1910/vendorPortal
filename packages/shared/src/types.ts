@@ -141,6 +141,8 @@ export interface MappedExpenseHead {
   expenseHeadId: string;
   glAccountNo: string;
   glAccountName: string;
+  /** When true the SPOC may enter multiple vendor lines for this head. */
+  allowsMultipleVendors: boolean;
 }
 
 // ── Submission comments / timeline (Phase 5) ─────────────────────────────────
@@ -200,22 +202,38 @@ export interface SubmissionListItem {
 }
 
 /**
- * One snapshot expense head as a row in the provision form. `amount` is the
- * entered INR value as a DECIMAL(14,2) string, or null when nothing has been
- * entered yet (blank — distinct from an explicit "0.00").
+ * One vendor line within a head. `amount` is the entered INR value as a
+ * DECIMAL(14,2) string, or null when nothing has been entered yet (blank —
+ * distinct from an explicit "0.00").
+ */
+export interface ProvisionLine {
+  /** Persisted entry id; null for a fresh line the SPOC has added but not saved. */
+  entryId: string | null;
+  amount: string | null;
+  /** Optional SPOC line-item note (e.g. why it spiked/dropped); null when none. */
+  note: string | null;
+  /** Optional free-text vendor name entered against this line; null when none. */
+  vendorName: string | null;
+  /** Optional Product Code from the fixed PRODUCT_CODES set; null when none. */
+  productCode: string | null;
+  /** 0-based position of this line within its head, for stable ordering. */
+  lineOrder: number;
+}
+
+/**
+ * One snapshot expense head as a row-group in the provision form. Single-vendor
+ * heads hold exactly one line; heads flagged `allowsMultipleVendors` may hold
+ * several (same G/L, independent vendor/amount/product/note per line). There is
+ * always at least one line — a blank head is one line with a null amount.
  */
 export interface ProvisionHeadRow {
   snapshotId: string;
   expenseHeadId: string;
   glAccountNo: string;
   glAccountName: string;
-  amount: string | null;
-  /** Optional SPOC line-item note for this head (e.g. why it spiked/dropped); null when none. */
-  note: string | null;
-  /** Optional free-text vendor name the SPOC entered against this line; null when none. */
-  vendorName: string | null;
-  /** Optional Product Code the SPOC picked from the fixed PRODUCT_CODES set; null when none. */
-  productCode: string | null;
+  /** Frozen at cycle-open: when true the SPOC may add more vendor lines. */
+  allowsMultipleVendors: boolean;
+  lines: ProvisionLine[];
 }
 
 /** Full provision form / read-only detail for a single submission. */
@@ -245,16 +263,29 @@ export interface SubmissionDetail {
   heads: ProvisionHeadRow[];
 }
 
-/** A single value being saved against a snapshot head (0 is valid; blank = omit). */
-export interface ProvisionEntryInput {
-  snapshotId: string;
-  amount: number;
-  /** Optional SPOC note for this head; blank/whitespace is stored as null. */
+/** One vendor line being saved within a head. */
+export interface ProvisionLineInput {
+  /** Existing entry id → update that line; omitted/null → create a new line. */
+  entryId?: string | null;
+  /** INR value; null for a started-but-blank line (0 is valid, blank ≠ 0). */
+  amount: number | null;
+  /** Optional SPOC note for this line; blank/whitespace is stored as null. */
   note?: string;
-  /** Optional free-text vendor name for this head; blank/whitespace is stored as null. */
+  /** Optional free-text vendor name for this line; blank/whitespace is stored as null. */
   vendorName?: string;
   /** Optional Product Code from the fixed PRODUCT_CODES set; blank is stored as null. */
   productCode?: string;
+}
+
+/**
+ * The full desired set of lines for ONE snapshot head, saved together. Reconciled
+ * by `entryId`: lines with an id are updated, lines without one are created, and
+ * existing lines of this head absent from `lines` are removed. Partial save is
+ * allowed at the HEAD level — omit a head to leave all its lines untouched.
+ */
+export interface ProvisionEntryInput {
+  snapshotId: string;
+  lines: ProvisionLineInput[];
 }
 
 // ── Corporate submission / provision entry (Phase C2) ────────────────────────
@@ -461,6 +492,20 @@ export interface HeadTrendPoint {
   month: string; // YYYY-MM
   expenseHeadId: string;
   expenseHeadName: string;
+  total: string; // DECIMAL(14,2) as string
+}
+
+/**
+ * One (month, head, vendor) total — the per-vendor breakdown behind a head's
+ * figure, for the dashboard Table views (the charts stay head-level). `vendorName`
+ * is null when no vendor was entered on the line(s) — rendered as "—", never 0.
+ */
+export interface HeadVendorTrendPoint {
+  month: string; // YYYY-MM
+  expenseHeadId: string;
+  expenseHeadName: string;
+  glAccountNo: string;
+  vendorName: string | null;
   total: string; // DECIMAL(14,2) as string
 }
 

@@ -118,7 +118,7 @@ export class ProvisionEntryService {
     return this.submissions.getDetail(submissionId, user);
   }
 
-  /** Validate the targets, capture before/after, upsert, then audit the save. */
+  /** Validate the targets, capture before/after, reconcile lines, then audit. */
   private async applyEntries(
     submissionId: string,
     user: RequestUser,
@@ -126,56 +126,110 @@ export class ProvisionEntryService {
     kind: WriteKind,
     clinicId: string,
   ): Promise<void> {
+    // Load the referenced snapshots WITH their current lines — the reconciliation
+    // key is the entry id, so we must know each head's existing lines.
     const snaps = await this.prisma.submissionExpenseHeadSnapshot.findMany({
       where: { submissionId },
-      select: { id: true },
+      select: {
+        id: true,
+        expenseHeadAllowsMultipleVendorsAtSnapshot: true,
+        entries: {
+          orderBy: { lineOrder: 'asc' },
+          select: { id: true, amount: true, vendorName: true, productCode: true, note: true },
+        },
+      },
     });
-    const valid = new Set(snaps.map((s) => s.id));
+    const snapById = new Map(snaps.map((s) => [s.id, s]));
     for (const item of items) {
-      if (!valid.has(item.snapshotId)) {
+      const snap = snapById.get(item.snapshotId);
+      if (!snap) {
         throw new BadRequestException('Unknown snapshot head for this submission');
+      }
+      // Only a multi-vendor head may carry more than one line — a non-flagged head
+      // is capped at a single line (data-driven from the snapshot flag).
+      if (item.lines.length > 1 && !snap.expenseHeadAllowsMultipleVendorsAtSnapshot) {
+        throw new BadRequestException('This expense head does not allow multiple vendor lines');
+      }
+      // Every provided entryId must be an existing line of THAT head (never another).
+      const existingIds = new Set(snap.entries.map((e) => e.id));
+      for (const line of item.lines) {
+        if (line.entryId && !existingIds.has(line.entryId)) {
+          throw new BadRequestException('Unknown line for this head');
+        }
       }
     }
 
-    // Snapshot the prior values so the audit captures the change.
-    const before = await this.prisma.provisionEntry.findMany({
-      where: { snapshotId: { in: items.map((i) => i.snapshotId) } },
-      select: { snapshotId: true, amount: true, vendorName: true, productCode: true },
-    });
-
-    // Only the SPOC owns the per-head note, vendor name and product code;
-    // manager/finance value overrides leave all three untouched (don't include them
-    // in their upsert). Blank or whitespace-only values are stored as null (never
-    // empty strings). The product code is validated against the fixed set by the DTO.
-    const writesSpocFields = kind === 'spoc';
-    const noteOf = (item: ProvisionEntryInput): string | null => item.note?.trim() || null;
-    const vendorOf = (item: ProvisionEntryInput): string | null => item.vendorName?.trim() || null;
-    const productOf = (item: ProvisionEntryInput): string | null => item.productCode?.trim() || null;
-
-    await this.prisma.$transaction(
-      items.map((item) =>
-        this.prisma.provisionEntry.upsert({
-          where: { snapshotId: item.snapshotId },
-          update: {
-            amount: item.amount,
-            lastModifiedById: user.id,
-            ...(writesSpocFields
-              ? { note: noteOf(item), vendorName: vendorOf(item), productCode: productOf(item) }
-              : {}),
-          },
-          create: {
-            submissionId,
-            snapshotId: item.snapshotId,
-            amount: item.amount,
-            enteredById: user.id,
-            lastModifiedById: user.id,
-            ...(writesSpocFields
-              ? { note: noteOf(item), vendorName: vendorOf(item), productCode: productOf(item) }
-              : {}),
-          },
-        }),
-      ),
+    // Before-image (per existing line) so the audit captures the change with line
+    // identity. Covers every line of the referenced heads.
+    const before = items.flatMap((item) =>
+      snapById.get(item.snapshotId)!.entries.map((e) => ({
+        entryId: e.id,
+        snapshotId: item.snapshotId,
+        amount: e.amount === null ? null : e.amount.toFixed(2),
+        vendorName: e.vendorName,
+        productCode: e.productCode,
+      })),
     );
+
+    // Only the SPOC owns the per-line note, vendor name and product code;
+    // manager/finance value overrides leave all three untouched. Blank or
+    // whitespace-only text is stored as null (never empty strings). The product
+    // code is validated against the fixed set by the DTO.
+    const writesSpocFields = kind === 'spoc';
+    const trimOrNull = (v?: string): string | null => v?.trim() || null;
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const item of items) {
+        const existing = snapById.get(item.snapshotId)!.entries;
+        if (writesSpocFields) {
+          // SPOC full reconcile: update lines with an id, create those without one,
+          // delete existing lines the payload dropped (a removed vendor row).
+          const keepIds = new Set(item.lines.map((l) => l.entryId).filter(Boolean) as string[]);
+          const toDelete = existing.filter((e) => !keepIds.has(e.id)).map((e) => e.id);
+          if (toDelete.length > 0) {
+            await tx.provisionEntry.deleteMany({ where: { id: { in: toDelete } } });
+          }
+          for (let i = 0; i < item.lines.length; i++) {
+            const line = item.lines[i];
+            const data = {
+              lineOrder: i,
+              amount: line.amount ?? null,
+              note: trimOrNull(line.note),
+              vendorName: trimOrNull(line.vendorName),
+              productCode: trimOrNull(line.productCode),
+            };
+            if (line.entryId) {
+              await tx.provisionEntry.update({
+                where: { id: line.entryId },
+                data: { ...data, lastModifiedById: user.id },
+              });
+            } else {
+              await tx.provisionEntry.create({
+                data: {
+                  ...data,
+                  submissionId,
+                  snapshotId: item.snapshotId,
+                  enteredById: user.id,
+                  lastModifiedById: user.id,
+                },
+              });
+            }
+          }
+        } else {
+          // Manager/finance override: edit the amount of existing lines only —
+          // never add, remove, or touch the SPOC's vendor/product/note.
+          for (const line of item.lines) {
+            if (!line.entryId) {
+              throw new BadRequestException('An override must target an existing line');
+            }
+            await tx.provisionEntry.update({
+              where: { id: line.entryId },
+              data: { amount: line.amount ?? null, lastModifiedById: user.id },
+            });
+          }
+        }
+      }
+    });
 
     // One audit row per save. A SPOC's normal save is PROVISION_SAVE (the
     // SAVE_DRAFT transition it triggers is intentionally NOT audited, avoiding a
@@ -192,12 +246,7 @@ export class ProvisionEntryService {
       entityType: 'MonthlySubmission',
       entityId: submissionId,
       clinicId,
-      oldValue: before.map((b) => ({
-        snapshotId: b.snapshotId,
-        amount: b.amount.toFixed(2),
-        vendorName: b.vendorName,
-        productCode: b.productCode,
-      })),
+      oldValue: before,
       newValue: items,
     });
   }

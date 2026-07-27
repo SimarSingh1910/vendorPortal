@@ -46,13 +46,19 @@ export function makeFixtures(ctx: FixtureCtx) {
   }
 
   async function makeExpenseHead(
-    opts: { glAccountName?: string; glAccountNo?: string; active?: boolean } = {},
+    opts: {
+      glAccountName?: string;
+      glAccountNo?: string;
+      active?: boolean;
+      allowsMultipleVendors?: boolean;
+    } = {},
   ): Promise<ExpenseHead> {
     const n = next();
     return prisma.expenseHead.create({
       data: {
         glAccountName: opts.glAccountName ?? `Head ${n}`,
         glAccountNo: opts.glAccountNo ?? `GL-${n}`,
+        allowsMultipleVendors: opts.allowsMultipleVendors ?? false,
         isActive: opts.active ?? true,
       },
     });

@@ -76,6 +76,9 @@ export class ExportService {
     if (filters.to) conds.push(Prisma.sql`m.month <= ${filters.to}`);
     if (filters.expenseHeadId) conds.push(Prisma.sql`s.expenseHeadId = ${filters.expenseHeadId}`);
     if (filters.status?.length) conds.push(Prisma.sql`m.status IN (${Prisma.join(filters.status)})`);
+    // A blank multi-vendor line (null amount) is an incomplete draft row with no
+    // finance value — never export it as a "0" row (NULL ≠ 0).
+    conds.push(Prisma.sql`p.amount IS NOT NULL`);
 
     const rows = await this.prisma.$queryRaw<ExportRow[]>(Prisma.sql`
       SELECT c.id AS clinicId, c.name AS clinicName,
@@ -93,7 +96,7 @@ export class ExportService {
       JOIN monthlysubmission m ON m.id = p.submissionId
       JOIN clinic c ON c.id = m.clinicId
       WHERE ${Prisma.join(conds, ' AND ')}
-      ORDER BY c.name ASC, m.month ASC, s.expenseHeadGlNoAtSnapshot ASC, s.expenseHeadGlNameAtSnapshot ASC
+      ORDER BY c.name ASC, m.month ASC, s.expenseHeadGlNoAtSnapshot ASC, s.expenseHeadGlNameAtSnapshot ASC, p.lineOrder ASC
     `);
     return rows.map((r) => ({ ...r, amount: String(r.amount) }));
   }

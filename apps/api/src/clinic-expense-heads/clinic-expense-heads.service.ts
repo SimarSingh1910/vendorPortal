@@ -37,6 +37,7 @@ export class ClinicExpenseHeadsService {
       expenseHeadId: row.expenseHeadId,
       glAccountNo: row.expenseHead.glAccountNo,
       glAccountName: row.expenseHead.glAccountName,
+      allowsMultipleVendors: row.expenseHead.allowsMultipleVendors,
     }));
   }
 

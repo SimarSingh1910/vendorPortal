@@ -8,11 +8,15 @@ interface Head {
 }
 
 /**
- * Multi-select expense-head filter (checkbox list) for the head-trend block.
- * "All heads" is the empty selection — the canonical representation of "no
- * subset filter" — so a caller treats `selected.size === 0` as all. Selecting
- * every head individually collapses back to that empty "all" set, and unchecking
- * the last head falls back to all too, so the charts are never rendered empty.
+ * Multi-select expense-head filter (checkbox list) for the head-trend / split
+ * blocks. Selection is tri-state:
+ *   • `null`        → "All heads" (the default; async-safe since it needs no ids)
+ *   • empty `Set`   → NONE selected (the charts render an empty state)
+ *   • partial `Set` → just that subset
+ * The header "All heads" checkbox is a proper select-all / deselect-all toggle:
+ * ticking it selects all (`null`), unticking it deselects all (empty set). It
+ * shows an indeterminate dash while a partial subset is chosen. Selecting every
+ * head individually collapses back to `null` ("all").
  *
  * Built from native inputs (tinted with the brand accent) to match the app's
  * other native filter controls — no dropdown library is pulled in.
@@ -23,12 +27,13 @@ export function HeadMultiSelect({
   onChange,
 }: {
   heads: Head[];
-  /** Selected head ids; an EMPTY set means "All heads". */
-  selected: Set<string>;
-  onChange: (next: Set<string>) => void;
+  /** `null` = All heads; empty Set = none; otherwise the chosen subset. */
+  selected: Set<string> | null;
+  onChange: (next: Set<string> | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const allRef = useRef<HTMLInputElement>(null);
 
   // Close on outside click or Escape while open.
   useEffect(() => {
@@ -47,25 +52,35 @@ export function HeadMultiSelect({
     };
   }, [open]);
 
-  // "All" when nothing (or, defensively, everything) is selected.
-  const allSelected = selected.size === 0 || selected.size === heads.length;
+  // `null`, or (defensively) an explicit full set, both read as "all".
+  const allSelected = selected === null || (heads.length > 0 && selected.size === heads.length);
+  const noneSelected = selected !== null && selected.size === 0;
+  // Header checkbox shows a dash while a partial subset is chosen.
+  const partial = !allSelected && !noneSelected;
+
+  useEffect(() => {
+    if (allRef.current) allRef.current.indeterminate = partial;
+  }, [partial, open]);
+
   const label = allSelected
     ? 'All heads'
-    : selected.size === 1
-      ? (heads.find((h) => selected.has(h.id))?.name ?? '1 head selected')
-      : `${selected.size} heads selected`;
+    : noneSelected
+      ? 'No heads selected'
+      : selected!.size === 1
+        ? (heads.find((h) => selected!.has(h.id))?.name ?? '1 head selected')
+        : `${selected!.size} heads selected`;
 
-  // A row is ticked when it's in the subset, or when "all" is active.
-  const isChecked = (id: string) => allSelected || selected.has(id);
+  // A row is ticked when "all" is active or it's in the chosen subset.
+  const isChecked = (id: string) => selected === null || selected.has(id);
 
   const toggle = (id: string) => {
     // From "all", start with the full set so unticking one leaves the rest.
-    const base = selected.size === 0 ? new Set(heads.map((h) => h.id)) : new Set(selected);
+    const base = selected === null ? new Set(heads.map((h) => h.id)) : new Set(selected);
     if (base.has(id)) base.delete(id);
     else base.add(id);
-    // Empty is not allowed, and a full set is just "all" — both collapse to the
-    // empty "all" set so the charts always have something to render.
-    onChange(base.size === 0 || base.size === heads.length ? new Set() : base);
+    // A full set collapses back to the canonical "all" (`null`); an empty set is
+    // now a valid "none" state, so it is passed through as-is.
+    onChange(base.size === heads.length ? null : base);
   };
 
   return (
@@ -89,12 +104,13 @@ export function HeadMultiSelect({
         >
           <label className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent">
             <input
+              ref={allRef}
               type="checkbox"
               className="size-4 accent-primary"
               checked={allSelected}
-              // Reset to "all" (empty set). When already all this is a no-op —
-              // deselecting everything is not an allowed state.
-              onChange={() => onChange(new Set())}
+              // Select-all / deselect-all toggle: tick → all (`null`),
+              // untick → none (empty set). From a partial subset, tick → all.
+              onChange={() => onChange(allSelected ? new Set() : null)}
             />
             <span className="font-medium">All heads</span>
           </label>

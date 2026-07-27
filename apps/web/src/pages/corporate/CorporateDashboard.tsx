@@ -28,7 +28,9 @@ import { MonthlyTotalsChart, VarianceDivergingChart } from '@/components/dashboa
 import { CorpDepartmentTotalsChart } from '@/components/dashboard/CorpDepartmentTotalsChart';
 import { CorpStatusTiles, CorpStatusTable } from '@/components/dashboard/CorpStatusTiles';
 import { ChartTableView } from '@/components/dashboard/ChartTableView';
+import { ExpenseHeadSplitBlock } from '@/components/dashboard/ExpenseHeadSplitBlock';
 import { HeadTrendBlock } from '@/components/dashboard/HeadTrendBlock';
+import { MonthSelect } from '@/components/dashboard/MonthSelect';
 import { KpiRow, SubmissionPipeline } from '@/components/dashboard/DashboardKpis';
 import { MonthlyTotalsTable, VarianceTable } from '@/components/dashboard/dataTables';
 import { exportCorpMonthEnd } from '@/api/export';
@@ -41,6 +43,14 @@ function shiftMonth(month: string, delta: number): string {
   const [y, m] = month.split('-').map(Number);
   const d = new Date(Date.UTC(y, m - 1 + delta, 1));
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Months in [from, to] inclusive, newest first — options for the month picker. */
+function monthsInRange(from: string, to: string): string[] {
+  if (!from || !to || from > to) return [];
+  const out: string[] = [];
+  for (let m = to; m >= from && out.length <= 240; m = shiftMonth(m, -1)) out.push(m);
+  return out;
 }
 
 /** A native, Input-styled select for the filter row (no shared Select component). */
@@ -146,6 +156,9 @@ export function CorporateDashboard() {
   const [status, setStatus] = useState('');
   const [fromMonth, setFromMonth] = useState(shiftMonth(thisMonth, -11));
   const [toMonth, setToMonth] = useState(thisMonth);
+  // Shared month focus for the trend, department-total and split cards. Empty =
+  // whole range; `effectiveMonth` collapses to whole range if the pick leaves it.
+  const [viewMonth, setViewMonth] = useState('');
 
   // `toMonth` is the as-of month for status + variance; (from, to) bounds the trends.
   const asOf = toMonth || thisMonth;
@@ -157,6 +170,14 @@ export function CorporateDashboard() {
     to: toMonth || undefined,
     status: status ? [status as CorpSubmissionStatus] : undefined,
   };
+
+  // Month-picker options + the effective pick (whole range when unset / out of range).
+  const monthOptions = useMemo(() => monthsInRange(fromMonth, toMonth), [fromMonth, toMonth]);
+  const effectiveMonth = viewMonth && monthOptions.includes(viewMonth) ? viewMonth : '';
+  // Department totals honour the picked month by narrowing the fetched range to it.
+  const deptFilter: CorpDashboardFilter = effectiveMonth
+    ? { ...rangeFilter, from: effectiveMonth, to: effectiveMonth }
+    : rangeFilter;
 
   const { data: options } = useQuery({
     queryKey: ['corp', 'dashboard', 'filters'],
@@ -181,10 +202,17 @@ export function CorporateDashboard() {
     placeholderData: keepPreviousData,
   });
   const { data: deptTotals = [] } = useQuery({
-    queryKey: ['corp', 'dashboard', 'dept-totals', rangeFilter],
-    queryFn: () => getCorpDepartmentTotals(rangeFilter),
+    queryKey: ['corp', 'dashboard', 'dept-totals', deptFilter],
+    queryFn: () => getCorpDepartmentTotals(deptFilter),
     placeholderData: keepPreviousData,
   });
+
+  // Trend + pie share one client-side month filter (the head-trend query already
+  // holds the whole range) — a specific month narrows to that month, NULL ≠ 0.
+  const headTrendsView = useMemo(
+    () => (effectiveMonth ? headTrends.filter((d) => d.month === effectiveMonth) : headTrends),
+    [headTrends, effectiveMonth],
+  );
   const { data: sec24 = [] } = useQuery({
     queryKey: ['corp', 'dashboard', 'sec24', rangeFilter],
     queryFn: () => getCorpSec24(rangeFilter),
@@ -194,6 +222,12 @@ export function CorporateDashboard() {
   // Master head→colour map so a head keeps its colour across charts/filters.
   const colorMap = useMemo(() => buildHeadColorMap(options?.expenseHeads ?? []), [options]);
   const colorOf = useMemo(() => (id: string) => headColor(colorMap, id), [colorMap]);
+
+  // One shared month picker, rendered in each of the three cards' control rows so
+  // they focus/blur the same month together (empty = whole range).
+  const monthControl = (
+    <MonthSelect value={effectiveMonth} options={monthOptions} onChange={setViewMonth} />
+  );
 
   return (
     <div className="space-y-8">
@@ -319,11 +353,11 @@ export function CorporateDashboard() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <HeadTrendBlock data={headTrends} colorOf={colorOf} />
+          <HeadTrendBlock data={headTrendsView} colorOf={colorOf} monthControl={monthControl} />
         </CardContent>
       </Card>
 
-      {/* (d) Cross-department total + (e) Variance vs prior month */}
+      {/* (d) Cross-department total + Expense-head split */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
@@ -332,6 +366,7 @@ export function CorporateDashboard() {
           </CardHeader>
           <CardContent>
             <ChartTableView
+              controls={monthControl}
               chart={<CorpDepartmentTotalsChart data={deptTotals} />}
               table={<CorpDepartmentTotalsTable data={deptTotals} />}
             />
@@ -339,28 +374,43 @@ export function CorporateDashboard() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Variance vs prior month</CardTitle>
-            <CardDescription>
-              Δ% {variance ? formatMonth(variance.priorMonth) : '—'} → {formatMonth(asOf)}
-              {variance?.thresholdPercent != null
-                ? ` · shaded band = ±${variance.thresholdPercent}% threshold`
-                : ''}
-            </CardDescription>
+            <CardTitle className="text-base">Expense-head split</CardTitle>
+            <CardDescription>Share of provision by head over the range.</CardDescription>
           </CardHeader>
           <CardContent>
-            {variance && variance.rows.length > 0 ? (
-              <ChartTableView
-                chart={<VarianceDivergingChart report={variance} />}
-                table={<VarianceTable report={variance} />}
-              />
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                No variance data for {formatMonth(asOf)} yet.
-              </p>
-            )}
+            <ExpenseHeadSplitBlock
+              data={headTrendsView}
+              colorOf={colorOf}
+              monthControl={monthControl}
+            />
           </CardContent>
         </Card>
       </div>
+
+      {/* (e) Variance vs prior month — full width */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Variance vs prior month</CardTitle>
+          <CardDescription>
+            Δ% {variance ? formatMonth(variance.priorMonth) : '—'} → {formatMonth(asOf)}
+            {variance?.thresholdPercent != null
+              ? ` · shaded band = ±${variance.thresholdPercent}% threshold`
+              : ''}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {variance && variance.rows.length > 0 ? (
+            <ChartTableView
+              chart={<VarianceDivergingChart report={variance} />}
+              table={<VarianceTable report={variance} />}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No variance data for {formatMonth(asOf)} yet.
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* (f) Sec 24 shared-cost-pool dual display */}
       <Card>

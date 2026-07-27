@@ -90,6 +90,66 @@ describe('DashboardService (Phase 11, FR-07)', () => {
     expect(bravo.total).toBeNull(); // open but nothing entered
   });
 
+  it('per-head/clinic totals SUM every vendor line of a multi-vendor head (not one per head)', async () => {
+    const a = await fx.makeClinic({ name: 'Multi' });
+    const head = await fx.makeExpenseHead({ allowsMultipleVendors: true });
+    await fx.mapHeads(a.id, [head.id]);
+    const { submission } = await cycle.openClinicCycle(a.id, '2026-06');
+    const snap = await prisma.submissionExpenseHeadSnapshot.findFirstOrThrow({
+      where: { submissionId: submission.id, expenseHeadId: head.id },
+    });
+    // Two vendor lines on the one head: 100 + 250.
+    await prisma.provisionEntry.createMany({
+      data: [
+        { submissionId: submission.id, snapshotId: snap.id, lineOrder: 0, amount: 100, enteredById: spocId, lastModifiedById: spocId },
+        { submissionId: submission.id, snapshotId: snap.id, lineOrder: 1, amount: 250, enteredById: spocId, lastModifiedById: spocId },
+      ],
+    });
+
+    const tiles = await dashboard.statusTracker(finance, '2026-06');
+    // The head is not split into two series/rows — its total is the SUM of both lines.
+    expect(tiles.find((t) => t.clinicName === 'Multi')!.total).toBe('350.00');
+
+    const clinicTotals = await dashboard.clinicTotals(finance, { from: '2026-06', to: '2026-06' });
+    expect(clinicTotals.find((c) => c.clinicName === 'Multi')!.total).toBe('350.00');
+  });
+
+  it('head-vendor breakdown splits a head by vendor (null bucket separate), reconciling with the head total', async () => {
+    const a = await fx.makeClinic({ name: 'VendorBreak' });
+    const head = await fx.makeExpenseHead({ allowsMultipleVendors: true });
+    await fx.mapHeads(a.id, [head.id]);
+    const { submission } = await cycle.openClinicCycle(a.id, '2026-06');
+    const snap = await prisma.submissionExpenseHeadSnapshot.findFirstOrThrow({
+      where: { submissionId: submission.id, expenseHeadId: head.id },
+    });
+    await prisma.provisionEntry.createMany({
+      data: [
+        { submissionId: submission.id, snapshotId: snap.id, lineOrder: 0, amount: 100, vendorName: 'Quess Corp', enteredById: spocId, lastModifiedById: spocId },
+        { submissionId: submission.id, snapshotId: snap.id, lineOrder: 1, amount: 250, vendorName: 'Sodexo', enteredById: spocId, lastModifiedById: spocId },
+        // A line with no vendor → its own null bucket ("—").
+        { submissionId: submission.id, snapshotId: snap.id, lineOrder: 2, amount: 50, vendorName: null, enteredById: spocId, lastModifiedById: spocId },
+        // A blank (null-amount) line is excluded entirely (NULL ≠ 0).
+        { submissionId: submission.id, snapshotId: snap.id, lineOrder: 3, amount: null, vendorName: 'Ghost', enteredById: spocId, lastModifiedById: spocId },
+      ],
+    });
+
+    const vendor = await dashboard.headVendorTrends(finance, { from: '2026-06', to: '2026-06' });
+    // Three vendor buckets (Quess, Sodexo, null) — the blank-amount "Ghost" line is gone.
+    expect(vendor).toHaveLength(3);
+    const byVendor = new Map(vendor.map((v) => [v.vendorName, v.total]));
+    expect(byVendor.get('Quess Corp')).toBe('100.00');
+    expect(byVendor.get('Sodexo')).toBe('250.00');
+    expect(byVendor.get(null)).toBe('50.00');
+    expect(vendor.every((v) => v.expenseHeadId === head.id)).toBe(true);
+
+    // Vendor rows reconcile exactly with the head-level total (400).
+    const heads = await dashboard.headTrends(finance, { from: '2026-06', to: '2026-06' });
+    const headTotal = Number(heads.find((h) => h.expenseHeadId === head.id)!.total);
+    const vendorSum = vendor.reduce((s, v) => s + Number(v.total), 0);
+    expect(vendorSum).toBe(headTotal);
+    expect(headTotal).toBe(400);
+  });
+
   it('monthly totals sum per month across clinics', async () => {
     const a = await fx.makeClinic();
     const b = await fx.makeClinic();

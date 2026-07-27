@@ -1,14 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Lock } from 'lucide-react';
+import { ArrowLeft, CircleAlert, Lock, Plus, X } from 'lucide-react';
 import {
   isActionPending,
   PRODUCT_CODES,
   SubmissionStatus,
   UserRole,
-  type ProvisionEntryInput,
-  type SubmissionDetail,
 } from '@portal/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -39,13 +37,18 @@ import {
   submitSubmission,
 } from '@/api/submissions';
 import { MonthwiseReportPanel } from '@/components/MonthwiseReportPanel';
-import {
-  ActionNeededBadge,
-  attentionAccentClass,
-  AttentionBanner,
-} from '@/components/attention';
+import { ActionNeededBadge } from '@/components/attention';
 import { apiErrorMessage } from '@/lib/apiError';
 import { cn } from '@/lib/utils';
+import {
+  blankLine,
+  collectSpocEntries,
+  incompleteHeadCount,
+  parseAmount,
+  seedLines,
+  type LineDraft,
+  type LinesState,
+} from '@/lib/provisionLines';
 import {
   commentActionLabel,
   commentActionVariant,
@@ -56,56 +59,27 @@ import {
   statusLabel,
 } from '@/lib/format';
 
-type ValueMap = Record<string, string>;
-
-/** Build the values map from a freshly-loaded detail (amount string or blank). */
-function seedValues(detail: SubmissionDetail): ValueMap {
-  const map: ValueMap = {};
-  for (const head of detail.heads) {
-    map[head.snapshotId] = head.amount ?? '';
-  }
-  return map;
-}
-
-/** Build the per-head notes map from a freshly-loaded detail (note string or blank). */
-function seedNotes(detail: SubmissionDetail): ValueMap {
-  const map: ValueMap = {};
-  for (const head of detail.heads) {
-    map[head.snapshotId] = head.note ?? '';
-  }
-  return map;
-}
-
-/** Build the per-head vendor-name map from a freshly-loaded detail (vendor or blank). */
-function seedVendors(detail: SubmissionDetail): ValueMap {
-  const map: ValueMap = {};
-  for (const head of detail.heads) {
-    map[head.snapshotId] = head.vendorName ?? '';
-  }
-  return map;
-}
-
-/** Build the per-head product-code map from a freshly-loaded detail (code or blank). */
-function seedProducts(detail: SubmissionDetail): ValueMap {
-  const map: ValueMap = {};
-  for (const head of detail.heads) {
-    map[head.snapshotId] = head.productCode ?? '';
-  }
-  return map;
-}
-
 /** Native styled select, matching the Input look (no shared Select component exists). */
 const selectClass =
   'h-9 w-40 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm ' +
   'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50';
 
-/** A trimmed, valid non-negative number, or null if blank/invalid. */
-function parseAmount(raw: string): number | null {
-  const trimmed = raw.trim();
-  if (trimmed === '') return null;
-  const n = Number(trimmed);
-  if (!Number.isFinite(n) || n < 0) return null;
-  return Math.round(n * 100) / 100;
+// SPOC data-entry "action needed" emphasis — scoped to this screen only, replacing
+// the app-wide amber attention accent. The table sits on a soft #D0E9FF tint with a
+// brand-blue left accent; the hovered row deepens to #dae9f8. The banner keeps its
+// own #dae9f8 tint.
+const ENTRY_TINT = 'bg-[#dae9f8]';
+const ENTRY_ACCENT = 'border-l-4 border-l-[#4579B3] bg-[#D0E9FF]';
+const ROW_HOVER = 'hover:bg-[#dae9f8]';
+
+/** True when a draft line holds any data — drives the remove-confirm dialog. */
+function lineHasData(l: LineDraft): boolean {
+  return (
+    parseAmount(l.amount) !== null ||
+    l.vendor.trim() !== '' ||
+    l.product.trim() !== '' ||
+    l.note.trim() !== ''
+  );
 }
 
 export function SubmissionEntry() {
@@ -122,62 +96,55 @@ export function SubmissionEntry() {
     queryFn: () => getComments(submissionId),
   });
 
-  const [values, setValues] = useState<ValueMap>({});
-  // Per-head line-item notes (distinct from `note` below, the submission-level submit comment).
-  const [headNotes, setHeadNotes] = useState<ValueMap>({});
-  // Per-head free-text vendor names, saved with the entry alongside the amount.
-  const [headVendors, setHeadVendors] = useState<ValueMap>({});
-  // Per-head product codes (fixed dropdown set), saved with the entry.
-  const [headProducts, setHeadProducts] = useState<ValueMap>({});
+  // Per-head editable vendor lines (snapshotId → LineDraft[]).
+  const [lines, setLines] = useState<LinesState>({});
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
   // Recall confirmation dialog (with an optional reason for the timeline).
   const [recallOpen, setRecallOpen] = useState(false);
   const [recallReason, setRecallReason] = useState('');
+  // Remove-line confirmation (only for a line that already holds data).
+  const [removeTarget, setRemoveTarget] = useState<{ snapshotId: string; index: number } | null>(
+    null,
+  );
 
   // Seed inputs whenever the detail (re)loads.
   useEffect(() => {
-    if (detail) {
-      setValues(seedValues(detail));
-      setHeadNotes(seedNotes(detail));
-      setHeadVendors(seedVendors(detail));
-      setHeadProducts(seedProducts(detail));
-    }
+    if (detail) setLines(seedLines(detail));
   }, [detail]);
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['submissions'] });
   };
 
-  const collectEntries = (): ProvisionEntryInput[] => {
-    const out: ProvisionEntryInput[] = [];
-    for (const head of detail?.heads ?? []) {
-      const amount = parseAmount(values[head.snapshotId] ?? '');
-      // A note and vendor name ride with the head's value; the API stores them on the entry row.
-      if (amount !== null) {
-        const noteText = (headNotes[head.snapshotId] ?? '').trim();
-        const vendorText = (headVendors[head.snapshotId] ?? '').trim();
-        const productText = (headProducts[head.snapshotId] ?? '').trim();
-        out.push({
-          snapshotId: head.snapshotId,
-          amount,
-          note: noteText || undefined,
-          vendorName: vendorText || undefined,
-          productCode: productText || undefined,
-        });
-      }
-    }
-    return out;
+  const patchLine = (snapshotId: string, index: number, patch: Partial<LineDraft>) => {
+    setLines((prev) => {
+      const next = (prev[snapshotId] ?? []).map((l, i) => (i === index ? { ...l, ...patch } : l));
+      return { ...prev, [snapshotId]: next };
+    });
+  };
+  const addLine = (snapshotId: string) => {
+    setLines((prev) => ({ ...prev, [snapshotId]: [...(prev[snapshotId] ?? []), blankLine()] }));
+  };
+  const removeLine = (snapshotId: string, index: number) => {
+    setLines((prev) => ({
+      ...prev,
+      [snapshotId]: (prev[snapshotId] ?? []).filter((_, i) => i !== index),
+    }));
+  };
+  // First/only line is never removable; a line with data asks for confirmation.
+  const requestRemove = (snapshotId: string, index: number) => {
+    if (index === 0) return;
+    const line = lines[snapshotId]?.[index];
+    if (line && lineHasData(line)) setRemoveTarget({ snapshotId, index });
+    else removeLine(snapshotId, index);
   };
 
   const saveMutation = useMutation({
-    mutationFn: () => saveEntries(submissionId, collectEntries()),
+    mutationFn: () => saveEntries(submissionId, collectSpocEntries(detail!, lines)),
     onSuccess: (updated) => {
       setError(null);
-      setValues(seedValues(updated));
-      setHeadNotes(seedNotes(updated));
-      setHeadVendors(seedVendors(updated));
-      setHeadProducts(seedProducts(updated));
+      setLines(seedLines(updated));
       invalidate();
     },
     onError: (e) => setError(apiErrorMessage(e, 'Could not save. Please try again.')),
@@ -185,7 +152,7 @@ export function SubmissionEntry() {
 
   const submitMutation = useMutation({
     mutationFn: async () => {
-      await saveEntries(submissionId, collectEntries());
+      await saveEntries(submissionId, collectSpocEntries(detail!, lines));
       await submitSubmission(submissionId, note);
     },
     onSuccess: () => {
@@ -211,10 +178,10 @@ export function SubmissionEntry() {
     onError: (e) => setError(apiErrorMessage(e, 'Could not recall. Please try again.')),
   });
 
-  const missingCount = useMemo(() => {
-    if (!detail) return 0;
-    return detail.heads.filter((h) => parseAmount(values[h.snapshotId] ?? '') === null).length;
-  }, [detail, values]);
+  const missingCount = useMemo(
+    () => (detail ? incompleteHeadCount(detail, lines) : 0),
+    [detail, lines],
+  );
 
   if (isLoading || !detail) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
@@ -266,10 +233,19 @@ export function SubmissionEntry() {
       )}
 
       {pending && !isSentBack && (
-        <AttentionBanner>
-          Action needed — enter this month&rsquo;s figures for every expense head and submit for
-          review.
-        </AttentionBanner>
+        <div
+          role="status"
+          className={cn(
+            'flex items-center gap-2 rounded-lg border border-[#4579B3]/30 px-4 py-3 text-sm font-medium text-foreground',
+            ENTRY_TINT,
+          )}
+        >
+          <CircleAlert className="size-4 shrink-0 text-[#4579B3]" aria-hidden />
+          <span>
+            Action needed — enter this month&rsquo;s figures for every expense head and submit for
+            review.
+          </span>
+        </div>
       )}
 
       {comments.length > 0 && (
@@ -294,7 +270,7 @@ export function SubmissionEntry() {
         </section>
       )}
 
-      <div className={cn('rounded-lg border', pending && attentionAccentClass)}>
+      <div className={cn('rounded-lg border', pending && ENTRY_ACCENT)}>
         <Table>
           <TableHeader>
             <TableRow>
@@ -313,85 +289,133 @@ export function SubmissionEntry() {
                 </TableCell>
               </TableRow>
             ) : (
-              detail.heads.map((head) => (
-                <TableRow key={head.snapshotId}>
-                  <TableCell className="align-top text-muted-foreground">{head.glAccountNo}</TableCell>
-                  <TableCell className="align-top font-medium">
-                    <div>{head.glAccountName}</div>
-                    {canEdit ? (
-                      <Textarea
-                        rows={2}
-                        placeholder="Add a note for this head (optional) — e.g. why it changed this month."
-                        className="mt-1.5 text-sm font-normal"
-                        value={headNotes[head.snapshotId] ?? ''}
-                        onChange={(e) =>
-                          setHeadNotes((prev) => ({ ...prev, [head.snapshotId]: e.target.value }))
-                        }
-                      />
-                    ) : (
-                      head.note && (
-                        <p className="mt-1 whitespace-pre-wrap text-xs font-normal text-muted-foreground">
-                          {head.note}
-                        </p>
-                      )
-                    )}
-                  </TableCell>
-                  <TableCell className="align-top">
-                    {canEdit ? (
-                      <Input
-                        type="text"
-                        placeholder="Vendor (optional)"
-                        className="w-48"
-                        value={headVendors[head.snapshotId] ?? ''}
-                        onChange={(e) =>
-                          setHeadVendors((prev) => ({ ...prev, [head.snapshotId]: e.target.value }))
-                        }
-                      />
-                    ) : (
-                      <span className="text-sm text-muted-foreground">{head.vendorName ?? ''}</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="align-top">
-                    {canEdit ? (
-                      <select
-                        className={selectClass}
-                        value={headProducts[head.snapshotId] ?? ''}
-                        onChange={(e) =>
-                          setHeadProducts((prev) => ({ ...prev, [head.snapshotId]: e.target.value }))
-                        }
+              detail.heads.map((head) => {
+                const headLines = lines[head.snapshotId] ?? [];
+                const multi = head.allowsMultipleVendors;
+                return (
+                  <Fragment key={head.snapshotId}>
+                    {headLines.map((line, li) => (
+                      <TableRow
+                        key={line.entryId ?? `new-${li}`}
+                        className={cn(ROW_HOVER, li > 0 && 'border-t-0')}
                       >
-                        <option value="">— select —</option>
-                        {PRODUCT_CODES.map((code) => (
-                          <option key={code} value={code}>
-                            {code}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">{head.productCode ?? ''}</span>
+                        <TableCell className="align-top text-muted-foreground">
+                          {li === 0 ? head.glAccountNo : ''}
+                        </TableCell>
+                        <TableCell className="align-top font-medium">
+                          {li === 0 ? (
+                            <div>{head.glAccountName}</div>
+                          ) : (
+                            <div className="pl-4 text-muted-foreground">↳</div>
+                          )}
+                          {canEdit ? (
+                            <Textarea
+                              rows={2}
+                              placeholder="Note for this line (optional) — e.g. why it changed this month."
+                              className={cn('mt-1.5 text-sm font-normal', li > 0 && 'ml-4')}
+                              value={line.note}
+                              onChange={(e) =>
+                                patchLine(head.snapshotId, li, { note: e.target.value })
+                              }
+                            />
+                          ) : (
+                            line.note && (
+                              <p className="mt-1 whitespace-pre-wrap text-xs font-normal text-muted-foreground">
+                                {line.note}
+                              </p>
+                            )
+                          )}
+                        </TableCell>
+                        <TableCell className="align-top">
+                          {canEdit ? (
+                            <Input
+                              type="text"
+                              placeholder="Vendor (optional)"
+                              className="w-48"
+                              value={line.vendor}
+                              onChange={(e) =>
+                                patchLine(head.snapshotId, li, { vendor: e.target.value })
+                              }
+                            />
+                          ) : (
+                            <span className="text-sm text-muted-foreground">{line.vendor}</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="align-top">
+                          {canEdit ? (
+                            <select
+                              className={selectClass}
+                              value={line.product}
+                              onChange={(e) =>
+                                patchLine(head.snapshotId, li, { product: e.target.value })
+                              }
+                            >
+                              <option value="">— select —</option>
+                              {PRODUCT_CODES.map((code) => (
+                                <option key={code} value={code}>
+                                  {code}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">{line.product}</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="align-top text-right">
+                          {canEdit ? (
+                            <div className="flex items-center justify-end gap-1">
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                inputMode="decimal"
+                                className="w-40 text-right"
+                                value={line.amount}
+                                onChange={(e) =>
+                                  patchLine(head.snapshotId, li, { amount: e.target.value })
+                                }
+                              />
+                              {li > 0 && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-8 text-muted-foreground hover:text-destructive"
+                                  aria-label="Remove this vendor line"
+                                  onClick={() => requestRemove(head.snapshotId, li)}
+                                >
+                                  <X className="size-4" />
+                                </Button>
+                              )}
+                            </div>
+                          ) : (
+                            <span className={line.amount === '' ? 'text-muted-foreground' : ''}>
+                              {formatINR(line.amount === '' ? null : line.amount)}
+                            </span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {canEdit && multi && (
+                      <TableRow className="border-t-0">
+                        <TableCell />
+                        <TableCell colSpan={4} className="py-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 gap-1 text-xs text-muted-foreground"
+                            onClick={() => addLine(head.snapshotId)}
+                          >
+                            <Plus className="size-3.5" />
+                            Add vendor row
+                          </Button>
+                        </TableCell>
+                      </TableRow>
                     )}
-                  </TableCell>
-                  <TableCell className="align-top text-right">
-                    {canEdit ? (
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        inputMode="decimal"
-                        className="ml-auto w-40 text-right"
-                        value={values[head.snapshotId] ?? ''}
-                        onChange={(e) =>
-                          setValues((prev) => ({ ...prev, [head.snapshotId]: e.target.value }))
-                        }
-                      />
-                    ) : (
-                      <span className={head.amount === null ? 'text-muted-foreground' : ''}>
-                        {formatINR(head.amount)}
-                      </span>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))
+                  </Fragment>
+                );
+              })
             )}
           </TableBody>
         </Table>
@@ -428,7 +452,8 @@ export function SubmissionEntry() {
           </Button>
           {missingCount > 0 && (
             <span className="text-xs text-muted-foreground">
-              Fill every head before submitting ({missingCount} blank). Zero is a valid value.
+              Every line needs an amount before submitting ({missingCount} incomplete). Zero is a
+              valid value; remove any line you don&rsquo;t need.
             </span>
           )}
         </div>
@@ -446,6 +471,33 @@ export function SubmissionEntry() {
           )}
         </div>
       )}
+
+      {/* Remove-line confirmation — only shown for a line that holds data. */}
+      <Dialog open={removeTarget !== null} onOpenChange={(open) => !open && setRemoveTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove this vendor line?</DialogTitle>
+            <DialogDescription>
+              The line&rsquo;s vendor, amount and note will be discarded when you next save. This
+              cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRemoveTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (removeTarget) removeLine(removeTarget.snapshotId, removeTarget.index);
+                setRemoveTarget(null);
+              }}
+            >
+              Remove line
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Recall confirmation — withdraws the submission to DRAFT for corrections. */}
       <Dialog open={recallOpen} onOpenChange={(open) => !busy && setRecallOpen(open)}>

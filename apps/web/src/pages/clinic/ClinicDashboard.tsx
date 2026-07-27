@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import {
   getDashboardFilters,
   getHeadTrends,
+  getHeadVendorTrends,
   getMonthlyTotals,
   getStatusTracker,
 } from '@/api/dashboard';
@@ -38,6 +39,10 @@ export function ClinicDashboard() {
   const { data: headTrends = [] } = useQuery({
     queryKey: ['dashboard', 'head-trends', 'mine'],
     queryFn: () => getHeadTrends({}),
+  });
+  const { data: headVendorTrends = [] } = useQuery({
+    queryKey: ['dashboard', 'head-vendor-trends', 'mine'],
+    queryFn: () => getHeadVendorTrends({}),
   });
   const { data: clinics = [] } = useQuery({
     queryKey: ['submissions', 'overview'],
@@ -93,7 +98,7 @@ export function ClinicDashboard() {
           <CardDescription>Per-head totals across the recent months.</CardDescription>
         </CardHeader>
         <CardContent>
-          <HeadTrendBlock data={headTrends} colorOf={colorOf} />
+          <HeadTrendBlock data={headTrends} colorOf={colorOf} vendorData={headVendorTrends} />
         </CardContent>
       </Card>
 

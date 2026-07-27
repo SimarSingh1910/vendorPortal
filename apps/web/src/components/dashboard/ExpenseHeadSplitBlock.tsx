@@ -2,18 +2,19 @@ import { useMemo, useState, type ReactNode } from 'react';
 import type { HeadTrendPoint, HeadVendorTrendPoint } from '@portal/shared';
 import { ChartTableView } from './ChartTableView';
 import { HeadMultiSelect } from './HeadMultiSelect';
-import { HeadTrendCharts } from './charts';
-import { HeadTrendTable, HeadVendorTrendTable } from './dataTables';
+import { ExpenseHeadPieChart } from './charts';
+import { ExpenseHeadSplitTable, ExpenseHeadVendorSplitTable } from './dataTables';
 
 /**
- * Expense-head-wise trend block: a multi-select head filter next to the
- * chart/table toggle. "All heads" (default, the empty set) keeps the full view;
- * picking any subset filters BOTH the chart and the table to just those heads —
- * client-side, no refetch. `colorOf` comes from the dashboard's master head→
- * colour map (built over ALL heads), so a head keeps its app-wide colour whether
- * 8 or 2 are shown — subsetting never reshuffles colours.
+ * Expense-head split block: the same multi-select head filter + chart/table
+ * toggle as the head-trend block, over a donut of each head's share of the range
+ * total. "All heads" (the empty set) shows every head; picking a subset filters
+ * BOTH the donut and the table to just those slices — client-side, no refetch.
+ * With one head selected it is a single 100% slice. `colorOf` comes from the
+ * dashboard's master head→colour map (built over ALL heads), so a head keeps its
+ * app-wide colour whether 8 or 2 are shown — subsetting never reshuffles colours.
  */
-export function HeadTrendBlock({
+export function ExpenseHeadSplitBlock({
   data,
   colorOf,
   monthControl,
@@ -25,7 +26,7 @@ export function HeadTrendBlock({
   monthControl?: ReactNode;
   /**
    * Optional per-vendor breakdown. When supplied (clinic dashboards only), the
-   * Table view breaks each head into its vendor lines; the chart stays head-level.
+   * Table view breaks each head into its vendor lines; the donut stays head-level.
    * Omitted on corporate dashboards, which keep the head-level table.
    */
   vendorData?: HeadVendorTrendPoint[];
@@ -50,11 +51,10 @@ export function HeadTrendBlock({
     [selected, heads],
   );
 
-  // "All" (null) renders every head; otherwise only the chosen subset. A head
-  // with no value in a month is still a gap in the charts — never coerced to 0.
+  // "All" (null) shows every slice; otherwise only the chosen subset become slices.
   const filtered = valid === null ? data : data.filter((d) => valid.has(d.expenseHeadId));
   const noneSelected = valid !== null && valid.size === 0;
-  // The vendor breakdown honours the same head selection as the chart/table.
+  // The vendor breakdown honours the same head selection as the donut/table.
   const filteredVendor = useMemo(
     () =>
       !vendorData
@@ -81,15 +81,15 @@ export function HeadTrendBlock({
   const table = noneSelected ? (
     empty
   ) : filteredVendor ? (
-    <HeadVendorTrendTable data={filteredVendor} />
+    <ExpenseHeadVendorSplitTable data={filteredVendor} />
   ) : (
-    <HeadTrendTable data={filtered} />
+    <ExpenseHeadSplitTable data={filtered} />
   );
 
   return (
     <ChartTableView
       controls={control}
-      chart={noneSelected ? empty : <HeadTrendCharts data={filtered} colorOf={colorOf} />}
+      chart={noneSelected ? empty : <ExpenseHeadPieChart data={filtered} colorOf={colorOf} />}
       table={table}
     />
   );

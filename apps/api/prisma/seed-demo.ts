@@ -104,27 +104,45 @@ interface HeadDef {
   vendor?: string;
   product?: string;
   description?: string;
+  /** Heads flagged multi-vendor in the finance sheet accept several lines per submission. */
+  allowsMultipleVendors?: boolean;
+  /** A second demo vendor line for a multi-vendor head (seeds real multi-line data). */
+  vendor2?: string;
 }
+// The 15 real clinic G/L accounts (from the finance sheet). glAccountNo is a CODE
+// stored as a string — never an integer, never reformatted. Names are verbatim
+// (including their original capitalisation/spacing, e.g. "House keeping and
+// maintenance", "Rent - building for Dental") — do not "correct" them. The
+// vendor / product / description mix keeps some fields intentionally BLANK so the
+// export demos the "may or may not be entered" spread. RADIOLOGY is the variance
+// spiker (see amountFor).
 const HEADS: HeadDef[] = [
-  { key: 'RENT', glAccountNo: '610010', glAccountName: 'Facility Rent', base: 120_000, vendor: 'Prestige Property Management', product: 'p10', description: 'Annual lease escalation 5% effective Apr' },
-  { key: 'STAFF', glAccountNo: '620010', glAccountName: 'Clinical Staff Salaries', base: 450_000, product: 'p20' },
-  { key: 'UTIL', glAccountNo: '630010', glAccountName: 'Utilities (Power & Water)', base: 35_000, vendor: 'BESCOM', product: 'p18', description: 'Higher AC load over summer months' },
-  { key: 'CONSUM', glAccountNo: '640010', glAccountName: 'Medical Consumables', base: 80_000, vendor: 'Romsons Scientific & Surgical', product: 'p17' },
-  { key: 'HOUSE', glAccountNo: '650010', glAccountName: 'Housekeeping & Sanitation', base: 25_000, vendor: 'BVG India Ltd', product: 'p10', description: 'Additional deep-clean contract' },
-  { key: 'EQUIP', glAccountNo: '660010', glAccountName: 'Equipment Maintenance', base: 40_000, vendor: 'Siemens Healthineers', description: 'Scheduled AMC for imaging equipment' }, // the variance spiker
-  { key: 'PHARMA', glAccountNo: '670010', glAccountName: 'Pharmacy Stock', base: 95_000, vendor: 'Apollo Pharmacy Distribution', product: 'p17' },
-  { key: 'TELECOM', glAccountNo: '680010', glAccountName: 'Internet & Telecom', base: 12_000, vendor: 'Airtel Business', product: 'p18', description: 'Bandwidth upgrade' },
+  { key: 'CCHIRE', glAccountNo: '41402005', glAccountName: 'Credit Card Machine Hire Charges', base: 8_000, vendor: 'Pine Labs', product: 'p10', description: 'Two additional POS terminals installed' },
+  { key: 'OUTSVC', glAccountNo: '41117004', glAccountName: 'Other Outsourced Services', base: 60_000, vendor: 'Quess Corp', allowsMultipleVendors: true, vendor2: 'Sodexo Facilities' },
+  { key: 'BIOWASTE', glAccountNo: '41117002', glAccountName: 'Biomedical Waste Services', base: 15_000, vendor: 'SembRamky Environmental', product: 'p17' },
+  { key: 'AMBUL', glAccountNo: '41117001', glAccountName: 'Ambulance Services', base: 30_000, vendor: 'Ziqitza Healthcare' },
+  { key: 'REFRESH', glAccountNo: '41115013', glAccountName: 'Refreshment for patients', base: 12_000, product: 'p18' },
+  { key: 'POSTAGE', glAccountNo: '41115009', glAccountName: 'Postage and courier charges', base: 5_000, vendor: 'Blue Dart', product: 'p10' },
+  { key: 'HOUSE', glAccountNo: '41115002', glAccountName: 'House keeping and maintenance', base: 25_000, vendor: 'BVG India Ltd', product: 'p10', description: 'Additional deep-clean contract' },
+  { key: 'LAUNDRY', glAccountNo: '41109004', glAccountName: 'Laundry Expenses', base: 18_000, vendor: 'UClean' },
+  { key: 'DENTRENT', glAccountNo: '41107001', glAccountName: 'Rent - building for Dental', base: 120_000, vendor: 'Prestige Property Management', product: 'p10', description: 'Annual lease escalation 5% effective Apr' },
+  { key: 'RADIOLOGY', glAccountNo: '41104016', glAccountName: 'Radiology Services', base: 55_000, vendor: 'Siemens Healthineers', description: 'Scheduled AMC for imaging equipment' }, // the variance spiker
+  { key: 'CONSUM', glAccountNo: '41104002', glAccountName: 'Consumables common', base: 80_000, vendor: 'Romsons Scientific & Surgical', product: 'p17' },
+  { key: 'TELECOM', glAccountNo: '41103001', glAccountName: 'Telephone/Mobile expenses', base: 12_000, vendor: 'Airtel Business', product: 'p18', description: 'Bandwidth upgrade' },
+  { key: 'WELFARE', glAccountNo: '41003001', glAccountName: 'Staff welfare expense', base: 40_000, product: 'p20' },
+  { key: 'LOCUM', glAccountNo: '41002007', glAccountName: 'Locum', base: 90_000, allowsMultipleVendors: true, vendor2: 'Apollo Locum Pool' },
+  { key: 'EVENTS', glAccountNo: '41112001', glAccountName: 'Events and exhibitions - Domestic', base: 20_000, vendor: 'Cvent India', description: 'Quarterly community health camp', allowsMultipleVendors: true, vendor2: 'Local Event Partners' },
 ];
 
 // Per (clinic, month, head) amount. Historical months drift up slightly; the
 // current month mirrors the prior month so only the deliberate spike moves —
-// Equipment Maintenance at Mumbai jumps ~2.4x, tripping the variance flag.
+// Radiology Services at Mumbai jumps ~2.4x, tripping the variance flag.
 function amountFor(clinic: ClinicDef, month: string, head: HeadDef): number {
   const isCurrent = month === CUR;
   const rank = MONTHS.indexOf(month);
   const growth = isCurrent ? 1 + 0.02 * (MONTHS.length - 2) : 1 + 0.02 * rank;
   let amt = head.base * clinic.factor * growth;
-  if (isCurrent && head.key === 'EQUIP' && clinic.code === 'MUM') {
+  if (isCurrent && head.key === 'RADIOLOGY' && clinic.code === 'MUM') {
     amt = head.base * clinic.factor * 2.4;
   }
   return Math.round(amt);
@@ -198,7 +216,6 @@ const CURRENT_STATUS: Record<string, SubmissionStatus> = {
 
 async function main(): Promise<void> {
   const clinicNames = CLINICS.map((c) => c.name);
-  const headNames = HEADS.map((h) => h.glAccountName);
   const userEmails = USERS.filter((u) => u.role !== UserRole.FINANCE_ADMIN).map((u) => u.email);
   // Legacy demo emails no longer in USERS (e.g. the pre-Step-1 finance viewer)
   // so re-seeding doesn't leave an orphaned account behind.
@@ -211,15 +228,12 @@ async function main(): Promise<void> {
   await prisma.clinic.deleteMany({
     where: { OR: [{ name: { in: clinicNames } }, { name: { startsWith: 'Demo ' } }, { name: { startsWith: 'Perf ' } }] },
   });
-  await prisma.expenseHead.deleteMany({
-    where: {
-      OR: [
-        { glAccountName: { in: headNames } },
-        { glAccountName: { startsWith: 'Demo ' } },
-        { glAccountName: { startsWith: 'Perf ' } },
-      ],
-    },
-  });
+  // ExpenseHead is clinic-only master data owned by this demo seed (corporate uses
+  // the separate CorpExpenseHead model), so a full reset is safe here — and it
+  // also clears any legacy `TEMP-<id>` placeholder heads (and throwaway Demo/Perf
+  // rows) so the master ends at exactly the 15 real G/L accounts above. Runs after
+  // the clinic delete, so every referencing snapshot has already cascaded away.
+  await prisma.expenseHead.deleteMany({});
   await prisma.user.deleteMany({ where: { email: { in: [...userEmails, ...legacyEmails] } } });
   await prisma.notificationConfig.deleteMany({ where: { month: { in: MONTHS } } });
 
@@ -239,7 +253,12 @@ async function main(): Promise<void> {
   const headId: Record<string, string> = {};
   for (const h of HEADS) {
     const row = await prisma.expenseHead.create({
-      data: { glAccountNo: h.glAccountNo, glAccountName: h.glAccountName, isActive: true },
+      data: {
+        glAccountNo: h.glAccountNo,
+        glAccountName: h.glAccountName,
+        allowsMultipleVendors: h.allowsMultipleVendors ?? false,
+        isActive: true,
+      },
     });
     headId[h.key] = row.id;
   }
@@ -319,6 +338,7 @@ async function main(): Promise<void> {
             expenseHeadId: headId[h.key],
             expenseHeadGlNameAtSnapshot: h.glAccountName,
             expenseHeadGlNoAtSnapshot: h.glAccountNo,
+            expenseHeadAllowsMultipleVendorsAtSnapshot: h.allowsMultipleVendors ?? false,
           })),
         },
       } as never,
@@ -330,11 +350,13 @@ async function main(): Promise<void> {
       for (const snap of sub.snapshots) {
         const head = HEADS.find((h) => h.glAccountName === snap.expenseHeadGlNameAtSnapshot)!;
         const extras = entryExtras(c, month, head);
+        const primary = amountFor(c, month, head);
         await prisma.provisionEntry.create({
           data: {
             submissionId: sub.id,
             snapshotId: snap.id,
-            amount: amountFor(c, month, head),
+            lineOrder: 0,
+            amount: primary,
             vendorName: extras.vendorName,
             productCode: extras.productCode,
             note: extras.note,
@@ -342,6 +364,23 @@ async function main(): Promise<void> {
             lastModifiedById: spocByCode[c.code],
           },
         });
+        // A multi-vendor head carries a SECOND vendor line (~40% of the first) so
+        // the demo has real multi-line data whose per-head total sums both lines.
+        if (head.allowsMultipleVendors && head.vendor2) {
+          await prisma.provisionEntry.create({
+            data: {
+              submissionId: sub.id,
+              snapshotId: snap.id,
+              lineOrder: 1,
+              amount: Math.round(primary * 0.4),
+              vendorName: head.vendor2,
+              productCode: null,
+              note: null,
+              enteredById: spocByCode[c.code],
+              lastModifiedById: spocByCode[c.code],
+            },
+          });
+        }
       }
     }
 
@@ -349,7 +388,7 @@ async function main(): Promise<void> {
       await prisma.submissionComment.create({
         data: {
           submissionId: sub.id,
-          comment: 'Equipment maintenance looks high vs last month — please double-check the vendor invoice and resubmit.',
+          comment: 'Radiology services look high vs last month — please double-check the vendor invoice and resubmit.',
           commentedById: managerByCode[c.code],
           roleAtTime: UserRole.CLINIC_MANAGER,
           action: CommentAction.SENT_BACK,
@@ -393,7 +432,7 @@ async function main(): Promise<void> {
     console.log(`    ${u.role.padEnd(15)} ${u.email.padEnd(28)} /  ${u.password}${where}${inactive}`);
   }
   console.log('  Walkable: spoc@ opens Pune (DRAFT) -> submit -> manager@ approves -> Finance approves & locks.');
-  console.log('  Variance: Equipment Maintenance spikes at Mumbai this month -> flagged on the Finance dashboard.');
+  console.log('  Variance: Radiology Services spikes at Mumbai this month -> flagged on the Finance dashboard.');
 }
 
 main()

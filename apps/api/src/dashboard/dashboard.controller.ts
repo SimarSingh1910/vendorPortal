@@ -37,6 +37,12 @@ export class DashboardController {
     return this.dashboard.headTrends(user, q);
   }
 
+  /** (c′) Per-vendor breakdown behind the head trends (dashboard Table views). */
+  @Get('head-vendor-trends')
+  headVendorTrends(@Query() q: DashboardQueryDto, @CurrentUser() user: RequestUser) {
+    return this.dashboard.headVendorTrends(user, q);
+  }
+
   /** (d) Clinic-wise totals over the range. */
   @Get('clinic-totals')
   clinicTotals(@Query() q: DashboardQueryDto, @CurrentUser() user: RequestUser) {

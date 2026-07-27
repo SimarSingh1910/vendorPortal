@@ -7,6 +7,8 @@ import {
   Legend,
   Line,
   LineChart,
+  Pie,
+  PieChart,
   ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
@@ -22,11 +24,13 @@ import type {
   VarianceReport,
 } from '@portal/shared';
 import { formatINR } from '@/lib/format';
+import { headSplitTotals } from '@/lib/headSplit';
 import {
   buildHeadColorMap,
   headColor,
   CHART_ANCHOR,
   CHART_AXIS_LABEL,
+  CHART_CAPTION,
   CHART_GRID,
   CHART_LEGEND_TEXT,
   CHART_TOOLTIP_STYLE,
@@ -268,6 +272,10 @@ export function HeadTrendCharts({
   // label each bar. "All heads" stays multi-series — fitting/labelling a wide
   // grouped view doesn't help, so it keeps the default zero-based axis.
   const single = heads.length === 1 ? heads[0] : null;
+  // A single month in scope (e.g. the month picker narrowed to one) has no trend
+  // to draw, so the momentum / rupee-line panel is dropped and the bars go full
+  // width — the bars still read as that month's per-head comparison.
+  const singleMonth = rows.length <= 1;
   const lineDomain = single
     ? fitLineDomain(rows.map((r) => Number(r[single.name])))
     : undefined;
@@ -293,7 +301,7 @@ export function HeadTrendCharts({
         ))}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className={singleMonth ? 'space-y-6' : 'grid gap-6 lg:grid-cols-2'}>
         {/* Left: monthly totals by head (grouped bars). */}
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">Monthly totals by head</p>
@@ -332,10 +340,12 @@ export function HeadTrendCharts({
           </div>
         </div>
 
-        {/* Right: momentum (all heads) or the single head's rupee trend. */}
-        {single ? (
-          <div className="space-y-1">
-            <p className="text-xs text-muted-foreground">Monthly trend</p>
+        {/* Right: momentum (all heads) or the single head's rupee trend —
+            omitted entirely when only one month is in scope. */}
+        {!singleMonth &&
+          (single ? (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">Monthly trend</p>
             <div className="h-72 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
@@ -396,7 +406,7 @@ export function HeadTrendCharts({
               </ResponsiveContainer>
             </div>
           </div>
-        )}
+          ))}
       </div>
     </div>
   );
@@ -480,6 +490,130 @@ export function ClinicTotalsChart({ data }: { data: ClinicTotalPoint[] }) {
 }
 
 /**
+ * Percentage share drawn in the middle of each donut band. Recharts hands the
+ * label renderer loosely-typed geometry, so coerce to numbers; thin slivers are
+ * left unlabelled (the tooltip still carries their exact figure).
+ */
+function PieShareLabel(props: {
+  cx?: number | string;
+  cy?: number | string;
+  midAngle?: number | string;
+  innerRadius?: number | string;
+  outerRadius?: number | string;
+  percent?: number | string;
+}) {
+  const cx = Number(props.cx);
+  const cy = Number(props.cy);
+  const midAngle = Number(props.midAngle);
+  const innerR = Number(props.innerRadius);
+  const outerR = Number(props.outerRadius);
+  const percent = Number(props.percent);
+  if (![cx, cy, midAngle, innerR, outerR, percent].every(Number.isFinite)) return null;
+  if (percent < 0.03) return null; // too thin to label legibly
+  const RAD = Math.PI / 180;
+  const r = innerR + (outerR - innerR) * 0.5;
+  const x = cx + r * Math.cos(-midAngle * RAD);
+  const y = cy + r * Math.sin(-midAngle * RAD);
+  return (
+    <text
+      x={x}
+      y={y}
+      fill={CHART_TOOLTIP_TEXT}
+      fontSize={11}
+      textAnchor="middle"
+      dominantBaseline="central"
+    >
+      {`${(percent * 100).toFixed(0)}%`}
+    </text>
+  );
+}
+
+/**
+ * Expense-head split: a donut of each head's share of total provision over the
+ * range. Slices are ranked largest → smallest and coloured by the id-keyed head
+ * palette (same head = same colour as in every other chart — this chart uses the
+ * id palette, NOT direction coding). The percentage share sits on each slice; the
+ * tooltip carries the head name, its ₹ amount and %; the legend lists heads with
+ * their swatch and neutral text; the donut centre shows the range total. Heads
+ * with no data contribute no slice (NULL ≠ 0). With one head selected it is a
+ * single 100% slice.
+ */
+export function ExpenseHeadPieChart({
+  data,
+  colorOf,
+}: {
+  data: HeadTrendPoint[];
+  colorOf?: (id: string) => string;
+}) {
+  const slices = headSplitTotals(data);
+  if (slices.length === 0) return <Empty label="No expense-head data for the selected range." />;
+  const grand = slices.reduce((s, r) => s + r.total, 0);
+  const localMap = buildHeadColorMap(slices);
+  const resolve = colorOf ?? ((id: string) => headColor(localMap, id));
+
+  return (
+    <div className="space-y-4">
+      <div className="relative h-72 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={slices}
+              dataKey="total"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              innerRadius="55%"
+              outerRadius="82%"
+              paddingAngle={1}
+              stroke="#FFFFFF"
+              strokeWidth={2}
+              isAnimationActive={false}
+              labelLine={false}
+              label={PieShareLabel}
+            >
+              {slices.map((s) => (
+                <Cell key={s.id} fill={resolve(s.id)} />
+              ))}
+            </Pie>
+            <Tooltip
+              {...tooltipProps}
+              formatter={(value, _name, item) => {
+                const v = Number(value);
+                const pct = grand > 0 ? ((v / grand) * 100).toFixed(1) : '0.0';
+                const nm = (item as { payload?: { name?: string } })?.payload?.name ?? '';
+                return [`${formatINR(v)}  ·  ${pct}%`, nm];
+              }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+        {/* Donut centre: the range total across the heads drawn. */}
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-xs" style={{ color: CHART_CAPTION }}>
+            Total
+          </span>
+          <span className="font-mono text-sm tabular-nums" style={{ color: CHART_TOOLTIP_TEXT }}>
+            {compactINR(grand)}
+          </span>
+        </div>
+      </div>
+      {/* Legend — swatch + neutral head name, matching the head-trend legend. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        {slices.map((s) => (
+          <span
+            key={s.id}
+            className="flex items-center gap-1.5 text-xs"
+            style={{ color: CHART_LEGEND_TEXT }}
+          >
+            <span className="size-2.5 rounded-[2px]" style={{ backgroundColor: resolve(s.id) }} />
+            {s.name}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Signed Δ% label at the outward end of a diverging variance bar. Recharts hands
  * the content renderer loosely-typed geometry props, so coerce to numbers.
  */
@@ -512,11 +646,65 @@ function DivergingPctLabel(props: {
   );
 }
 
+/** Variance bar colours — the steel anchor by default, switching to a muted rose
+ *  for heads whose deviation breaches the ±threshold (a "high deviation" in either
+ *  direction). This chart is NOT the id-keyed head palette. */
+const VARIANCE_NEUTRAL = '#5A7C9C';
+const VARIANCE_FLAGGED = '#D9636F';
+
 /**
- * (e) Variance vs prior month: a diverging Δ% bar per head, ranked. Heads that
- * breach the ±threshold are red; those within are a muted blue. A shaded band
- * marks the ±threshold zone. Heads with no prior baseline (null Δ%) are omitted
- * rather than drawn off an implied 0 (NULL ≠ 0), and listed below.
+ * Greedily wrap a category label to at most two lines so long head names
+ * ("Credit Card Machine Hire Charges") render in the left gutter without truncation
+ * or overlap. Anything past two lines stays on the second line rather than being cut.
+ */
+function wrapCategory(label: string, maxChars = 18): string[] {
+  const words = label.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [label];
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (next.length > maxChars && line && lines.length === 0) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = next;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.slice(0, 2);
+}
+
+/** Two-line-capable category tick for the variance axis, vertically centred on its bar. */
+function VarianceCategoryTick(props: {
+  x?: number | string;
+  y?: number | string;
+  payload?: { value?: string | number };
+}) {
+  const x = Number(props.x);
+  const y = Number(props.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return <g />;
+  const lines = wrapCategory(String(props.payload?.value ?? ''));
+  const startDy = lines.length > 1 ? -1 : 4;
+  return (
+    <text x={x} y={y} textAnchor="end" fontSize={12} fill={CHART_AXIS_LABEL}>
+      {lines.map((ln, i) => (
+        <tspan key={ln} x={x} dy={i === 0 ? startDy : 12}>
+          {ln}
+        </tspan>
+      ))}
+    </text>
+  );
+}
+
+/**
+ * (e) Variance vs prior month: a diverging Δ% bar per head, ranked. Bars are a
+ * neutral grey, turning muted rose (#D9636F) for heads that breach the ±threshold
+ * — a high deviation in EITHER direction (this chart is the intentional exception
+ * to the id-keyed head palette). A shaded band marks the ±threshold zone. Heads
+ * with no prior baseline (null Δ%) are omitted rather than drawn off an implied 0
+ * (NULL ≠ 0), and listed below. Spans the full content width, so the plot area is
+ * wide enough for every bar and the axis with no horizontal scroll.
  */
 export function VarianceDivergingChart({ report }: { report: VarianceReport }) {
   const threshold = report.thresholdPercent != null ? Number(report.thresholdPercent) : null;
@@ -551,10 +739,10 @@ export function VarianceDivergingChart({ report }: { report: VarianceReport }) {
             <YAxis
               type="category"
               dataKey="name"
-              width={140}
-              fontSize={12}
+              width={150}
+              interval={0}
               stroke={gridStroke}
-              tick={axisTick}
+              tick={VarianceCategoryTick}
             />
             {/* ±threshold band. */}
             {threshold != null && (
@@ -569,7 +757,7 @@ export function VarianceDivergingChart({ report }: { report: VarianceReport }) {
             />
             <Bar dataKey="value" radius={2} isAnimationActive={false}>
               {rows.map((r) => (
-                <Cell key={r.name} fill={r.flagged ? '#D9636F' : '#8FB3C9'} />
+                <Cell key={r.name} fill={r.flagged ? VARIANCE_FLAGGED : VARIANCE_NEUTRAL} />
               ))}
               <LabelList dataKey="value" content={(p) => <DivergingPctLabel {...p} />} />
             </Bar>

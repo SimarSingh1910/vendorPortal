@@ -99,7 +99,9 @@ describe('Audit logging (Step 9.1 — append-only, unified write path)', () => {
 
     // save (SPOC)
     await asUser(spoc.id, () =>
-      entries.saveEntries(submission.id, spoc, [{ snapshotId: snap.id, amount: 100 }]),
+      entries.saveEntries(submission.id, spoc, [
+        { snapshotId: snap.id, lines: [{ amount: 100 }] },
+      ]),
     );
     const saveRows = await rowsFor('PROVISION_SAVE', submission.id);
     expect(saveRows).toHaveLength(1);

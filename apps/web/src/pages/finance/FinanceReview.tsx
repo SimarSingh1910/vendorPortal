@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Lock } from 'lucide-react';
-import { SubmissionStatus, UserRole, type SubmissionDetail } from '@portal/shared';
+import { SubmissionStatus, UserRole } from '@portal/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,6 +26,8 @@ import {
 } from '@/api/submissions';
 import { useAuthStore } from '@/store/auth.store';
 import { apiErrorMessage } from '@/lib/apiError';
+import { cn } from '@/lib/utils';
+import { collectOverrideEntries, seedLines, type LinesState } from '@/lib/provisionLines';
 import {
   commentActionLabel,
   commentActionVariant,
@@ -36,22 +38,6 @@ import {
   statusLabel,
 } from '@/lib/format';
 import { MonthwiseReportPanel } from '@/components/MonthwiseReportPanel';
-
-type ValueMap = Record<string, string>;
-
-function seedValues(detail: SubmissionDetail): ValueMap {
-  const map: ValueMap = {};
-  for (const head of detail.heads) map[head.snapshotId] = head.amount ?? '';
-  return map;
-}
-
-function parseAmount(raw: string): number | null {
-  const trimmed = raw.trim();
-  if (trimmed === '') return null;
-  const n = Number(trimmed);
-  if (!Number.isFinite(n) || n < 0) return null;
-  return Math.round(n * 100) / 100;
-}
 
 export function FinanceReview() {
   const { submissionId = '' } = useParams();
@@ -65,7 +51,7 @@ export function FinanceReview() {
 
   const [comment, setComment] = useState('');
   const [unlockReason, setUnlockReason] = useState('');
-  const [values, setValues] = useState<ValueMap>({});
+  const [lines, setLines] = useState<LinesState>({});
   const [error, setError] = useState<string | null>(null);
 
   const { data: detail, isLoading } = useQuery({
@@ -78,11 +64,18 @@ export function FinanceReview() {
   });
 
   useEffect(() => {
-    if (detail) setValues(seedValues(detail));
+    if (detail) setLines(seedLines(detail));
   }, [detail]);
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['submissions'] });
+  };
+
+  const patchAmount = (snapshotId: string, index: number, amount: string) => {
+    setLines((prev) => ({
+      ...prev,
+      [snapshotId]: (prev[snapshotId] ?? []).map((l, i) => (i === index ? { ...l, amount } : l)),
+    }));
   };
 
   // A finance approver opening a clinic-approved item moves it to FINANCE_REVIEW (stamps who/when).
@@ -98,16 +91,11 @@ export function FinanceReview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail, submissionId, isFinanceApprover]);
 
-  const collectEntries = () =>
-    (detail?.heads ?? [])
-      .map((h) => ({ snapshotId: h.snapshotId, amount: parseAmount(values[h.snapshotId] ?? '') }))
-      .filter((e): e is { snapshotId: string; amount: number } => e.amount !== null);
-
   const overrideMutation = useMutation({
-    mutationFn: () => saveEntries(submissionId, collectEntries()),
+    mutationFn: () => saveEntries(submissionId, collectOverrideEntries(detail!, lines)),
     onSuccess: (updated) => {
       setError(null);
-      setValues(seedValues(updated));
+      setLines(seedLines(updated));
       invalidate();
     },
     onError: (e) => setError(apiErrorMessage(e, 'Could not save override. Please try again.')),
@@ -228,42 +216,61 @@ export function FinanceReview() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {detail.heads.map((head) => (
-              <TableRow key={head.snapshotId}>
-                <TableCell className="align-top text-muted-foreground">{head.glAccountNo}</TableCell>
-                <TableCell className="align-top font-medium">
-                  <div>{head.glAccountName}</div>
-                  {head.note && (
-                    <p className="mt-1 whitespace-pre-wrap text-xs font-normal text-muted-foreground">
-                      <span className="font-medium">SPOC note:</span> {head.note}
-                    </p>
-                  )}
-                </TableCell>
-                <TableCell className="align-top text-sm text-muted-foreground">
-                  {head.vendorName ?? ''}
-                </TableCell>
-                <TableCell className="align-top text-sm text-muted-foreground">
-                  {head.productCode ?? ''}
-                </TableCell>
-                <TableCell className="align-top text-right">
-                  {isFinanceApprover ? (
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      inputMode="decimal"
-                      className="ml-auto w-40 text-right"
-                      value={values[head.snapshotId] ?? ''}
-                      onChange={(e) =>
-                        setValues((prev) => ({ ...prev, [head.snapshotId]: e.target.value }))
-                      }
-                    />
-                  ) : (
-                    formatINR(head.amount)
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
+            {detail.heads.map((head) => {
+              const headLines = lines[head.snapshotId] ?? [];
+              return (
+                <Fragment key={head.snapshotId}>
+                  {headLines.map((line, li) => (
+                    <TableRow
+                      key={line.entryId ?? `line-${li}`}
+                      className={li > 0 ? 'border-t-0' : undefined}
+                    >
+                      <TableCell className="align-top text-muted-foreground">
+                        {li === 0 ? head.glAccountNo : ''}
+                      </TableCell>
+                      <TableCell className="align-top font-medium">
+                        {li === 0 ? (
+                          <div>{head.glAccountName}</div>
+                        ) : (
+                          <div className="pl-4 text-muted-foreground">↳</div>
+                        )}
+                        {line.note && (
+                          <p
+                            className={cn(
+                              'mt-1 whitespace-pre-wrap text-xs font-normal text-muted-foreground',
+                              li > 0 && 'ml-4',
+                            )}
+                          >
+                            <span className="font-medium">SPOC note:</span> {line.note}
+                          </p>
+                        )}
+                      </TableCell>
+                      <TableCell className="align-top text-sm text-muted-foreground">
+                        {line.vendor}
+                      </TableCell>
+                      <TableCell className="align-top text-sm text-muted-foreground">
+                        {line.product}
+                      </TableCell>
+                      <TableCell className="align-top text-right">
+                        {isFinanceApprover ? (
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            inputMode="decimal"
+                            className="ml-auto w-40 text-right"
+                            value={line.amount}
+                            onChange={(e) => patchAmount(head.snapshotId, li, e.target.value)}
+                          />
+                        ) : (
+                          formatINR(line.amount === '' ? null : line.amount)
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </Fragment>
+              );
+            })}
           </TableBody>
         </Table>
       </div>
