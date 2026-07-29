@@ -114,7 +114,7 @@ export class ExportController {
     const asOf = q.to ?? q.month ?? currentMonthIST();
     const [status, variance, monthly, headTrends, clinicTotals] = await Promise.all([
       this.dashboard.statusTracker(user, asOf),
-      this.dashboard.variance(user, asOf, q.clinicId),
+      this.dashboard.variance(user, asOf, q.clinicIds?.length ? q.clinicIds : q.clinicId ? [q.clinicId] : undefined),
       this.dashboard.monthlyTotals(user, q),
       this.dashboard.headTrends(user, q),
       this.dashboard.clinicTotals(user, q),

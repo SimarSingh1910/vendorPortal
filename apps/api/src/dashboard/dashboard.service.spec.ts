@@ -433,7 +433,7 @@ describe('DashboardService (Phase 11, FR-07)', () => {
   it('the SPOC filter narrows every aggregation to that SPOC’s clinics', async () => {
     const { asha } = await clinicsWithSpocs();
 
-    const tiles = await dashboard.statusTracker(finance, '2026-06', asha.id);
+    const tiles = await dashboard.statusTracker(finance, '2026-06', [asha.id]);
     expect(tiles.map((t) => t.clinicName)).toEqual(['Alpha']);
 
     const totals = await dashboard.clinicTotals(finance, {
@@ -458,7 +458,7 @@ describe('DashboardService (Phase 11, FR-07)', () => {
     // A SPOC scoped to Alpha filtering by BRAVO's SPOC sees nothing, rather than
     // Bravo's data leaking through the filter.
     const alphaSpoc = (await fx.makeUser(UserRole.CLINIC_SPOC, [alpha.id])).user;
-    expect(await dashboard.statusTracker(alphaSpoc, '2026-06', bhavin.id)).toEqual([]);
+    expect(await dashboard.statusTracker(alphaSpoc, '2026-06', [bhavin.id])).toEqual([]);
     expect(
       await dashboard.clinicTotals(alphaSpoc, {
         from: '2026-06',
@@ -497,6 +497,92 @@ describe('DashboardService (Phase 11, FR-07)', () => {
       from: '2026-06',
       to: '2026-06',
       status: [SubmissionStatus.FINANCE_APPROVED],
+    });
+    expect(nonMatching).toEqual([]);
+  });
+
+  // ── Multi-select filters: clinicIds / spocUserIds / multi-status ─────────────
+
+  it('clinicIds narrows every aggregation to the selected subset (OR within the filter)', async () => {
+    const a = await fx.makeClinic({ name: 'A' });
+    const b = await fx.makeClinic({ name: 'B' });
+    const c = await fx.makeClinic({ name: 'C' });
+    const head = await fx.makeExpenseHead();
+    for (const cl of [a, b, c]) await fx.mapHeads(cl.id, [head.id]);
+    await enter(a.id, '2026-06', head.id, 100);
+    await enter(b.id, '2026-06', head.id, 200);
+    await enter(c.id, '2026-06', head.id, 400);
+
+    // Two of the three clinics selected → only those two, summed (100 + 200).
+    const totals = await dashboard.clinicTotals(finance, {
+      from: '2026-06',
+      to: '2026-06',
+      clinicIds: [a.id, b.id],
+    });
+    expect(totals.map((t) => t.clinicName).sort()).toEqual(['A', 'B']);
+
+    const monthly = await dashboard.monthlyTotals(finance, {
+      from: '2026-06',
+      to: '2026-06',
+      clinicIds: [a.id, b.id],
+    });
+    expect(monthly.find((m) => m.month === '2026-06')!.total).toBe('300.00');
+  });
+
+  it('clinicIds can only NARROW — an id outside the caller’s scope is dropped, never widens', async () => {
+    const mine = await fx.makeClinic({ name: 'Mine' });
+    const other = await fx.makeClinic({ name: 'Other' });
+    const head = await fx.makeExpenseHead();
+    await fx.mapHeads(mine.id, [head.id]);
+    await fx.mapHeads(other.id, [head.id]);
+    await enter(mine.id, '2026-06', head.id, 100);
+    await enter(other.id, '2026-06', head.id, 999);
+
+    const spoc = (await fx.makeUser(UserRole.CLINIC_SPOC, [mine.id])).user;
+    // A clinic-scoped SPOC asking for BOTH clinics only ever gets their own.
+    const totals = await dashboard.clinicTotals(spoc, {
+      from: '2026-06',
+      to: '2026-06',
+      clinicIds: [mine.id, other.id],
+    });
+    expect(totals.map((t) => t.clinicName)).toEqual(['Mine']);
+    expect(totals[0].total).toBe('100.00');
+  });
+
+  it('spocUserIds unions the clinics of the selected SPOCs, then intersects caller scope', async () => {
+    const { asha, bhavin } = await clinicsWithSpocs(); // Alpha=100, Bravo=200, Orphan=300 (no SPOC)
+
+    // Both SPOCs selected → the UNION of their clinics (Alpha ∪ Bravo), Orphan out.
+    const totals = await dashboard.clinicTotals(finance, {
+      from: '2026-06',
+      to: '2026-06',
+      spocUserIds: [asha.id, bhavin.id],
+    });
+    expect(totals.map((t) => t.clinicName).sort()).toEqual(['Alpha', 'Bravo']);
+
+    const tiles = await dashboard.statusTracker(finance, '2026-06', [asha.id, bhavin.id]);
+    expect(tiles.map((t) => t.clinicName).sort()).toEqual(['Alpha', 'Bravo']);
+  });
+
+  it('status filter accepts multiple statuses (OR within the filter)', async () => {
+    const clinic = await fx.makeClinic();
+    const head = await fx.makeExpenseHead();
+    await fx.mapHeads(clinic.id, [head.id]);
+    await enter(clinic.id, '2026-06', head.id, 100); // submission stays NOT_STARTED
+
+    // NOT_STARTED is one of several requested statuses → the row is included.
+    const matching = await dashboard.monthlyTotals(finance, {
+      from: '2026-06',
+      to: '2026-06',
+      status: [SubmissionStatus.NOT_STARTED, SubmissionStatus.DRAFT],
+    });
+    expect(matching).toEqual([{ month: '2026-06', total: '100.00' }]);
+
+    // A set that excludes the real status → nothing.
+    const nonMatching = await dashboard.monthlyTotals(finance, {
+      from: '2026-06',
+      to: '2026-06',
+      status: [SubmissionStatus.DRAFT, SubmissionStatus.FINANCE_APPROVED],
     });
     expect(nonMatching).toEqual([]);
   });

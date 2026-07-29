@@ -53,6 +53,8 @@ function monthsBetweenInclusive(from: string, to: string): number {
 
 interface DashboardFilters {
   clinicId?: string;
+  /** Multi-select clinics (OR within the list). Superset of `clinicId`. */
+  clinicIds?: string[];
   expenseHeadId?: string;
   from?: string;
   to?: string;
@@ -65,6 +67,8 @@ interface DashboardFilters {
    * only ever narrow what the caller may already see — never widen it.
    */
   spocUserId?: string;
+  /** Multi-select SPOCs (union of their clinics, OR). Superset of `spocUserId`. */
+  spocUserIds?: string[];
 }
 
 /**
@@ -85,33 +89,52 @@ export class DashboardService {
     private readonly scope: ClinicScopeService,
   ) {}
 
-  /** Accessible clinic ids, narrowed to a single clinic when one is requested. */
+  /**
+   * Coalesce a singular id + its multi-select list into one id array (list wins;
+   * a lone singular becomes a one-element list; nothing → undefined). Keeps the
+   * older singular query params working alongside the new `…Ids` lists.
+   */
+  private static ids(single?: string, list?: string[]): string[] | undefined {
+    if (list && list.length > 0) return list;
+    return single ? [single] : undefined;
+  }
+
+  /** Accessible clinic ids, narrowed to the requested clinic subset (OR within). */
   private async resolveClinicIds(
     user: RequestUser,
-    clinicId?: string,
-    spocUserId?: string,
+    clinicIds?: string[],
+    spocUserIds?: string[],
   ): Promise<string[]> {
     const accessible = await this.scope.accessibleClinicIds(user);
-    let ids = clinicId ? (accessible.includes(clinicId) ? [clinicId] : []) : accessible;
+    // Intersect the requested subset with the caller's scope (a requested id
+    // outside scope is simply dropped, never widening what they can see).
+    let ids =
+      clinicIds && clinicIds.length > 0
+        ? accessible.filter((id) => clinicIds.includes(id))
+        : accessible;
 
-    if (spocUserId && ids.length > 0) {
-      // INTERSECT with the SPOC's own clinics — never union. The filter is a
-      // narrowing convenience, so picking a SPOC can't reveal a clinic the caller
-      // isn't already entitled to (and a clinic-scoped caller picking someone
-      // else's SPOC simply gets nothing).
-      const covered = await this.spocClinicIds(spocUserId);
+    if (spocUserIds && spocUserIds.length > 0 && ids.length > 0) {
+      // INTERSECT with the SPOCs' own clinics — never union past the caller's
+      // scope. Within the SPOC list it's a UNION (any selected SPOC's clinics),
+      // so picking a SPOC can't reveal a clinic the caller isn't already entitled
+      // to (and a clinic-scoped caller picking someone else's SPOC gets nothing).
+      const covered = await this.spocClinicIds(spocUserIds);
       ids = ids.filter((id) => covered.includes(id));
     }
     return ids;
   }
 
-  /** The clinics an ACTIVE clinic SPOC is assigned to (empty for anyone else). */
-  private async spocClinicIds(spocUserId: string): Promise<string[]> {
+  /**
+   * The union of clinics the given ACTIVE clinic SPOCs are assigned to (empty for
+   * anyone else). Deduped, since a SPOC may cover several clinics.
+   */
+  private async spocClinicIds(spocUserIds: string[]): Promise<string[]> {
+    if (spocUserIds.length === 0) return [];
     const assignments = await this.prisma.userClinicAssignment.findMany({
-      where: { userId: spocUserId, user: { role: UserRole.CLINIC_SPOC, isActive: true } },
+      where: { userId: { in: spocUserIds }, user: { role: UserRole.CLINIC_SPOC, isActive: true } },
       select: { clinicId: true },
     });
-    return assignments.map((a) => a.clinicId);
+    return [...new Set(assignments.map((a) => a.clinicId))];
   }
 
   /** Resolve the trend range, defaulting to the last DEFAULT_RANGE_MONTHS months. */
@@ -143,10 +166,10 @@ export class DashboardService {
   async statusTracker(
     user: RequestUser,
     month?: string,
-    spocUserId?: string,
+    spocUserIds?: string[],
   ): Promise<DashboardStatusTile[]> {
     const m = month ?? currentMonthIST();
-    const clinicIds = await this.resolveClinicIds(user, undefined, spocUserId);
+    const clinicIds = await this.resolveClinicIds(user, undefined, spocUserIds);
     if (clinicIds.length === 0) return [];
 
     const rows = await this.prisma.$queryRaw<
@@ -209,7 +232,11 @@ export class DashboardService {
 
   // ── (b) Month-on-month expense comparison ───────────────────────────────────
   async monthlyTotals(user: RequestUser, filters: DashboardFilters): Promise<MonthlyTotalPoint[]> {
-    const clinicIds = await this.resolveClinicIds(user, filters.clinicId, filters.spocUserId);
+    const clinicIds = await this.resolveClinicIds(
+      user,
+      DashboardService.ids(filters.clinicId, filters.clinicIds),
+      DashboardService.ids(filters.spocUserId, filters.spocUserIds),
+    );
     if (clinicIds.length === 0) return [];
     const { from, to } = this.resolveRange(filters);
 
@@ -227,7 +254,11 @@ export class DashboardService {
 
   // ── (c) Expense-head-wise trends ────────────────────────────────────────────
   async headTrends(user: RequestUser, filters: DashboardFilters): Promise<HeadTrendPoint[]> {
-    const clinicIds = await this.resolveClinicIds(user, filters.clinicId, filters.spocUserId);
+    const clinicIds = await this.resolveClinicIds(
+      user,
+      DashboardService.ids(filters.clinicId, filters.clinicIds),
+      DashboardService.ids(filters.spocUserId, filters.spocUserIds),
+    );
     if (clinicIds.length === 0) return [];
     const { from, to } = this.resolveRange(filters);
 
@@ -260,7 +291,11 @@ export class DashboardService {
    * reconcile exactly with the head totals (NULL ≠ 0).
    */
   async headVendorTrends(user: RequestUser, filters: DashboardFilters): Promise<HeadVendorTrendPoint[]> {
-    const clinicIds = await this.resolveClinicIds(user, filters.clinicId, filters.spocUserId);
+    const clinicIds = await this.resolveClinicIds(
+      user,
+      DashboardService.ids(filters.clinicId, filters.clinicIds),
+      DashboardService.ids(filters.spocUserId, filters.spocUserIds),
+    );
     if (clinicIds.length === 0) return [];
     const { from, to } = this.resolveRange(filters);
 
@@ -298,7 +333,11 @@ export class DashboardService {
 
   // ── (d) Clinic-wise total comparison over a month range ─────────────────────
   async clinicTotals(user: RequestUser, filters: DashboardFilters): Promise<ClinicTotalPoint[]> {
-    const clinicIds = await this.resolveClinicIds(user, filters.clinicId, filters.spocUserId);
+    const clinicIds = await this.resolveClinicIds(
+      user,
+      DashboardService.ids(filters.clinicId, filters.clinicIds),
+      DashboardService.ids(filters.spocUserId, filters.spocUserIds),
+    );
     if (clinicIds.length === 0) return [];
     const { from, to } = this.resolveRange(filters);
 
@@ -321,12 +360,12 @@ export class DashboardService {
   async variance(
     user: RequestUser,
     month?: string,
-    clinicId?: string,
-    spocUserId?: string,
+    clinicIdList?: string[],
+    spocUserIdList?: string[],
   ): Promise<VarianceReport> {
     const m = month ?? currentMonthIST();
     const priorMonth = shiftMonth(m, -1);
-    const clinicIds = await this.resolveClinicIds(user, clinicId, spocUserId);
+    const clinicIds = await this.resolveClinicIds(user, clinicIdList, spocUserIdList);
 
     // Variance threshold from the CLINIC per-cycle config (independent of corporate).
     const config = await this.prisma.notificationConfig.findUnique({

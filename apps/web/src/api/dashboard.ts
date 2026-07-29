@@ -13,8 +13,12 @@ import { apiClient } from '@/lib/apiClient';
 
 export interface DashboardFilter {
   clinicId?: string;
+  /** Multi-select clinics (OR within). Superset of `clinicId`. */
+  clinicIds?: string[];
   /** Narrow to the clinics one SPOC covers (resolved server-side). */
   spocUserId?: string;
+  /** Multi-select SPOCs (union of their clinics, OR). Superset of `spocUserId`. */
+  spocUserIds?: string[];
   expenseHeadId?: string;
   from?: string; // YYYY-MM
   to?: string; // YYYY-MM
@@ -38,10 +42,10 @@ function clean(filter: DashboardFilter): Record<string, string> {
 
 export async function getStatusTracker(
   month?: string,
-  spocUserId?: string,
+  spocUserIds?: string[],
 ): Promise<DashboardStatusTile[]> {
   const { data } = await apiClient.get<DashboardStatusTile[]>('/dashboard/status', {
-    params: clean({ month, spocUserId }),
+    params: clean({ month, spocUserIds }),
   });
   return data;
 }
@@ -78,11 +82,11 @@ export async function getClinicTotals(filter: DashboardFilter): Promise<ClinicTo
 
 export async function getVariance(
   month?: string,
-  clinicId?: string,
-  spocUserId?: string,
+  clinicIds?: string[],
+  spocUserIds?: string[],
 ): Promise<VarianceReport> {
   const { data } = await apiClient.get<VarianceReport>('/dashboard/variance', {
-    params: clean({ month, clinicId, spocUserId }),
+    params: clean({ month, clinicIds, spocUserIds }),
   });
   return data;
 }

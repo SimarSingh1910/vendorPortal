@@ -8,6 +8,16 @@ import { DashboardService } from './dashboard.service';
 import { DashboardQueryDto } from './dto/dashboard-query.dto';
 import { ClinicMonthwiseQueryDto } from './dto/clinic-monthwise-query.dto';
 
+/** Coalesce the multi-select list with the older singular param (list wins). */
+function clinicIds(q: DashboardQueryDto): string[] | undefined {
+  if (q.clinicIds && q.clinicIds.length > 0) return q.clinicIds;
+  return q.clinicId ? [q.clinicId] : undefined;
+}
+function spocIds(q: DashboardQueryDto): string[] | undefined {
+  if (q.spocUserIds && q.spocUserIds.length > 0) return q.spocUserIds;
+  return q.spocUserId ? [q.spocUserId] : undefined;
+}
+
 /**
  * Dashboards & analytics (FR-07, Phase 11). Any authenticated role; every result
  * is clinic-scoped in the service (finance roles see all clinics, clinic roles
@@ -22,7 +32,7 @@ export class DashboardController {
   /** (a) Current-month submission-status tracker for the in-scope active clinics. */
   @Get('status')
   status(@Query() q: DashboardQueryDto, @CurrentUser() user: RequestUser) {
-    return this.dashboard.statusTracker(user, q.month, q.spocUserId);
+    return this.dashboard.statusTracker(user, q.month, spocIds(q));
   }
 
   /** (b) Month-on-month expense totals over the range. */
@@ -52,7 +62,7 @@ export class DashboardController {
   /** (e) Variance alerts vs the prior month (BR-12). */
   @Get('variance')
   variance(@Query() q: DashboardQueryDto, @CurrentUser() user: RequestUser) {
-    return this.dashboard.variance(user, q.month, q.clinicId, q.spocUserId);
+    return this.dashboard.variance(user, q.month, clinicIds(q), spocIds(q));
   }
 
   /** Scoped clinic + expense-head options for the filter dropdowns. */

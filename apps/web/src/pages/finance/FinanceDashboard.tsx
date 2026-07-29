@@ -32,6 +32,7 @@ import { ChartTableView } from '@/components/dashboard/ChartTableView';
 import { ExpenseHeadSplitBlock } from '@/components/dashboard/ExpenseHeadSplitBlock';
 import { HeadTrendBlock } from '@/components/dashboard/HeadTrendBlock';
 import { MonthSelect } from '@/components/dashboard/MonthSelect';
+import { MultiSelect } from '@/components/dashboard/MultiSelect';
 import { KpiRow, SubmissionPipeline } from '@/components/dashboard/DashboardKpis';
 import {
   ClinicTotalsTable,
@@ -85,14 +86,17 @@ function Select({
 }
 
 const STATUS_OPTIONS = Object.values(SubmissionStatus);
+// {id,name} items for the status multi-select (id = enum value, name = label).
+const statusItems = STATUS_OPTIONS.map((s) => ({ id: s, name: SUBMISSION_STATUS_LABELS[s] }));
 
 export function FinanceDashboard() {
   const thisMonth = currentMonth();
-  const [clinicId, setClinicId] = useState('');
-  // Filter the whole dashboard to the clinics one SPOC covers.
-  const [spocUserId, setSpocUserId] = useState('');
+  // Multi-select filters (Clinic, SPOC, Status): `null` = All (the default); a Set
+  // is the chosen subset. Empty is never reached — the control falls back to All.
+  const [clinicIds, setClinicIds] = useState<Set<string> | null>(null);
+  const [spocUserIds, setSpocUserIds] = useState<Set<string> | null>(null);
+  const [statuses, setStatuses] = useState<Set<SubmissionStatus> | null>(null);
   const [expenseHeadId, setExpenseHeadId] = useState('');
-  const [status, setStatus] = useState('');
   const [fromMonth, setFromMonth] = useState(shiftMonth(thisMonth, -11));
   const [toMonth, setToMonth] = useState(thisMonth);
   // Shared month focus for the trend, clinic-total and split cards. Empty = whole
@@ -109,16 +113,35 @@ export function FinanceDashboard() {
     }
   }
 
+  // A `null` (All) selection sends nothing; a Set sends the chosen ids/statuses.
+  const clinicIdList = clinicIds ? [...clinicIds] : undefined;
+  const spocUserIdList = spocUserIds ? [...spocUserIds] : undefined;
+  const statusList = statuses ? [...statuses] : undefined;
+
   // `toMonth` is the as-of month for the status tracker + variance; the pair
   // (from, to) bounds the trend charts.
   const asOf = toMonth || thisMonth;
   const rangeFilter: DashboardFilter = {
-    clinicId: clinicId || undefined,
-    spocUserId: spocUserId || undefined,
+    clinicIds: clinicIdList,
+    spocUserIds: spocUserIdList,
     expenseHeadId: expenseHeadId || undefined,
     from: fromMonth || undefined,
     to: toMonth || undefined,
-    status: status ? [status as SubmissionStatus] : undefined,
+    status: statusList,
+  };
+
+  // Exports are single-clinic-or-all by design (unchanged): pass a clinic/SPOC id
+  // only when exactly one is selected, otherwise omit (all). Status lists already
+  // flow through the export endpoints as-is.
+  const soleClinicId = clinicIds && clinicIds.size === 1 ? [...clinicIds][0] : undefined;
+  const soleSpocUserId = spocUserIds && spocUserIds.size === 1 ? [...spocUserIds][0] : undefined;
+  const exportFilter: DashboardFilter = {
+    clinicId: soleClinicId,
+    spocUserId: soleSpocUserId,
+    expenseHeadId: expenseHeadId || undefined,
+    from: fromMonth || undefined,
+    to: toMonth || undefined,
+    status: statusList,
   };
 
   // Month-picker options + the effective pick (whole range when unset / out of range).
@@ -134,12 +157,12 @@ export function FinanceDashboard() {
     queryFn: getDashboardFilters,
   });
   const { data: tiles = [], isLoading: tilesLoading } = useQuery({
-    queryKey: ['dashboard', 'status', asOf, spocUserId],
-    queryFn: () => getStatusTracker(asOf, spocUserId || undefined),
+    queryKey: ['dashboard', 'status', asOf, spocUserIdList],
+    queryFn: () => getStatusTracker(asOf, spocUserIdList),
   });
   const { data: variance } = useQuery({
-    queryKey: ['dashboard', 'variance', asOf, clinicId, spocUserId],
-    queryFn: () => getVariance(asOf, clinicId || undefined, spocUserId || undefined),
+    queryKey: ['dashboard', 'variance', asOf, clinicIdList, spocUserIdList],
+    queryFn: () => getVariance(asOf, clinicIdList, spocUserIdList),
   });
   const { data: monthly = [] } = useQuery({
     queryKey: ['dashboard', 'monthly', rangeFilter],
@@ -202,17 +225,17 @@ export function FinanceDashboard() {
             variant="outline"
             size="sm"
             disabled={!!exporting}
-            onClick={() => runExport('consolidated', () => exportConsolidated(rangeFilter))}
+            onClick={() => runExport('consolidated', () => exportConsolidated(exportFilter))}
           >
             <Download />
             {exporting === 'consolidated' ? 'Exporting…' : 'Excel'}
           </Button>
-          {clinicId && (
+          {soleClinicId && (
             <Button
               variant="outline"
               size="sm"
               disabled={!!exporting}
-              onClick={() => runExport('clinic', () => exportClinicMonth(clinicId, asOf))}
+              onClick={() => runExport('clinic', () => exportClinicMonth(soleClinicId, asOf))}
             >
               <Download />
               {exporting === 'clinic' ? 'Exporting…' : 'Clinic month'}
@@ -231,7 +254,7 @@ export function FinanceDashboard() {
             variant="outline"
             size="sm"
             disabled={!!exporting}
-            onClick={() => runExport('pdf', () => exportDashboardPdf(rangeFilter))}
+            onClick={() => runExport('pdf', () => exportDashboardPdf(exportFilter))}
           >
             <FileText />
             {exporting === 'pdf' ? 'Generating…' : 'PDF'}
@@ -243,25 +266,27 @@ export function FinanceDashboard() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <div className="space-y-1.5">
           <Label>Clinic</Label>
-          <Select value={clinicId} onChange={setClinicId}>
-            <option value="">All clinics</option>
-            {options?.clinics.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </Select>
+          <MultiSelect
+            items={options?.clinics ?? []}
+            selected={clinicIds}
+            onChange={setClinicIds}
+            nounSingular="clinic"
+            nounPlural="clinics"
+            ariaLabel="Filter by clinic"
+            fullWidth
+          />
         </div>
         <div className="space-y-1.5">
           <Label>Clinic SPOC</Label>
-          <Select value={spocUserId} onChange={setSpocUserId}>
-            <option value="">All SPOCs</option>
-            {options?.spocs.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </Select>
+          <MultiSelect
+            items={options?.spocs ?? []}
+            selected={spocUserIds}
+            onChange={setSpocUserIds}
+            nounSingular="SPOC"
+            nounPlural="SPOCs"
+            ariaLabel="Filter by clinic SPOC"
+            fullWidth
+          />
         </div>
         <div className="space-y-1.5">
           <Label>Expense head</Label>
@@ -276,14 +301,15 @@ export function FinanceDashboard() {
         </div>
         <div className="space-y-1.5">
           <Label>Status</Label>
-          <Select value={status} onChange={setStatus}>
-            <option value="">All statuses</option>
-            {STATUS_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {SUBMISSION_STATUS_LABELS[s]}
-              </option>
-            ))}
-          </Select>
+          <MultiSelect
+            items={statusItems}
+            selected={statuses}
+            onChange={setStatuses}
+            nounSingular="status"
+            nounPlural="statuses"
+            ariaLabel="Filter by status"
+            fullWidth
+          />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="from">From month</Label>
