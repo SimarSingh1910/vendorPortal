@@ -4,6 +4,8 @@ import { apiClient } from '@/lib/apiClient';
 export interface ExpenseHeadInput {
   glAccountNo: string;
   glAccountName: string;
+  /** Finance Admin only; applies to cycles opened after the change (BR-05). */
+  allowsMultipleVendors: boolean;
 }
 
 export async function listExpenseHeads(status: ActiveFilter): Promise<ExpenseHead[]> {

@@ -12,6 +12,8 @@ import { Sec24AllocationService } from './sec24-allocation.service';
 import { makeCorpFixtures, type CorpFixtures } from '../../test/corp-fixtures';
 import { resetDb } from '../../test/reset';
 import { expectStatus } from '../../test/fixtures';
+import { AttachmentsService } from '../attachments/attachments.service';
+import { ClinicScopeService } from '../common/clinic-scope.service';
 
 const MONTH = '2026-07';
 
@@ -37,6 +39,8 @@ describe('CorpProvisionEntryService (Steps C2.2/C2.3 — entry + override)', () 
         CorpCycleService,
         CorpDepartmentScopeService,
         CorpWorkflowService,
+        AttachmentsService,
+        ClinicScopeService,
         CorpSubmissionsService,
         CorpProvisionEntryService,
         Sec24AllocationService,

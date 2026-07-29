@@ -13,6 +13,8 @@ import { apiClient } from '@/lib/apiClient';
 
 export interface DashboardFilter {
   clinicId?: string;
+  /** Narrow to the clinics one SPOC covers (resolved server-side). */
+  spocUserId?: string;
   expenseHeadId?: string;
   from?: string; // YYYY-MM
   to?: string; // YYYY-MM
@@ -34,9 +36,12 @@ function clean(filter: DashboardFilter): Record<string, string> {
   return out;
 }
 
-export async function getStatusTracker(month?: string): Promise<DashboardStatusTile[]> {
+export async function getStatusTracker(
+  month?: string,
+  spocUserId?: string,
+): Promise<DashboardStatusTile[]> {
   const { data } = await apiClient.get<DashboardStatusTile[]>('/dashboard/status', {
-    params: clean({ month }),
+    params: clean({ month, spocUserId }),
   });
   return data;
 }
@@ -71,9 +76,13 @@ export async function getClinicTotals(filter: DashboardFilter): Promise<ClinicTo
   return data;
 }
 
-export async function getVariance(month?: string, clinicId?: string): Promise<VarianceReport> {
+export async function getVariance(
+  month?: string,
+  clinicId?: string,
+  spocUserId?: string,
+): Promise<VarianceReport> {
   const { data } = await apiClient.get<VarianceReport>('/dashboard/variance', {
-    params: clean({ month, clinicId }),
+    params: clean({ month, clinicId, spocUserId }),
   });
   return data;
 }

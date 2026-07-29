@@ -89,6 +89,8 @@ const STATUS_OPTIONS = Object.values(SubmissionStatus);
 export function FinanceDashboard() {
   const thisMonth = currentMonth();
   const [clinicId, setClinicId] = useState('');
+  // Filter the whole dashboard to the clinics one SPOC covers.
+  const [spocUserId, setSpocUserId] = useState('');
   const [expenseHeadId, setExpenseHeadId] = useState('');
   const [status, setStatus] = useState('');
   const [fromMonth, setFromMonth] = useState(shiftMonth(thisMonth, -11));
@@ -112,6 +114,7 @@ export function FinanceDashboard() {
   const asOf = toMonth || thisMonth;
   const rangeFilter: DashboardFilter = {
     clinicId: clinicId || undefined,
+    spocUserId: spocUserId || undefined,
     expenseHeadId: expenseHeadId || undefined,
     from: fromMonth || undefined,
     to: toMonth || undefined,
@@ -131,12 +134,12 @@ export function FinanceDashboard() {
     queryFn: getDashboardFilters,
   });
   const { data: tiles = [], isLoading: tilesLoading } = useQuery({
-    queryKey: ['dashboard', 'status', asOf],
-    queryFn: () => getStatusTracker(asOf),
+    queryKey: ['dashboard', 'status', asOf, spocUserId],
+    queryFn: () => getStatusTracker(asOf, spocUserId || undefined),
   });
   const { data: variance } = useQuery({
-    queryKey: ['dashboard', 'variance', asOf, clinicId],
-    queryFn: () => getVariance(asOf, clinicId || undefined),
+    queryKey: ['dashboard', 'variance', asOf, clinicId, spocUserId],
+    queryFn: () => getVariance(asOf, clinicId || undefined, spocUserId || undefined),
   });
   const { data: monthly = [] } = useQuery({
     queryKey: ['dashboard', 'monthly', rangeFilter],
@@ -237,7 +240,7 @@ export function FinanceDashboard() {
       </div>
 
       {/* Filters */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <div className="space-y-1.5">
           <Label>Clinic</Label>
           <Select value={clinicId} onChange={setClinicId}>
@@ -245,6 +248,17 @@ export function FinanceDashboard() {
             {options?.clinics.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label>Clinic SPOC</Label>
+          <Select value={spocUserId} onChange={setSpocUserId}>
+            <option value="">All SPOCs</option>
+            {options?.spocs.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
               </option>
             ))}
           </Select>

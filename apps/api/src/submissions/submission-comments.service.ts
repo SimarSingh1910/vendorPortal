@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { UserRole, type SubmissionCommentAction, type SubmissionCommentView } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { AttachmentsService } from '../attachments/attachments.service';
 import { ClinicScopeService } from '../common/clinic-scope.service';
 import type { RequestUser } from '../auth/request-user';
 
@@ -37,7 +38,22 @@ export class SubmissionCommentsService {
       where: { submissionId },
       // id is the tie-breaker so same-millisecond comments stay in insert order.
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      include: { commentedBy: { select: { id: true, name: true } } },
+      include: {
+        commentedBy: { select: { id: true, name: true } },
+        // Metadata only — the blob is never loaded here, it is streamed by the
+        // authenticated download route on demand.
+        attachments: {
+          orderBy: { uploadedAt: 'asc' },
+          select: {
+            id: true,
+            fileName: true,
+            mimeType: true,
+            sizeBytes: true,
+            uploadedAt: true,
+            uploadedBy: { select: { id: true, name: true } },
+          },
+        },
+      },
     });
 
     return comments.map((c) => ({
@@ -47,6 +63,7 @@ export class SubmissionCommentsService {
       roleAtTime: c.roleAtTime as UserRole,
       createdAt: c.createdAt.toISOString(),
       commentedBy: { id: c.commentedBy.id, name: c.commentedBy.name },
+      attachments: AttachmentsService.toViews(c.attachments),
     }));
   }
 }

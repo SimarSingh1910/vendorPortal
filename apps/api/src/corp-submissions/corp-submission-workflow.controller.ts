@@ -1,4 +1,12 @@
-import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Param,
+  Post,
+  UploadedFiles,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
 import { PortalTab, UserRole } from '@portal/shared';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RequireTab } from '../auth/decorators/require-tab.decorator';
@@ -11,6 +19,8 @@ import { SubmitDto } from '../submissions/dto/submit.dto';
 import { ApproveDto } from '../submissions/dto/approve.dto';
 import { SendBackDto } from '../submissions/dto/send-back.dto';
 import { UnlockDto } from '../submissions/dto/unlock.dto';
+import { AttachmentUpload, toUploadedFiles } from '../attachments/attachment-upload';
+import type { UploadedFile } from '../attachments/attachments.service';
 
 /**
  * HTTP surface for corporate submission workflow transitions (Phase C2). Gated at
@@ -48,22 +58,26 @@ export class CorpSubmissionWorkflowController {
 
   @Post('review/approve')
   @Roles(...CORP_FINANCE_APPROVER_ROLES)
+  @UseInterceptors(AttachmentUpload())
   approve(
     @Param('submissionId') id: string,
     @CurrentUser() user: RequestUser,
     @Body() dto: ApproveDto,
+    @UploadedFiles() files?: UploadedFile[],
   ) {
-    return this.workflow.approve(id, user, dto.comment);
+    return this.workflow.approve(id, user, dto.comment, toUploadedFiles(files));
   }
 
   @Post('review/send-back')
   @Roles(...CORP_FINANCE_APPROVER_ROLES)
+  @UseInterceptors(AttachmentUpload())
   sendBack(
     @Param('submissionId') id: string,
     @CurrentUser() user: RequestUser,
     @Body() dto: SendBackDto,
+    @UploadedFiles() files?: UploadedFile[],
   ) {
-    return this.workflow.sendBack(id, user, dto.comment);
+    return this.workflow.sendBack(id, user, dto.comment, toUploadedFiles(files));
   }
 
   /** Unlock an approved (locked) submission with a mandatory reason. Finance Admin only. */

@@ -32,6 +32,7 @@ import {
 import { exportCorpSubmission } from '@/api/export';
 import { useAuthStore } from '@/store/auth.store';
 import { apiErrorMessage } from '@/lib/apiError';
+import { AttachPicker, AttachmentList } from '@/components/CommentAttachments';
 import { commentActionLabel, commentActionVariant, formatINR, formatIST, formatMonth } from '@/lib/format';
 import { corpStatusBadgeVariant, corpStatusLabel } from '@/lib/corpFormat';
 
@@ -70,6 +71,9 @@ export function CorpReview() {
   const isAdmin = role === UserRole.FINANCE_ADMIN;
 
   const [comment, setComment] = useState('');
+  // Proof files for the comment being composed. Editable only until it is
+  // submitted — afterwards attachments are fixed.
+  const [attachFiles, setAttachFiles] = useState<File[]>([]);
   const [unlockReason, setUnlockReason] = useState('');
   const [values, setValues] = useState<ValueMap>({});
   const [codes, setCodes] = useState<ValueMap>({});
@@ -134,7 +138,7 @@ export function CorpReview() {
   });
 
   const approveMutation = useMutation({
-    mutationFn: () => corpApprove(submissionId, comment.trim() || undefined),
+    mutationFn: () => corpApprove(submissionId, comment.trim() || undefined, attachFiles),
     onSuccess: () => {
       invalidate();
       navigate('/corporate/review');
@@ -143,7 +147,7 @@ export function CorpReview() {
   });
 
   const sendBackMutation = useMutation({
-    mutationFn: () => corpSendBack(submissionId, comment.trim()),
+    mutationFn: () => corpSendBack(submissionId, comment.trim(), attachFiles),
     onSuccess: () => {
       invalidate();
       navigate('/corporate/review');
@@ -239,6 +243,7 @@ export function CorpReview() {
                   <span className="text-xs text-muted-foreground">{formatIST(c.createdAt)}</span>
                 </div>
                 <p className="mt-1 whitespace-pre-wrap text-base text-foreground">{c.comment}</p>
+                <AttachmentList attachments={c.attachments} />
               </li>
             ))}
           </ul>
@@ -397,6 +402,7 @@ export function CorpReview() {
             value={comment}
             onChange={(e) => setComment(e.target.value)}
           />
+          <AttachPicker files={attachFiles} onChange={setAttachFiles} disabled={busy} />
           <div className="flex flex-wrap gap-3">
             <Button disabled={busy} onClick={() => approveMutation.mutate()}>
               {approveMutation.isPending ? 'Approving…' : 'Approve & lock'}

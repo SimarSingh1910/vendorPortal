@@ -28,6 +28,7 @@ import {
   AttentionBanner,
 } from '@/components/attention';
 import { apiErrorMessage } from '@/lib/apiError';
+import { AttachmentList } from '@/components/CommentAttachments';
 import { cn } from '@/lib/utils';
 import { commentActionLabel, commentActionVariant, formatINR, formatIST, formatMonth } from '@/lib/format';
 import { corpStatusBadgeVariant, corpStatusLabel, isCorpSpocActionPending } from '@/lib/corpFormat';
@@ -262,6 +263,7 @@ export function CorpSubmissionEntry() {
                   <span className="text-xs text-muted-foreground">{formatIST(c.createdAt)}</span>
                 </div>
                 <p className="mt-1 whitespace-pre-wrap text-base text-foreground">{c.comment}</p>
+                <AttachmentList attachments={c.attachments} />
               </li>
             ))}
           </ul>

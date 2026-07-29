@@ -13,6 +13,7 @@ import { CorpSubmissionWorkflowController } from './corp-submission-workflow.con
 import { CorpProvisionEntryController } from './corp-provision-entry.controller';
 import { CorpSubmissionsController } from './corp-submissions.controller';
 import { Sec24AllocationController } from './sec24-allocation.controller';
+import { AttachmentsModule } from '../attachments/attachments.module';
 
 /**
  * Corporate submission workflow engine (Phase C2). Step C2.1 ships cycle opening +
@@ -23,7 +24,7 @@ import { Sec24AllocationController } from './sec24-allocation.controller';
  * for cross-service transitions.
  */
 @Module({
-  imports: [CorpExpenseHeadsModule, NotificationsModule],
+  imports: [AttachmentsModule, CorpExpenseHeadsModule, NotificationsModule],
   controllers: [
     CorpSubmissionWorkflowController,
     CorpProvisionEntryController,

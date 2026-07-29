@@ -7,6 +7,7 @@
  * shape that RBAC will rely on.
  */
 
+import type { CommentAttachmentView } from './attachments';
 import type {
   CorpDepartmentType,
   CorpSubmissionStatus,
@@ -103,6 +104,13 @@ export interface ExpenseHead {
   glAccountNo: string;
   /** G/L Account Name — the descriptive account name (required). */
   glAccountName: string;
+  /**
+   * When true a SPOC may enter several vendor lines against this head. Set by a
+   * Finance Admin on the master; frozen onto each head snapshot at cycle-open, so
+   * a change applies to cycles opened AFTERWARDS and never rewrites a month that
+   * is already open (BR-05 non-retroactivity).
+   */
+  allowsMultipleVendors: boolean;
   isActive: boolean;
   createdAt: string; // ISO-8601
   updatedAt: string; // ISO-8601
@@ -172,6 +180,13 @@ export interface SubmissionCommentView {
     id: string;
     name: string;
   };
+  /**
+   * Files attached as proof when this comment was written (metadata only — the
+   * bytes are fetched separately through the authenticated download route).
+   * Empty for comments with no attachments, and for every comment predating the
+   * feature. Immutable: fixed once the comment was saved.
+   */
+  attachments: CommentAttachmentView[];
 }
 
 // ── Provision entry / SPOC workspace (Phase 6) ───────────────────────────────
@@ -202,14 +217,50 @@ export interface SubmissionListItem {
 }
 
 /**
- * One vendor line within a head. `amount` is the entered INR value as a
- * DECIMAL(14,2) string, or null when nothing has been entered yet (blank —
- * distinct from an explicit "0.00").
+ * One rate × quantity row under a vendor line — the level the SPOC actually types
+ * at. `value` is DERIVED (rate × quantity, rounded half-up to 2 dp) and is never
+ * typed or accepted from the client; it is null exactly when rate or quantity is
+ * blank. Every vendor line has AT LEAST ONE particular.
+ */
+export interface ProvisionParticular {
+  /** Persisted particular id; null for a fresh row the SPOC added but hasn't saved. */
+  particularId: string | null;
+  /** What is being provisioned; null while the row is still being filled in. */
+  particularName: string | null;
+  /** Per-unit rate as a DECIMAL(14,4) string; null when blank (blank ≠ "0"). */
+  rate: string | null;
+  /** Units as a DECIMAL(14,3) string; null when blank (blank ≠ "0"). */
+  quantity: string | null;
+  /** DERIVED rate × quantity as a DECIMAL(14,2) string; null when either input is blank. */
+  value: string | null;
+  /** 0-based position of this particular within its vendor line, for stable ordering. */
+  lineOrder: number;
+}
+
+/** One particular being saved. `value` is deliberately absent — the server computes it. */
+export interface ProvisionParticularInput {
+  /** Existing particular id → update that row; omitted/null → create a new row. */
+  particularId?: string | null;
+  /** Blank/whitespace is stored as null. */
+  particularName?: string;
+  /** Null for a started-but-blank row (0 is a valid rate, blank is not). */
+  rate: number | null;
+  /** Null for a started-but-blank row (0 is a valid quantity, blank is not). */
+  quantity: number | null;
+}
+
+/**
+ * One vendor line within a head. `amount` is DERIVED — the sum of this line's
+ * particulars' values as a DECIMAL(14,2) string — and is never typed. It is null
+ * when ANY particular of the line is still incomplete, so a half-filled line
+ * reports "no amount yet" rather than a misleadingly small partial sum.
  */
 export interface ProvisionLine {
   /** Persisted entry id; null for a fresh line the SPOC has added but not saved. */
   entryId: string | null;
   amount: string | null;
+  /** This line's particulars, in `lineOrder`; always at least one. */
+  particulars: ProvisionParticular[];
   /** Optional SPOC line-item note (e.g. why it spiked/dropped); null when none. */
   note: string | null;
   /** Optional free-text vendor name entered against this line; null when none. */
@@ -263,12 +314,19 @@ export interface SubmissionDetail {
   heads: ProvisionHeadRow[];
 }
 
-/** One vendor line being saved within a head. */
+/**
+ * One vendor line being saved within a head. There is deliberately NO `amount`
+ * field: the line's amount is derived server-side from `particulars`, so a client
+ * has no way to assert a total that contradicts them.
+ */
 export interface ProvisionLineInput {
   /** Existing entry id → update that line; omitted/null → create a new line. */
   entryId?: string | null;
-  /** INR value; null for a started-but-blank line (0 is valid, blank ≠ 0). */
-  amount: number | null;
+  /**
+   * The full desired set of particulars for this line, reconciled by
+   * `particularId` (as lines are within a head). At least one is required.
+   */
+  particulars: ProvisionParticularInput[];
   /** Optional SPOC note for this line; blank/whitespace is stored as null. */
   note?: string;
   /** Optional free-text vendor name for this line; blank/whitespace is stored as null. */
@@ -479,6 +537,20 @@ export interface DashboardStatusTile {
   status: SubmissionStatus;
   submissionId: string | null;
   total: string | null; // DECIMAL(14,2) as string
+  /**
+   * The ACTIVE SPOCs responsible for this clinic — so a finance reviewer can see
+   * who to chase without leaving the dashboard.
+   *
+   * Three distinct states, deliberately not collapsed into one:
+   *  - `null`  → not applicable to this viewer. Only finance roles (Admin /
+   *              Manager) get names; a clinic-scoped viewer is looking at their
+   *              own clinic, where the name adds nothing, and their tile hides
+   *              the line entirely.
+   *  - `[]`    → a finance viewer, and this clinic has NO active SPOC. Worth
+   *              surfacing (nobody can enter the month), not hiding.
+   *  - `[...]` → the assigned SPOC names; a clinic may legitimately have several.
+   */
+  spocNames: string[] | null;
 }
 
 /** A month → total point for the month-on-month expense comparison. */
@@ -581,6 +653,13 @@ export interface MonthwiseReport {
 export interface DashboardFilterOptions {
   clinics: { id: string; name: string }[];
   expenseHeads: { id: string; name: string }[];
+  /**
+   * ACTIVE clinic SPOCs covering the accessible clinics — the "Clinic SPOC"
+   * filter's options. Picking one narrows the whole dashboard to the clinics that
+   * SPOC covers (a SPOC may cover more than one). Empty for clinic-scoped
+   * viewers, who have no cross-clinic filtering to do.
+   */
+  spocs: { id: string; name: string }[];
 }
 
 // ── Corporate dashboards & analytics (Phase C4) ──────────────────────────────

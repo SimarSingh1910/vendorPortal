@@ -1,6 +1,11 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 import { Workbook } from 'exceljs';
-import { SubmissionStatus, UserRole } from '@portal/shared';
+import {
+  SubmissionStatus,
+  UserRole,
+  computeValueMinor,
+  minorToDecimalString,
+} from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClinicScopeService } from '../common/clinic-scope.service';
 import { ClinicExpenseHeadsService } from '../clinic-expense-heads/clinic-expense-heads.service';
@@ -12,6 +17,8 @@ import { ExcelExportService } from './excel-export.service';
 import { makeFixtures, type Fixtures, expectStatus } from '../../test/fixtures';
 import { resetDb } from '../../test/reset';
 import type { RequestUser } from '../auth/request-user';
+import { AttachmentsService } from '../attachments/attachments.service';
+import { CorpDepartmentScopeService } from '../corp-submissions/corp-department-scope.service';
 
 /** FR-10 export data feed + ExcelJS output validity. */
 describe('Export (Phase 12, FR-10)', () => {
@@ -33,6 +40,8 @@ describe('Export (Phase 12, FR-10)', () => {
         AuditService,
         CycleService,
         WorkflowService,
+        AttachmentsService,
+        CorpDepartmentScopeService,
         ExportService,
         ExcelExportService,
       ],
@@ -55,6 +64,11 @@ describe('Export (Phase 12, FR-10)', () => {
     spocId = (await fx.makeUser(UserRole.CLINIC_SPOC)).user.id;
   });
 
+  /**
+   * Seed a vendor line WITH its particulars. `amount` is shorthand for the common
+   * one-particular line (rate = amount × qty 1), so a line's derived amount equals
+   * `amount`; pass `particulars` to build a line out of several rate/quantity rows.
+   */
   async function enter(
     clinicId: string,
     month: string,
@@ -64,31 +78,45 @@ describe('Export (Phase 12, FR-10)', () => {
       productCode?: string;
       vendorName?: string;
       note?: string;
+      particulars?: Array<{ name: string; rate: number; quantity: number }>;
     }>,
     status: SubmissionStatus = SubmissionStatus.SUBMITTED,
   ) {
     const { submission } = await cycle.openClinicCycle(clinicId, month);
     await prisma.monthlySubmission.update({ where: { id: submission.id }, data: { status } });
-    for (const { id, amount, productCode, vendorName, note } of lines) {
+    for (const { id, amount, productCode, vendorName, note, particulars } of lines) {
       const snap = await prisma.submissionExpenseHeadSnapshot.findFirstOrThrow({
         where: { submissionId: submission.id, expenseHeadId: id },
       });
+      const rows = particulars ?? [{ name: 'Amount', rate: amount, quantity: 1 }];
+      const values = rows.map((p) => computeValueMinor(p.rate, p.quantity)!);
       await prisma.provisionEntry.create({
         data: {
           submissionId: submission.id,
           snapshotId: snap.id,
-          amount,
+          amount: minorToDecimalString(values.reduce((a, b) => a + b, 0n)),
           productCode: productCode ?? null,
           vendorName: vendorName ?? null,
           note: note ?? null,
           enteredById: spocId,
           lastModifiedById: spocId,
+          particulars: {
+            create: rows.map((p, i) => ({
+              lineOrder: i,
+              particularName: p.name,
+              rate: String(p.rate),
+              quantity: String(p.quantity),
+              value: minorToDecimalString(values[i]),
+            })),
+          },
         },
       });
     }
   }
 
-  // The finance manager's unified 10-column layout — EXACT order + headers.
+  // The finance manager's unified layout — EXACT order + headers. The original ten
+  // keep their positions; Particular/Rate/Quantity are appended at 11-13 for the
+  // per-particular grain.
   const EXPECTED_HEADERS = [
     'G/L Account No.',
     'G/L Account Name',
@@ -100,7 +128,12 @@ describe('Export (Phase 12, FR-10)', () => {
     'Acc. Location Code',
     'Customer Code',
     'Product Code',
+    'Particular',
+    'Rate',
+    'Quantity',
   ];
+  /** The ten columns that predate particulars — these must never move or rename. */
+  const LEGACY_HEADERS = EXPECTED_HEADERS.slice(0, 10);
   const col = (h: string) => EXPECTED_HEADERS.indexOf(h) + 1; // 1-based cell index
 
   /** Load a produced .xlsx back and expose row 1 headers + the data rows by column. */
@@ -134,7 +167,10 @@ describe('Export (Phase 12, FR-10)', () => {
       expect(buffer.subarray(0, 2).toString('ascii')).toBe('PK'); // valid xlsx (ZIP)
       const { sheet, headers } = await loadSheet(buffer);
       expect(headers).toEqual(EXPECTED_HEADERS);
-      // No 11th column bleeds in beyond the fixed 10.
+      // The pre-existing finance columns keep their EXACT names and positions —
+      // the particulars work appended, it did not reorder.
+      expect(headers.slice(0, 10)).toEqual(LEGACY_HEADERS);
+      // No 14th column bleeds in beyond the fixed layout.
       expect(sheet.getRow(1).getCell(EXPECTED_HEADERS.length + 1).value ?? null).toBeNull();
     }
   });
@@ -176,7 +212,7 @@ describe('Export (Phase 12, FR-10)', () => {
     const power = await fx.makeExpenseHead({ glAccountName: 'Power', glAccountNo: '400200' });
     await fx.mapHeads(clinic.id, [rent.id, power.id]);
     await enter(clinic.id, '2026-06', [
-      { id: rent.id, amount: 1000, vendorName: 'Landlord LLP', productCode: 'p10', note: 'lease renewed' },
+      { id: rent.id, amount: 1000, vendorName: 'Landlord LLP', productCode: 'P10', note: 'lease renewed' },
       { id: power.id, amount: 250 }, // no vendor / product / note
     ]);
 
@@ -189,7 +225,7 @@ describe('Export (Phase 12, FR-10)', () => {
     expect(rentRow['G/L Account No.']).toBe('400100');
     expect(rentRow['Amount (LCY)']).toBe(1000);
     expect(rentRow['Vendor Name']).toBe('Landlord LLP');
-    expect(rentRow['Product Code']).toBe('p10');
+    expect(rentRow['Product Code']).toBe('P10');
     expect(rentRow['Description']).toBe('lease renewed'); // Description = per-line SPOC note
 
     // Per-clinic fields repeat identically across the clinic's lines.
@@ -245,14 +281,33 @@ describe('Export (Phase 12, FR-10)', () => {
     const snap = await prisma.submissionExpenseHeadSnapshot.findFirstOrThrow({
       where: { submissionId: submission.id, expenseHeadId: head.id },
     });
-    await prisma.provisionEntry.createMany({
-      data: [
-        { submissionId: submission.id, snapshotId: snap.id, lineOrder: 0, amount: 100, vendorName: 'Quess Corp', enteredById: spocId, lastModifiedById: spocId },
-        { submissionId: submission.id, snapshotId: snap.id, lineOrder: 1, amount: 250, vendorName: 'Sodexo', enteredById: spocId, lastModifiedById: spocId },
-        // A blank (null-amount) line must NOT appear as a "0" row.
-        { submissionId: submission.id, snapshotId: snap.id, lineOrder: 2, amount: null, vendorName: 'Draft only', enteredById: spocId, lastModifiedById: spocId },
-      ],
+    const line = (lineOrder: number, vendorName: string, amount: number | null) => ({
+      submissionId: submission.id,
+      snapshotId: snap.id,
+      lineOrder,
+      amount: amount === null ? null : String(amount.toFixed(2)),
+      vendorName,
+      enteredById: spocId,
+      lastModifiedById: spocId,
+      particulars: {
+        create: [
+          amount === null
+            ? // A started-but-blank particular: no rate/quantity, so no value.
+              { lineOrder: 0, particularName: null, rate: null, quantity: null, value: null }
+            : {
+                lineOrder: 0,
+                particularName: 'Amount',
+                rate: String(amount),
+                quantity: '1',
+                value: amount.toFixed(2),
+              },
+        ],
+      },
     });
+    await prisma.provisionEntry.create({ data: line(0, 'Quess Corp', 100) });
+    await prisma.provisionEntry.create({ data: line(1, 'Sodexo', 250) });
+    // A blank (null-amount) line must NOT appear as a "0" row.
+    await prisma.provisionEntry.create({ data: line(2, 'Draft only', null) });
 
     const rows = await exportService.detailRows(finance, { clinicId: clinic.id, month: '2026-06' });
     expect(rows).toHaveLength(2); // two real lines; the blank line is excluded
@@ -264,6 +319,53 @@ describe('Export (Phase 12, FR-10)', () => {
     ]);
     expect(rows.map((r) => r.vendorName)).toEqual(['Quess Corp', 'Sodexo']);
     expect(rows.map((r) => r.amount)).toEqual(['100.00', '250.00']);
+  });
+
+  it('emits one row per PARTICULAR, repeating the line context, and still totals the same', async () => {
+    const clinic = await fx.makeClinic({ name: 'Pune', accLocationCode: 'LOC-PUN', customerCode: 'CUST-PUN' });
+    const head = await fx.makeExpenseHead({ glAccountName: 'Consumables', glAccountNo: '500100' });
+    await fx.mapHeads(clinic.id, [head.id]);
+    await enter(clinic.id, '2026-06', [
+      {
+        id: head.id,
+        amount: 0, // ignored — particulars drive the figures
+        vendorName: 'Acme',
+        productCode: 'P20',
+        note: 'monthly consumables',
+        particulars: [
+          { name: 'Gloves (M)', rate: 400, quantity: 30 }, // 12,000.00
+          { name: 'Masks', rate: 15, quantity: 300 }, //  4,500.00
+        ],
+      },
+    ]);
+
+    const rows = await exportService.detailRows(finance, { clinicId: clinic.id, month: '2026-06' });
+    // One row per particular — NOT one per vendor line.
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.particularName)).toEqual(['Gloves (M)', 'Masks']);
+    expect(rows.map((r) => r.amount)).toEqual(['12000.00', '4500.00']);
+    // The line/head/clinic context repeats down the particulars.
+    expect(rows.map((r) => r.glAccountNo)).toEqual(['500100', '500100']);
+    expect(rows.map((r) => r.vendorName)).toEqual(['Acme', 'Acme']);
+    expect(rows.map((r) => r.productCode)).toEqual(['P20', 'P20']);
+    expect(rows.map((r) => r.note)).toEqual(['monthly consumables', 'monthly consumables']);
+    expect(rows.map((r) => r.clinicName)).toEqual(['Pune', 'Pune']);
+
+    // The Amount column still sums to the vendor line's stored amount — the grain
+    // changed, the grand total did not.
+    const sheetTotal = rows.reduce((sum, r) => sum + Number(r.amount), 0);
+    const stored = await prisma.provisionEntry.findFirstOrThrow({
+      where: { submission: { clinicId: clinic.id } },
+    });
+    expect(sheetTotal).toBe(Number(stored.amount));
+    expect(sheetTotal).toBe(16500);
+
+    // Rate and Quantity land in the appended columns, as real numbers.
+    const { dataRows } = await loadSheet(await excel.consolidated(rows));
+    expect(dataRows.map((r) => r['Particular'])).toEqual(['Gloves (M)', 'Masks']);
+    expect(dataRows.map((r) => r['Rate'])).toEqual([400, 15]);
+    expect(dataRows.map((r) => r['Quantity'])).toEqual([30, 300]);
+    expect(dataRows.map((r) => r['Amount (LCY)'])).toEqual([12000, 4500]);
   });
 
   it('month-end is one row per line for ACTIVE clinics only (no matrix, no dead clinics)', async () => {

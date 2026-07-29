@@ -2,10 +2,9 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Lock } from 'lucide-react';
-import { SubmissionStatus, UserRole } from '@portal/shared';
+import { productCodeLabel, SubmissionStatus, UserRole } from '@portal/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Table,
@@ -26,8 +25,27 @@ import {
 } from '@/api/submissions';
 import { useAuthStore } from '@/store/auth.store';
 import { apiErrorMessage } from '@/lib/apiError';
+import { AttachPicker, AttachmentList } from '@/components/CommentAttachments';
 import { cn } from '@/lib/utils';
-import { collectOverrideEntries, seedLines, type LinesState } from '@/lib/provisionLines';
+import {
+  collectOverrideEntries,
+  headAmountMinor,
+  lineAmountMinor,
+  minorToAmountString,
+  seedLines,
+  type LinesState,
+  type ParticularDraft,
+} from '@/lib/provisionLines';
+import { ParticularsTable } from '@/components/ProvisionParticulars';
+import {
+  HEAD_AMOUNT,
+  HEAD_ROW,
+  HEAD_TEXT,
+  LINE_AMOUNT,
+  PARTICULARS_ROW,
+  TOTAL_ROW,
+  VENDOR_ROW,
+} from '@/components/provisionTableStyles';
 import {
   commentActionLabel,
   commentActionVariant,
@@ -50,6 +68,9 @@ export function FinanceReview() {
     role === UserRole.FINANCE_ADMIN || role === UserRole.FINANCE_MANAGER;
 
   const [comment, setComment] = useState('');
+  // Proof files for the comment being composed. Editable only until it is
+  // submitted — afterwards attachments are fixed.
+  const [attachFiles, setAttachFiles] = useState<File[]>([]);
   const [unlockReason, setUnlockReason] = useState('');
   const [lines, setLines] = useState<LinesState>({});
   const [error, setError] = useState<string | null>(null);
@@ -71,10 +92,30 @@ export function FinanceReview() {
     void qc.invalidateQueries({ queryKey: ['submissions'] });
   };
 
-  const patchAmount = (snapshotId: string, index: number, amount: string) => {
+  /**
+   * The BR-08 finance override now edits a PARTICULAR (its name, rate or quantity)
+   * rather than a head amount — that is where values live. Every total above it
+   * re-derives, on screen here and again server-side on save, so an override can
+   * never leave a head amount that contradicts its particulars.
+   */
+  const patchParticular = (
+    snapshotId: string,
+    lineIndex: number,
+    particularIndex: number,
+    patch: Partial<ParticularDraft>,
+  ) => {
     setLines((prev) => ({
       ...prev,
-      [snapshotId]: (prev[snapshotId] ?? []).map((l, i) => (i === index ? { ...l, amount } : l)),
+      [snapshotId]: (prev[snapshotId] ?? []).map((l, i) =>
+        i === lineIndex
+          ? {
+              ...l,
+              particulars: l.particulars.map((p, j) =>
+                j === particularIndex ? { ...p, ...patch } : p,
+              ),
+            }
+          : l,
+      ),
     }));
   };
 
@@ -102,7 +143,7 @@ export function FinanceReview() {
   });
 
   const approveMutation = useMutation({
-    mutationFn: () => financeApprove(submissionId, comment.trim() || undefined),
+    mutationFn: () => financeApprove(submissionId, comment.trim() || undefined, attachFiles),
     onSuccess: () => {
       invalidate();
       navigate('/finance');
@@ -111,7 +152,7 @@ export function FinanceReview() {
   });
 
   const sendBackMutation = useMutation({
-    mutationFn: () => financeSendBack(submissionId, comment.trim()),
+    mutationFn: () => financeSendBack(submissionId, comment.trim(), attachFiles),
     onSuccess: () => {
       invalidate();
       navigate('/finance');
@@ -198,6 +239,7 @@ export function FinanceReview() {
                   <span className="text-xs text-muted-foreground">{formatIST(c.createdAt)}</span>
                 </div>
                 <p className="mt-1 whitespace-pre-wrap text-base text-foreground">{c.comment}</p>
+                <AttachmentList attachments={c.attachments} />
               </li>
             ))}
           </ul>
@@ -218,17 +260,18 @@ export function FinanceReview() {
           <TableBody>
             {detail.heads.map((head) => {
               const headLines = lines[head.snapshotId] ?? [];
+              const headTotal = minorToAmountString(headAmountMinor(headLines));
               return (
                 <Fragment key={head.snapshotId}>
-                  {headLines.map((line, li) => (
-                    <TableRow
-                      key={line.entryId ?? `line-${li}`}
-                      className={li > 0 ? 'border-t-0' : undefined}
-                    >
-                      <TableCell className="align-top text-muted-foreground">
+                  {headLines.map((line, li) => {
+                    const lineAmount = minorToAmountString(lineAmountMinor(line));
+                    return (
+                    <Fragment key={line.entryId ?? `line-${li}`}>
+                    <TableRow className={li === 0 ? HEAD_ROW : VENDOR_ROW}>
+                      <TableCell className={cn('align-top', li === 0 ? HEAD_TEXT : 'text-muted-foreground')}>
                         {li === 0 ? head.glAccountNo : ''}
                       </TableCell>
-                      <TableCell className="align-top font-medium">
+                      <TableCell className={cn('align-top', li === 0 ? HEAD_TEXT : 'font-medium')}>
                         {li === 0 ? (
                           <div>{head.glAccountName}</div>
                         ) : (
@@ -249,25 +292,61 @@ export function FinanceReview() {
                         {line.vendor}
                       </TableCell>
                       <TableCell className="align-top text-sm text-muted-foreground">
-                        {line.product}
+                        {line.product ? productCodeLabel(line.product) : ''}
                       </TableCell>
+                      {/* Derived vendor-line subtotal — never an input, in either mode. */}
                       <TableCell className="align-top text-right">
-                        {isFinanceApprover ? (
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            inputMode="decimal"
-                            className="ml-auto w-40 text-right"
-                            value={line.amount}
-                            onChange={(e) => patchAmount(head.snapshotId, li, e.target.value)}
-                          />
-                        ) : (
-                          formatINR(line.amount === '' ? null : line.amount)
-                        )}
+                        <span
+                          className={cn(
+                            headLines.length === 1 ? HEAD_AMOUNT : LINE_AMOUNT,
+                            lineAmount === null && 'font-normal text-muted-foreground',
+                          )}
+                        >
+                          {formatINR(lineAmount)}
+                        </span>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    {/* The particulars behind that subtotal — the level a finance
+                        approver overrides at. Indented so the head → vendor line →
+                        particular nesting reads the same as on the entry screen. */}
+                    <TableRow className={PARTICULARS_ROW}>
+                      <TableCell />
+                      <TableCell colSpan={4} className="py-2 pr-4">
+                        <div className="pl-4">
+                          <ParticularsTable
+                            particulars={line.particulars}
+                            editable={isFinanceApprover}
+                            onPatch={(pi, patch) => patchParticular(head.snapshotId, li, pi, patch)}
+                            // An override retypes existing particulars; adding or
+                            // removing rows stays with the SPOC.
+                            onAdd={() => {}}
+                            onRemove={() => {}}
+                            allowAddRemove={false}
+                          />
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                    </Fragment>
+                    );
+                  })}
+                  {headLines.length > 1 && (
+                    <TableRow className={TOTAL_ROW}>
+                      <TableCell />
+                      <TableCell colSpan={3} className="py-2 text-right text-sm font-semibold">
+                        Total — {head.glAccountName}
+                      </TableCell>
+                      <TableCell className="py-2 text-right">
+                        <span
+                          className={cn(
+                            HEAD_AMOUNT,
+                            headTotal === null && 'font-normal text-muted-foreground',
+                          )}
+                        >
+                          {formatINR(headTotal)}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </Fragment>
               );
             })}
@@ -283,7 +362,8 @@ export function FinanceReview() {
             {overrideMutation.isPending ? 'Saving…' : 'Save override'}
           </Button>
           <span className="text-xs text-muted-foreground">
-            Finance Admin edits apply at any status and are audit-logged.
+            Edit a particular&rsquo;s rate or quantity — the line and head totals re-calculate
+            from it. Applies at any status and is audit-logged.
           </span>
         </div>
       )}
@@ -318,6 +398,7 @@ export function FinanceReview() {
             value={comment}
             onChange={(e) => setComment(e.target.value)}
           />
+          <AttachPicker files={attachFiles} onChange={setAttachFiles} disabled={busy} />
           <div className="flex flex-wrap gap-3">
             <Button disabled={busy} onClick={() => approveMutation.mutate()}>
               {approveMutation.isPending ? 'Approving…' : 'Approve & lock'}

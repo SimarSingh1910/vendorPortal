@@ -92,17 +92,19 @@ const CLINICS: ClinicDef[] = [
 ];
 
 // Expense heads carry realistic G/L account numbers (6xxxxx series) and an
-// EXAMPLE per-line vendor / product code / description. Vendor/product/description
-// are OPTIONAL by design — the blanks below (e.g. no vendor for salaries, no
-// product for equipment) are intentional so the export demos the "may or may not
-// be entered" behaviour. `entryExtras` varies them further across clinics/months.
+// EXAMPLE per-line vendor / product code / description. Product code is REQUIRED
+// (every head has one, and submit rejects a line without it); vendor and
+// description remain OPTIONAL by design — the blanks below (e.g. no vendor for
+// salaries) are intentional so the export still demos the "may or may not be
+// entered" spread. `entryExtras` varies those two across clinics/months.
 interface HeadDef {
   key: string;
   glAccountNo: string;
   glAccountName: string;
   base: number;
   vendor?: string;
-  product?: string;
+  /** REQUIRED — a vendor line cannot be submitted without a product code. */
+  product: string;
   description?: string;
   /** Heads flagged multi-vendor in the finance sheet accept several lines per submission. */
   allowsMultipleVendors?: boolean;
@@ -113,25 +115,25 @@ interface HeadDef {
 // stored as a string — never an integer, never reformatted. Names are verbatim
 // (including their original capitalisation/spacing, e.g. "House keeping and
 // maintenance", "Rent - building for Dental") — do not "correct" them. The
-// vendor / product / description mix keeps some fields intentionally BLANK so the
-// export demos the "may or may not be entered" spread. RADIOLOGY is the variance
-// spiker (see amountFor).
+// vendor / description mix keeps some fields intentionally BLANK so the export
+// demos the "may or may not be entered" spread (product code is mandatory, so it
+// is always set). RADIOLOGY is the variance spiker (see amountFor).
 const HEADS: HeadDef[] = [
-  { key: 'CCHIRE', glAccountNo: '41402005', glAccountName: 'Credit Card Machine Hire Charges', base: 8_000, vendor: 'Pine Labs', product: 'p10', description: 'Two additional POS terminals installed' },
-  { key: 'OUTSVC', glAccountNo: '41117004', glAccountName: 'Other Outsourced Services', base: 60_000, vendor: 'Quess Corp', allowsMultipleVendors: true, vendor2: 'Sodexo Facilities' },
-  { key: 'BIOWASTE', glAccountNo: '41117002', glAccountName: 'Biomedical Waste Services', base: 15_000, vendor: 'SembRamky Environmental', product: 'p17' },
-  { key: 'AMBUL', glAccountNo: '41117001', glAccountName: 'Ambulance Services', base: 30_000, vendor: 'Ziqitza Healthcare' },
-  { key: 'REFRESH', glAccountNo: '41115013', glAccountName: 'Refreshment for patients', base: 12_000, product: 'p18' },
-  { key: 'POSTAGE', glAccountNo: '41115009', glAccountName: 'Postage and courier charges', base: 5_000, vendor: 'Blue Dart', product: 'p10' },
-  { key: 'HOUSE', glAccountNo: '41115002', glAccountName: 'House keeping and maintenance', base: 25_000, vendor: 'BVG India Ltd', product: 'p10', description: 'Additional deep-clean contract' },
-  { key: 'LAUNDRY', glAccountNo: '41109004', glAccountName: 'Laundry Expenses', base: 18_000, vendor: 'UClean' },
-  { key: 'DENTRENT', glAccountNo: '41107001', glAccountName: 'Rent - building for Dental', base: 120_000, vendor: 'Prestige Property Management', product: 'p10', description: 'Annual lease escalation 5% effective Apr' },
-  { key: 'RADIOLOGY', glAccountNo: '41104016', glAccountName: 'Radiology Services', base: 55_000, vendor: 'Siemens Healthineers', description: 'Scheduled AMC for imaging equipment' }, // the variance spiker
-  { key: 'CONSUM', glAccountNo: '41104002', glAccountName: 'Consumables common', base: 80_000, vendor: 'Romsons Scientific & Surgical', product: 'p17' },
-  { key: 'TELECOM', glAccountNo: '41103001', glAccountName: 'Telephone/Mobile expenses', base: 12_000, vendor: 'Airtel Business', product: 'p18', description: 'Bandwidth upgrade' },
-  { key: 'WELFARE', glAccountNo: '41003001', glAccountName: 'Staff welfare expense', base: 40_000, product: 'p20' },
-  { key: 'LOCUM', glAccountNo: '41002007', glAccountName: 'Locum', base: 90_000, allowsMultipleVendors: true, vendor2: 'Apollo Locum Pool' },
-  { key: 'EVENTS', glAccountNo: '41112001', glAccountName: 'Events and exhibitions - Domestic', base: 20_000, vendor: 'Cvent India', description: 'Quarterly community health camp', allowsMultipleVendors: true, vendor2: 'Local Event Partners' },
+  { key: 'CCHIRE', glAccountNo: '41402005', glAccountName: 'Credit Card Machine Hire Charges', base: 8_000, vendor: 'Pine Labs', product: 'P10', description: 'Two additional POS terminals installed' },
+  { key: 'OUTSVC', glAccountNo: '41117004', glAccountName: 'Other Outsourced Services', base: 60_000, vendor: 'Quess Corp', product: 'P20', allowsMultipleVendors: true, vendor2: 'Sodexo Facilities' },
+  { key: 'BIOWASTE', glAccountNo: '41117002', glAccountName: 'Biomedical Waste Services', base: 15_000, vendor: 'SembRamky Environmental', product: 'P17' },
+  { key: 'AMBUL', glAccountNo: '41117001', glAccountName: 'Ambulance Services', base: 30_000, vendor: 'Ziqitza Healthcare' , product: 'P27' },
+  { key: 'REFRESH', glAccountNo: '41115013', glAccountName: 'Refreshment for patients', base: 12_000, product: 'P18' },
+  { key: 'POSTAGE', glAccountNo: '41115009', glAccountName: 'Postage and courier charges', base: 5_000, vendor: 'Blue Dart', product: 'P10' },
+  { key: 'HOUSE', glAccountNo: '41115002', glAccountName: 'House keeping and maintenance', base: 25_000, vendor: 'BVG India Ltd', product: 'P20', description: 'Additional deep-clean contract' },
+  { key: 'LAUNDRY', glAccountNo: '41109004', glAccountName: 'Laundry Expenses', base: 18_000, vendor: 'UClean' , product: 'P20' },
+  { key: 'DENTRENT', glAccountNo: '41107001', glAccountName: 'Rent - building for Dental', base: 120_000, vendor: 'Prestige Property Management', product: 'P21', description: 'Annual lease escalation 5% effective Apr' },
+  { key: 'RADIOLOGY', glAccountNo: '41104016', glAccountName: 'Radiology Services', base: 55_000, vendor: 'Siemens Healthineers', product: 'P27', description: 'Scheduled AMC for imaging equipment' }, // the variance spiker
+  { key: 'CONSUM', glAccountNo: '41104002', glAccountName: 'Consumables common', base: 80_000, vendor: 'Romsons Scientific & Surgical', product: 'P17' },
+  { key: 'TELECOM', glAccountNo: '41103001', glAccountName: 'Telephone/Mobile expenses', base: 12_000, vendor: 'Airtel Business', product: 'P18', description: 'Bandwidth upgrade' },
+  { key: 'WELFARE', glAccountNo: '41003001', glAccountName: 'Staff welfare expense', base: 40_000, product: 'P20' },
+  { key: 'LOCUM', glAccountNo: '41002007', glAccountName: 'Locum', base: 90_000, product: 'P17', allowsMultipleVendors: true, vendor2: 'Apollo Locum Pool' },
+  { key: 'EVENTS', glAccountNo: '41112001', glAccountName: 'Events and exhibitions - Domestic', base: 20_000, vendor: 'Cvent India', product: 'P27', description: 'Quarterly community health camp', allowsMultipleVendors: true, vendor2: 'Local Event Partners' },
 ];
 
 // Per (clinic, month, head) amount. Historical months drift up slightly; the
@@ -148,6 +150,45 @@ function amountFor(clinic: ClinicDef, month: string, head: HeadDef): number {
   return Math.round(amt);
 }
 
+/**
+ * Break a vendor line's target amount into 2 realistic rate × quantity particulars.
+ *
+ * The FIRST row is a plausible unit-price × units pair; the SECOND absorbs whatever
+ * is left as a single unit, so the particulars sum to the target EXACTLY. That
+ * matters: the demo's dashboards, variance thresholds and exports are all tuned to
+ * these amounts, and a line's amount is now the sum of its particulars — so if the
+ * split didn't reconcile to the penny, the seeded figures would silently shift.
+ */
+function particularsFor(
+  headName: string,
+  amount: number,
+): Array<{ lineOrder: number; particularName: string; rate: string; quantity: string; value: string }> {
+  const totalPaise = Math.round(amount * 100);
+  // ~60% of the line across a whole number of units, at a 2-dp unit rate.
+  const units = 12;
+  const firstRatePaise = Math.floor((totalPaise * 0.6) / units);
+  const firstValuePaise = firstRatePaise * units;
+  const restPaise = totalPaise - firstValuePaise;
+  const money = (paise: number) => (paise / 100).toFixed(2);
+
+  return [
+    {
+      lineOrder: 0,
+      particularName: `${headName} — monthly units`,
+      rate: money(firstRatePaise),
+      quantity: String(units),
+      value: money(firstValuePaise),
+    },
+    {
+      lineOrder: 1,
+      particularName: `${headName} — balance / one-off`,
+      rate: money(restPaise),
+      quantity: '1',
+      value: money(restPaise),
+    },
+  ];
+}
+
 // Per-line Vendor Name / Product Code / Description (the Description column maps to
 // the per-line SPOC note). All three are OPTIONAL: they start from the head's
 // example, then vary by clinic and month so a consolidated export isn't uniform and
@@ -161,8 +202,8 @@ function entryExtras(
   const mi = MONTHS.indexOf(month);
   // Vendor names are stable where a vendor is seeded (blank for e.g. staff salaries).
   const vendorName = head.vendor ?? null;
-  // Product codes: adopted from the 2nd seeded month onward; some clinics lag a month.
-  const productCode = mi >= (ci % 2 === 0 ? 1 : 2) ? head.product ?? null : null;
+  // Product code is MANDATORY per vendor line — always populated, never blank.
+  const productCode = head.product;
   // Descriptions are event-driven — only the recent months, and not every clinic.
   const note = mi >= 2 && (ci + mi) % 2 === 0 ? head.description ?? null : null;
   return { vendorName, productCode, note };
@@ -362,22 +403,25 @@ async function main(): Promise<void> {
             note: extras.note,
             enteredById: spocByCode[c.code],
             lastModifiedById: spocByCode[c.code],
+            particulars: { create: particularsFor(head.glAccountName, primary) },
           },
         });
         // A multi-vendor head carries a SECOND vendor line (~40% of the first) so
         // the demo has real multi-line data whose per-head total sums both lines.
         if (head.allowsMultipleVendors && head.vendor2) {
+          const secondary = Math.round(primary * 0.4);
           await prisma.provisionEntry.create({
             data: {
               submissionId: sub.id,
               snapshotId: snap.id,
               lineOrder: 1,
-              amount: Math.round(primary * 0.4),
+              amount: secondary,
               vendorName: head.vendor2,
-              productCode: null,
+              productCode: head.product,
               note: null,
               enteredById: spocByCode[c.code],
               lastModifiedById: spocByCode[c.code],
+              particulars: { create: particularsFor(head.glAccountName, secondary) },
             },
           });
         }

@@ -6,11 +6,17 @@ import { ClinicScopeService } from '../common/clinic-scope.service';
 import type { RequestUser } from '../auth/request-user';
 
 /**
- * One granular provisioned LINE — the single row shape behind ALL THREE clinic
- * Excel exports (individual / consolidated / month-end), which share one unified
- * 10-column finance layout. Per-line fields (G/L, amount, vendor, product,
- * description) vary per row; per-clinic (name + codes) and per-month values
- * repeat on every line so a multi-clinic/multi-month sheet is unambiguous.
+ * One granular provisioned PARTICULAR — the single row shape behind ALL THREE
+ * clinic Excel exports (individual / consolidated / month-end), which share one
+ * unified finance layout.
+ *
+ * GRAIN: one row per particular (rate × quantity), NOT per vendor line. Since a
+ * vendor line's amount is now just the sum of its particulars, exporting at the
+ * line grain would hide the rate/quantity detail finance needs to check a figure.
+ * `amount` is therefore the PARTICULAR's value, and the head/line/clinic/month
+ * context (G/L, vendor, product, description, clinic codes) repeats down the
+ * particulars of a line — so summing the Amount column still yields exactly the
+ * same grand total as before, just over more rows.
  */
 export interface ExportRow {
   clinicId: string;
@@ -27,10 +33,16 @@ export interface ExportRow {
   productCode: string | null;
   // Description = the per-line SPOC note (optional); blank on the sheet when null.
   note: string | null;
-  amount: string; // DECIMAL(14,2) as string
+  // This PARTICULAR's derived value (rate × quantity), DECIMAL(14,2) as string.
+  amount: string;
+  // The particular itself — the three columns appended at the END of the finance
+  // layout (positions 11-13), leaving the original 10 in their exact order.
+  particularName: string | null;
+  rate: string; // DECIMAL(14,4) as string
+  quantity: string; // DECIMAL(14,3) as string
 }
 
-/** One clinic's month of lines, plus the clinic name (for the download filename). */
+/** One clinic's month of particular rows, plus the clinic name (for the filename). */
 export interface ClinicMonthExport {
   clinicName: string;
   rows: ExportRow[];
@@ -76,9 +88,13 @@ export class ExportService {
     if (filters.to) conds.push(Prisma.sql`m.month <= ${filters.to}`);
     if (filters.expenseHeadId) conds.push(Prisma.sql`s.expenseHeadId = ${filters.expenseHeadId}`);
     if (filters.status?.length) conds.push(Prisma.sql`m.status IN (${Prisma.join(filters.status)})`);
-    // A blank multi-vendor line (null amount) is an incomplete draft row with no
-    // finance value — never export it as a "0" row (NULL ≠ 0).
+    // A blank line/particular is an incomplete draft with no finance value — never
+    // export it as a "0" row (NULL ≠ 0). `p.amount IS NOT NULL` already implies
+    // every particular of the line is complete (the line amount is NULL if any of
+    // them is), but filter the particular too so the join can never widen a row set
+    // with a half-filled row.
     conds.push(Prisma.sql`p.amount IS NOT NULL`);
+    conds.push(Prisma.sql`ep.value IS NOT NULL`);
 
     const rows = await this.prisma.$queryRaw<ExportRow[]>(Prisma.sql`
       SELECT c.id AS clinicId, c.name AS clinicName,
@@ -90,15 +106,24 @@ export class ExportService {
              p.vendorName AS vendorName,
              p.productCode AS productCode,
              p.note AS note,
-             CAST(p.amount AS CHAR) AS amount
+             CAST(ep.value AS CHAR) AS amount,
+             ep.particularName AS particularName,
+             CAST(ep.rate AS CHAR) AS rate,
+             CAST(ep.quantity AS CHAR) AS quantity
       FROM provisionentry p
+      JOIN entryparticular ep ON ep.entryId = p.id
       JOIN submissionexpenseheadsnapshot s ON s.id = p.snapshotId
       JOIN monthlysubmission m ON m.id = p.submissionId
       JOIN clinic c ON c.id = m.clinicId
       WHERE ${Prisma.join(conds, ' AND ')}
-      ORDER BY c.name ASC, m.month ASC, s.expenseHeadGlNoAtSnapshot ASC, s.expenseHeadGlNameAtSnapshot ASC, p.lineOrder ASC
+      ORDER BY c.name ASC, m.month ASC, s.expenseHeadGlNoAtSnapshot ASC, s.expenseHeadGlNameAtSnapshot ASC, p.lineOrder ASC, ep.lineOrder ASC
     `);
-    return rows.map((r) => ({ ...r, amount: String(r.amount) }));
+    return rows.map((r) => ({
+      ...r,
+      amount: String(r.amount),
+      rate: String(r.rate),
+      quantity: String(r.quantity),
+    }));
   }
 
   /** One clinic's month of lines (FR-10: single-clinic Excel export). */

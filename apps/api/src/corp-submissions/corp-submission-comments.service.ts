@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { UserRole, type SubmissionCommentAction, type SubmissionCommentView } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { AttachmentsService } from '../attachments/attachments.service';
 import { CorpDepartmentScopeService } from './corp-department-scope.service';
 import type { RequestUser } from '../auth/request-user';
 
@@ -35,7 +36,22 @@ export class CorpSubmissionCommentsService {
     const comments = await this.prisma.corpSubmissionComment.findMany({
       where: { submissionId },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      include: { commentedBy: { select: { id: true, name: true } } },
+      include: {
+        commentedBy: { select: { id: true, name: true } },
+        // Metadata only — the blob is never loaded here, it is streamed by the
+        // authenticated download route on demand.
+        attachments: {
+          orderBy: { uploadedAt: 'asc' },
+          select: {
+            id: true,
+            fileName: true,
+            mimeType: true,
+            sizeBytes: true,
+            uploadedAt: true,
+            uploadedBy: { select: { id: true, name: true } },
+          },
+        },
+      },
     });
 
     return comments.map((c) => ({
@@ -45,6 +61,7 @@ export class CorpSubmissionCommentsService {
       roleAtTime: c.roleAtTime as UserRole,
       createdAt: c.createdAt.toISOString(),
       commentedBy: { id: c.commentedBy.id, name: c.commentedBy.name },
+      attachments: AttachmentsService.toViews(c.attachments),
     }));
   }
 }

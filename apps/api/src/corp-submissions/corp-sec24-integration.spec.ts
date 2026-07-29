@@ -11,6 +11,8 @@ import { CorpProvisionEntryService } from './corp-provision-entry.service';
 import { Sec24AllocationService } from './sec24-allocation.service';
 import { makeCorpFixtures, type CorpFixtures } from '../../test/corp-fixtures';
 import { resetDb } from '../../test/reset';
+import { AttachmentsService } from '../attachments/attachments.service';
+import { ClinicScopeService } from '../common/clinic-scope.service';
 
 const MONTH = '2026-07';
 
@@ -38,6 +40,8 @@ describe('Corporate Sec 24 share + snapshot (Step C3.1 integration)', () => {
         CorpCycleService,
         CorpDepartmentScopeService,
         CorpWorkflowService,
+        AttachmentsService,
+        ClinicScopeService,
         CorpSubmissionsService,
         CorpProvisionEntryService,
         Sec24AllocationService,

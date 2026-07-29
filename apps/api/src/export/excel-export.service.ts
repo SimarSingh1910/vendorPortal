@@ -15,8 +15,17 @@ const INR_FMT = '[>=10000000]#,##,##,##0.00;[>=100000]#,##,##0.00;#,##0.00';
 /**
  * The finance manager's unified column layout — EXACT headers and order, shared
  * by all three clinic Excel exports so each drops into their template without
- * renaming. One row per provision-entry line. Month sits right after G/L Account
- * Name; Clinic Name sits right before Acc. Location Code.
+ * renaming. Month sits right after G/L Account Name; Clinic Name sits right before
+ * Acc. Location Code.
+ *
+ * GRAIN: one row per PARTICULAR. `Amount (LCY)` is that particular's derived value
+ * (rate × quantity), and the head/vendor/clinic/month context repeats down a
+ * line's particulars — so the column still sums to exactly the same grand total as
+ * the old one-row-per-vendor-line sheet, over more rows.
+ *
+ * The original ten columns keep their exact headers AND positions. Particular /
+ * Rate / Quantity are APPENDED at positions 11-13, so an existing template that
+ * reads the first ten columns is unaffected.
  */
 const COLUMNS: Array<{ key: string; header: string; width: number }> = [
   { key: 'glNo', header: 'G/L Account No.', width: 18 },
@@ -29,7 +38,15 @@ const COLUMNS: Array<{ key: string; header: string; width: number }> = [
   { key: 'accLocation', header: 'Acc. Location Code', width: 18 },
   { key: 'customer', header: 'Customer Code', width: 18 },
   { key: 'product', header: 'Product Code', width: 14 },
+  // ── Appended for the particulars model; never reorder the ten above. ──
+  { key: 'particular', header: 'Particular', width: 30 },
+  { key: 'rate', header: 'Rate', width: 14 },
+  { key: 'quantity', header: 'Quantity', width: 12 },
 ];
+
+/** Rate carries 4 dp and quantity 3 dp — show them as entered, not as money. */
+const RATE_FMT = '#,##0.0000';
+const QTY_FMT = '#,##0.###';
 
 /**
  * The corporate line layout — its OWN format (the clinic finance template does not
@@ -83,12 +100,15 @@ function writeCorpSheet(sheet: Worksheet, rows: CorpExportRow[]): void {
 }
 
 /**
- * Write the unified finance line sheet: the exact 10-column header on row 1, then
- * one row per provision-entry line. Month and Clinic Name (plus the clinic codes)
- * are written on EVERY data row — never a title/section block — so consolidated /
- * month-end sheets spanning multiple clinics and months stay unambiguous. Amounts
- * are real numbers with the en-IN INR format; a null note/vendor/product is blank
- * (never "null"/"0").
+ * Write the unified finance sheet: the exact header on row 1, then ONE ROW PER
+ * PARTICULAR. Month and Clinic Name (plus the clinic codes) are written on EVERY
+ * data row — never a title/section block — so consolidated / month-end sheets
+ * spanning multiple clinics and months stay unambiguous, and the head/vendor
+ * context likewise repeats down a vendor line's particulars.
+ *
+ * Amounts, rates and quantities are real numbers (spreadsheet-live, so finance can
+ * re-total or re-derive rate × quantity in the sheet itself); a null
+ * note/vendor/product/particular name is blank (never "null"/"0").
  */
 function writeLineSheet(sheet: Worksheet, rows: ExportRow[]): void {
   sheet.columns = COLUMNS.map((c) => ({ key: c.key, width: c.width }));
@@ -108,8 +128,13 @@ function writeLineSheet(sheet: Worksheet, rows: ExportRow[]): void {
       accLocation: r.accLocationCode,
       customer: r.customerCode,
       product: r.productCode ?? '',
+      particular: r.particularName ?? '',
+      rate: Number(r.rate),
+      quantity: Number(r.quantity),
     });
     added.getCell('amount').numFmt = INR_FMT;
+    added.getCell('rate').numFmt = RATE_FMT;
+    added.getCell('quantity').numFmt = QTY_FMT;
   }
 }
 

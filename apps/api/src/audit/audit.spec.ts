@@ -1,5 +1,5 @@
 import { Test, type TestingModule } from '@nestjs/testing';
-import { SubmissionStatus, UserRole } from '@portal/shared';
+import { UserRole } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClinicScopeService } from '../common/clinic-scope.service';
 import { ClinicExpenseHeadsService } from '../clinic-expense-heads/clinic-expense-heads.service';
@@ -14,6 +14,8 @@ import { AuditService } from './audit.service';
 import { runWithRequestContext } from './request-context';
 import { makeFixtures, type Fixtures } from '../../test/fixtures';
 import { resetDb } from '../../test/reset';
+import { AttachmentsService } from '../attachments/attachments.service';
+import { CorpDepartmentScopeService } from '../corp-submissions/corp-department-scope.service';
 
 const MONTH = '2026-07';
 
@@ -44,6 +46,8 @@ describe('Audit logging (Step 9.1 — append-only, unified write path)', () => {
         UsersService,
         CycleService,
         WorkflowService,
+        AttachmentsService,
+        CorpDepartmentScopeService,
         SubmissionsService,
         ProvisionEntryService,
         AuditService,
@@ -100,7 +104,16 @@ describe('Audit logging (Step 9.1 — append-only, unified write path)', () => {
     // save (SPOC)
     await asUser(spoc.id, () =>
       entries.saveEntries(submission.id, spoc, [
-        { snapshotId: snap.id, lines: [{ amount: 100 }] },
+        {
+          snapshotId: snap.id,
+          lines: [
+            {
+              // Product code is required at submit, and this spec submits below.
+              productCode: 'P20',
+              particulars: [{ particularName: 'Amount', rate: 100, quantity: 1 }],
+            },
+          ],
+        },
       ]),
     );
     const saveRows = await rowsFor('PROVISION_SAVE', submission.id);

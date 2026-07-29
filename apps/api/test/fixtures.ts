@@ -1,5 +1,10 @@
 import { HttpException } from '@nestjs/common';
-import { SubmissionStatus, UserRole } from '@portal/shared';
+import {
+  SubmissionStatus,
+  UserRole,
+  computeValueMinor,
+  minorToDecimalString,
+} from '@portal/shared';
 import type { Clinic, ExpenseHead, User } from '@prisma/client';
 import type { PrismaService } from '../src/prisma/prisma.service';
 import type { CycleService } from '../src/submissions/cycle.service';
@@ -73,14 +78,21 @@ export function makeFixtures(ctx: FixtureCtx) {
     }
   }
 
-  async function makeUser(role: UserRole, clinicIds: string[] = []): Promise<TestUser> {
+  async function makeUser(
+    role: UserRole,
+    clinicIds: string[] = [],
+    // `name` and `active` matter where the USER is the thing under test (e.g. the
+    // dashboard's SPOC filter and the SPOC name on a tile), not just a stand-in actor.
+    opts: { name?: string; active?: boolean } = {},
+  ): Promise<TestUser> {
     const n = next();
     const dbUser = await prisma.user.create({
       data: {
-        name: `User ${n}`,
+        name: opts.name ?? `User ${n}`,
         email: `user${n}@test.local`,
         passwordHash: 'x'.repeat(60),
         role,
+        ...(opts.active === undefined ? {} : { isActive: opts.active }),
         assignments: { create: clinicIds.map((clinicId) => ({ clinicId })) },
       },
     });
@@ -100,16 +112,30 @@ export function makeFixtures(ctx: FixtureCtx) {
   }
 
   /**
-   * Insert a ProvisionEntry for every snapshot head of a submission (test stand-in
-   * for the Step 6 data-entry surface). `leaveUnvalued` skips the last N heads (for
-   * the BR-03 negative case); `amount` may be 0 (BR-07).
+   * Insert a ProvisionEntry — with its mandatory particular(s) — for every snapshot
+   * head of a submission (test stand-in for the Step 6 data-entry surface).
+   * `leaveUnvalued` skips the last N heads (for the BR-03 negative case); `amount`
+   * may be 0 (BR-07).
+   *
+   * By default each line gets ONE complete particular carrying the whole amount as
+   * rate × 1, so a line's derived amount equals `amount` exactly and every existing
+   * expectation still holds. Pass `particulars` to build a line out of several
+   * rate/quantity rows instead — the line amount is then their summed value.
    */
   async function valueAllHeads(
     submissionId: string,
-    opts: { amount?: number; leaveUnvalued?: number; enteredById?: string } = {},
+    opts: {
+      amount?: number;
+      leaveUnvalued?: number;
+      enteredById?: string;
+      particulars?: Array<{ name?: string; rate: number; quantity: number }>;
+      /** Explicit null models a line the SPOC hasn't given a product code yet. */
+      productCode?: string | null;
+    } = {},
   ): Promise<void> {
     const amount = opts.amount ?? 100;
     const leaveUnvalued = opts.leaveUnvalued ?? 0;
+    const particulars = opts.particulars ?? [{ name: 'Amount', rate: amount, quantity: 1 }];
 
     let enteredById = opts.enteredById;
     if (!enteredById) {
@@ -123,14 +149,31 @@ export function makeFixtures(ctx: FixtureCtx) {
     const toValue =
       leaveUnvalued > 0 ? snapshots.slice(0, Math.max(0, snapshots.length - leaveUnvalued)) : snapshots;
 
+    // Mirror the server's derivation so the fixture's cached amount is exactly what
+    // a real save would have written (rather than a hand-typed total).
+    const values = particulars.map((p) => computeValueMinor(p.rate, p.quantity)!);
+    const lineAmount = minorToDecimalString(values.reduce((a, b) => a + b, 0n));
+
     for (const snap of toValue) {
       await prisma.provisionEntry.create({
         data: {
           submissionId,
           snapshotId: snap.id,
-          amount,
+          amount: lineAmount,
+          // Product code is REQUIRED at submit, so the submit-ready fixture sets
+          // one; specs that exercise the missing-code path clear it explicitly.
+          productCode: opts.productCode ?? 'P20',
           enteredById,
           lastModifiedById: enteredById,
+          particulars: {
+            create: particulars.map((p, i) => ({
+              lineOrder: i,
+              particularName: p.name ?? `Particular ${i + 1}`,
+              rate: String(p.rate),
+              quantity: String(p.quantity),
+              value: minorToDecimalString(values[i]),
+            })),
+          },
         },
       });
     }

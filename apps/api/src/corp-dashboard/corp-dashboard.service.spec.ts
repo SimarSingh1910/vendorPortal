@@ -14,6 +14,8 @@ import { CorpDashboardService } from './corp-dashboard.service';
 import { makeCorpFixtures, type CorpFixtures } from '../../test/corp-fixtures';
 import { resetDb } from '../../test/reset';
 import type { RequestUser } from '../auth/request-user';
+import { AttachmentsService } from '../attachments/attachments.service';
+import { ClinicScopeService } from '../common/clinic-scope.service';
 
 const M = '2026-07';
 const PRIOR = '2026-06';
@@ -43,6 +45,8 @@ describe('CorpDashboardService (Step C4.1 — consolidated dashboard)', () => {
         CorpCycleService,
         CorpDepartmentScopeService,
         CorpWorkflowService,
+        AttachmentsService,
+        ClinicScopeService,
         CorpSubmissionsService,
         CorpProvisionEntryService,
         Sec24AllocationService,

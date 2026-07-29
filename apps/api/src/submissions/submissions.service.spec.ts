@@ -9,6 +9,8 @@ import { SubmissionsService } from './submissions.service';
 import { AuditService } from '../audit/audit.service';
 import { makeFixtures, type Fixtures } from '../../test/fixtures';
 import { resetDb } from '../../test/reset';
+import { AttachmentsService } from '../attachments/attachments.service';
+import { CorpDepartmentScopeService } from '../corp-submissions/corp-department-scope.service';
 
 const MONTH = '2026-07';
 
@@ -27,6 +29,8 @@ describe('SubmissionsService queue/detail (Step 7.1 — manager review surface)'
         ClinicExpenseHeadsService,
         CycleService,
         WorkflowService,
+        AttachmentsService,
+        CorpDepartmentScopeService,
         SubmissionsService,
         AuditService,
       ],

@@ -166,7 +166,11 @@ export function rolesForTab(tab: PortalTab): UserRole[] {
 export const ROLE_LABELS: Record<UserRole, string> = {
   [UserRole.FINANCE_ADMIN]: 'Finance Admin',
   [UserRole.FINANCE_MANAGER]: 'Finance Manager',
-  [UserRole.CLINIC_MANAGER]: 'Clinic Manager',
+  // Business name is "Cluster Manager"; the ENUM VALUE stays CLINIC_MANAGER on
+  // purpose — it is persisted in the DB and baked into append-only audit action
+  // names, so renaming the identifier would fork the audit history. This label is
+  // the single place the user-facing name is defined.
+  [UserRole.CLINIC_MANAGER]: 'Cluster Manager',
   [UserRole.CLINIC_SPOC]: 'Clinic SPOC',
   [UserRole.CLINIC_VIEWER]: 'Clinic Viewer',
   [UserRole.CORP_FINANCE_MANAGER]: 'Corporate Finance Manager',
@@ -185,7 +189,7 @@ export const SUBMISSION_STATUS_LABELS: Record<SubmissionStatus, string> = {
   [SubmissionStatus.NOT_STARTED]: 'Not Started',
   [SubmissionStatus.DRAFT]: 'Draft',
   [SubmissionStatus.SUBMITTED]: 'Submitted',
-  [SubmissionStatus.CLINIC_MANAGER_REVIEW]: 'Clinic Manager Review',
+  [SubmissionStatus.CLINIC_MANAGER_REVIEW]: 'Cluster Manager Review',
   [SubmissionStatus.CLINIC_APPROVED]: 'Clinic Approved',
   [SubmissionStatus.FINANCE_REVIEW]: 'Finance Review',
   [SubmissionStatus.FINANCE_APPROVED]: 'Finance Approved (Locked)',

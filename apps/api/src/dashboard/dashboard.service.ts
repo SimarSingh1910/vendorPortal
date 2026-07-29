@@ -2,7 +2,9 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 import { Portal, Prisma } from '@prisma/client';
 import {
   DEFAULT_MONTHWISE_PRESET,
+  FINANCE_ROLES,
   SubmissionStatus,
+  UserRole,
   type ClinicTotalPoint,
   type DashboardFilterOptions,
   type DashboardStatusTile,
@@ -18,6 +20,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ClinicScopeService } from '../common/clinic-scope.service';
 import { currentMonthIST } from '../submissions/month.util';
 import type { RequestUser } from '../auth/request-user';
+
+/** Finance Admin / Manager — the org-wide roles that see SPOC names on tiles. */
+const isFinanceRole = (role: UserRole): boolean => FINANCE_ROLES.includes(role);
 
 /** Default trend window when the caller gives no range: the last 12 months. */
 const DEFAULT_RANGE_MONTHS = 12;
@@ -54,6 +59,12 @@ interface DashboardFilters {
   month?: string;
   // Matches the DTO/web field name (an array despite the singular).
   status?: SubmissionStatus[];
+  /**
+   * Narrow to the clinics a given SPOC covers. Resolved server-side against that
+   * user's real assignments and INTERSECTED with the caller's own scope, so it can
+   * only ever narrow what the caller may already see — never widen it.
+   */
+  spocUserId?: string;
 }
 
 /**
@@ -75,10 +86,32 @@ export class DashboardService {
   ) {}
 
   /** Accessible clinic ids, narrowed to a single clinic when one is requested. */
-  private async resolveClinicIds(user: RequestUser, clinicId?: string): Promise<string[]> {
+  private async resolveClinicIds(
+    user: RequestUser,
+    clinicId?: string,
+    spocUserId?: string,
+  ): Promise<string[]> {
     const accessible = await this.scope.accessibleClinicIds(user);
-    if (!clinicId) return accessible;
-    return accessible.includes(clinicId) ? [clinicId] : [];
+    let ids = clinicId ? (accessible.includes(clinicId) ? [clinicId] : []) : accessible;
+
+    if (spocUserId && ids.length > 0) {
+      // INTERSECT with the SPOC's own clinics — never union. The filter is a
+      // narrowing convenience, so picking a SPOC can't reveal a clinic the caller
+      // isn't already entitled to (and a clinic-scoped caller picking someone
+      // else's SPOC simply gets nothing).
+      const covered = await this.spocClinicIds(spocUserId);
+      ids = ids.filter((id) => covered.includes(id));
+    }
+    return ids;
+  }
+
+  /** The clinics an ACTIVE clinic SPOC is assigned to (empty for anyone else). */
+  private async spocClinicIds(spocUserId: string): Promise<string[]> {
+    const assignments = await this.prisma.userClinicAssignment.findMany({
+      where: { userId: spocUserId, user: { role: UserRole.CLINIC_SPOC, isActive: true } },
+      select: { clinicId: true },
+    });
+    return assignments.map((a) => a.clinicId);
   }
 
   /** Resolve the trend range, defaulting to the last DEFAULT_RANGE_MONTHS months. */
@@ -107,9 +140,13 @@ export class DashboardService {
   }
 
   // ── (a) Current-month submission-status tracker ─────────────────────────────
-  async statusTracker(user: RequestUser, month?: string): Promise<DashboardStatusTile[]> {
+  async statusTracker(
+    user: RequestUser,
+    month?: string,
+    spocUserId?: string,
+  ): Promise<DashboardStatusTile[]> {
     const m = month ?? currentMonthIST();
-    const clinicIds = await this.resolveClinicIds(user);
+    const clinicIds = await this.resolveClinicIds(user, undefined, spocUserId);
     if (clinicIds.length === 0) return [];
 
     const rows = await this.prisma.$queryRaw<
@@ -125,6 +162,13 @@ export class DashboardService {
       ORDER BY c.name ASC
     `);
 
+    // Who to chase, shown on the tile — finance roles only (a clinic user is
+    // looking at their own clinic, so the name tells them nothing). `null` for
+    // everyone else keeps "not shown to you" distinct from "no SPOC assigned".
+    const spocsByClinic = isFinanceRole(user.role)
+      ? await this.spocNamesByClinic(clinicIds)
+      : null;
+
     return rows.map((r) => ({
       clinicId: r.clinicId,
       clinicName: r.clinicName,
@@ -132,12 +176,40 @@ export class DashboardService {
       status: (r.status ?? SubmissionStatus.NOT_STARTED) as SubmissionStatus,
       submissionId: r.submissionId ?? null,
       total: r.total != null ? String(r.total) : null,
+      spocNames: spocsByClinic ? (spocsByClinic.get(r.clinicId) ?? []) : null,
     }));
+  }
+
+  /**
+   * clinicId → the names of its ACTIVE SPOCs, alphabetically.
+   *
+   * A clinic may have several (all listed) or none — a clinic missing from the
+   * map simply has no active SPOC, which the tile surfaces as "No SPOC assigned"
+   * rather than hiding. Deactivated users are excluded: they cannot act on a
+   * submission, so naming one as the contact would be misleading.
+   */
+  private async spocNamesByClinic(clinicIds: string[]): Promise<Map<string, string[]>> {
+    if (clinicIds.length === 0) return new Map();
+    const rows = await this.prisma.userClinicAssignment.findMany({
+      where: {
+        clinicId: { in: clinicIds },
+        user: { role: UserRole.CLINIC_SPOC, isActive: true },
+      },
+      select: { clinicId: true, user: { select: { name: true } } },
+      orderBy: { user: { name: 'asc' } },
+    });
+    const byClinic = new Map<string, string[]>();
+    for (const row of rows) {
+      const list = byClinic.get(row.clinicId) ?? [];
+      list.push(row.user.name);
+      byClinic.set(row.clinicId, list);
+    }
+    return byClinic;
   }
 
   // ── (b) Month-on-month expense comparison ───────────────────────────────────
   async monthlyTotals(user: RequestUser, filters: DashboardFilters): Promise<MonthlyTotalPoint[]> {
-    const clinicIds = await this.resolveClinicIds(user, filters.clinicId);
+    const clinicIds = await this.resolveClinicIds(user, filters.clinicId, filters.spocUserId);
     if (clinicIds.length === 0) return [];
     const { from, to } = this.resolveRange(filters);
 
@@ -155,7 +227,7 @@ export class DashboardService {
 
   // ── (c) Expense-head-wise trends ────────────────────────────────────────────
   async headTrends(user: RequestUser, filters: DashboardFilters): Promise<HeadTrendPoint[]> {
-    const clinicIds = await this.resolveClinicIds(user, filters.clinicId);
+    const clinicIds = await this.resolveClinicIds(user, filters.clinicId, filters.spocUserId);
     if (clinicIds.length === 0) return [];
     const { from, to } = this.resolveRange(filters);
 
@@ -188,7 +260,7 @@ export class DashboardService {
    * reconcile exactly with the head totals (NULL ≠ 0).
    */
   async headVendorTrends(user: RequestUser, filters: DashboardFilters): Promise<HeadVendorTrendPoint[]> {
-    const clinicIds = await this.resolveClinicIds(user, filters.clinicId);
+    const clinicIds = await this.resolveClinicIds(user, filters.clinicId, filters.spocUserId);
     if (clinicIds.length === 0) return [];
     const { from, to } = this.resolveRange(filters);
 
@@ -226,7 +298,7 @@ export class DashboardService {
 
   // ── (d) Clinic-wise total comparison over a month range ─────────────────────
   async clinicTotals(user: RequestUser, filters: DashboardFilters): Promise<ClinicTotalPoint[]> {
-    const clinicIds = await this.resolveClinicIds(user, filters.clinicId);
+    const clinicIds = await this.resolveClinicIds(user, filters.clinicId, filters.spocUserId);
     if (clinicIds.length === 0) return [];
     const { from, to } = this.resolveRange(filters);
 
@@ -246,10 +318,15 @@ export class DashboardService {
   }
 
   // ── (e) Variance alerts (BR-12) ─────────────────────────────────────────────
-  async variance(user: RequestUser, month?: string, clinicId?: string): Promise<VarianceReport> {
+  async variance(
+    user: RequestUser,
+    month?: string,
+    clinicId?: string,
+    spocUserId?: string,
+  ): Promise<VarianceReport> {
     const m = month ?? currentMonthIST();
     const priorMonth = shiftMonth(m, -1);
-    const clinicIds = await this.resolveClinicIds(user, clinicId);
+    const clinicIds = await this.resolveClinicIds(user, clinicId, spocUserId);
 
     // Variance threshold from the CLINIC per-cycle config (independent of corporate).
     const config = await this.prisma.notificationConfig.findUnique({
@@ -453,7 +530,7 @@ export class DashboardService {
   // ── Filter dropdown options (scoped) ────────────────────────────────────────
   async filterOptions(user: RequestUser): Promise<DashboardFilterOptions> {
     const clinicIds = await this.scope.accessibleClinicIds(user);
-    const [clinics, expenseHeads] = await Promise.all([
+    const [clinics, expenseHeads, spocs] = await Promise.all([
       clinicIds.length
         ? this.prisma.clinic.findMany({
             where: { id: { in: clinicIds } },
@@ -465,12 +542,28 @@ export class DashboardService {
         select: { id: true, glAccountName: true },
         orderBy: { glAccountName: 'asc' },
       }),
+      // ACTIVE SPOCs covering the accessible clinics. Distinct by user, because a
+      // SPOC assigned to several clinics must appear once in the dropdown, not
+      // once per clinic. Only offered cross-clinic (finance); a clinic-scoped
+      // viewer has a single clinic and nothing to filter.
+      clinicIds.length && isFinanceRole(user.role)
+        ? this.prisma.user.findMany({
+            where: {
+              role: UserRole.CLINIC_SPOC,
+              isActive: true,
+              assignments: { some: { clinicId: { in: clinicIds } } },
+            },
+            select: { id: true, name: true },
+            orderBy: { name: 'asc' },
+          })
+        : Promise.resolve([]),
     ]);
     // The dashboard filter/label contract stays `{ id, name }`; `name` is the head's
     // G/L Account Name (the color map keys on id, so palette assignment is unaffected).
     return {
       clinics,
       expenseHeads: expenseHeads.map((e) => ({ id: e.id, name: e.glAccountName })),
+      spocs,
     };
   }
 }

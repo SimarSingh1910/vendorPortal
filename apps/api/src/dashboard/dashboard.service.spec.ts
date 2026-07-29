@@ -14,6 +14,8 @@ import { DashboardController } from './dashboard.controller';
 import { makeFixtures, type Fixtures, expectStatus } from '../../test/fixtures';
 import { resetDb } from '../../test/reset';
 import type { RequestUser } from '../auth/request-user';
+import { AttachmentsService } from '../attachments/attachments.service';
+import { CorpDepartmentScopeService } from '../corp-submissions/corp-department-scope.service';
 
 /**
  * Phase 11 (FR-07) analytics: aggregated totals, the BR-12 variance threshold,
@@ -37,6 +39,8 @@ describe('DashboardService (Phase 11, FR-07)', () => {
         AuditService,
         CycleService,
         WorkflowService,
+        AttachmentsService,
+        CorpDepartmentScopeService,
         DashboardService,
       ],
     }).compile();
@@ -112,6 +116,69 @@ describe('DashboardService (Phase 11, FR-07)', () => {
 
     const clinicTotals = await dashboard.clinicTotals(finance, { from: '2026-06', to: '2026-06' });
     expect(clinicTotals.find((c) => c.clinicName === 'Multi')!.total).toBe('350.00');
+  });
+
+  it('per-head totals equal the summed particular values, with no fan-out across particulars', async () => {
+    const clinic = await fx.makeClinic({ name: 'Particulars' });
+    const head = await fx.makeExpenseHead({ glAccountName: 'Consumables', allowsMultipleVendors: true });
+    await fx.mapHeads(clinic.id, [head.id]);
+    const { submission } = await cycle.openClinicCycle(clinic.id, '2026-06');
+    const snap = await prisma.submissionExpenseHeadSnapshot.findFirstOrThrow({
+      where: { submissionId: submission.id, expenseHeadId: head.id },
+    });
+
+    // One head, two vendor lines, and a DIFFERENT number of particulars on each —
+    // so a query that joined particulars would fan out asymmetrically and the
+    // wrong total would be obvious rather than coincidentally right.
+    const line = async (lineOrder: number, rows: Array<[string, number, number]>) => {
+      const values = rows.map(([, rate, qty]) => Math.round(rate * qty * 100));
+      await prisma.provisionEntry.create({
+        data: {
+          submissionId: submission.id,
+          snapshotId: snap.id,
+          lineOrder,
+          amount: (values.reduce((a, b) => a + b, 0) / 100).toFixed(2),
+          enteredById: spocId,
+          lastModifiedById: spocId,
+          particulars: {
+            create: rows.map(([name, rate, quantity], i) => ({
+              lineOrder: i,
+              particularName: name,
+              rate: String(rate),
+              quantity: String(quantity),
+              value: (values[i] / 100).toFixed(2),
+            })),
+          },
+        },
+      });
+    };
+    await line(0, [
+      ['Gloves', 400, 30], // 12,000.00
+      ['Masks', 15, 300], //  4,500.00
+      ['Swabs', 2.5, 200], //    500.00
+    ]);
+    await line(1, [['Syringes', 9, 1000]]); // 9,000.00
+
+    // Ground truth: the sum of every stored particular value.
+    const stored = await prisma.entryParticular.findMany({ where: { entry: { snapshotId: snap.id } } });
+    expect(stored).toHaveLength(4);
+    const expected = stored.reduce((s, p) => s + Number(p.value), 0);
+    expect(expected).toBe(26000);
+
+    // The head appears ONCE (not once per vendor line, not once per particular),
+    // and its total is the derived sum — not multiplied by any join cardinality.
+    const trends = await dashboard.headTrends(finance, { from: '2026-06', to: '2026-06' });
+    const forHead = trends.filter((t) => t.expenseHeadId === head.id);
+    expect(forHead).toHaveLength(1);
+    expect(Number(forHead[0].total)).toBe(expected);
+
+    // Same figure through the clinic and status-tile aggregations.
+    const clinicTotals = await dashboard.clinicTotals(finance, { from: '2026-06', to: '2026-06' });
+    expect(Number(clinicTotals.find((c) => c.clinicName === 'Particulars')!.total)).toBe(expected);
+    const tiles = await dashboard.statusTracker(finance, '2026-06');
+    expect(Number(tiles.find((t) => t.clinicName === 'Particulars')!.total)).toBe(expected);
+    const monthly = await dashboard.monthlyTotals(finance, { from: '2026-06', to: '2026-06' });
+    expect(Number(monthly.find((m) => m.month === '2026-06')!.total)).toBe(expected);
   });
 
   it('head-vendor breakdown splits a head by vendor (null bucket separate), reconciling with the head total', async () => {
@@ -293,6 +360,124 @@ describe('DashboardService (Phase 11, FR-07)', () => {
     const totals = await dashboard.clinicTotals(spoc, { from: '2026-06', to: '2026-06' });
     expect(totals.map((t) => t.clinicName)).toEqual(['Mine']);
     expect(totals[0].total).toBe('100.00');
+  });
+
+  // ── Clinic SPOC: names on tiles + the SPOC filter ───────────────────────────
+
+  /** Two clinics with named SPOCs, plus a third with none. */
+  async function clinicsWithSpocs() {
+    const alpha = await fx.makeClinic({ name: 'Alpha' });
+    const bravo = await fx.makeClinic({ name: 'Bravo' });
+    const orphan = await fx.makeClinic({ name: 'Orphan' });
+    const head = await fx.makeExpenseHead();
+    for (const c of [alpha, bravo, orphan]) await fx.mapHeads(c.id, [head.id]);
+    await enter(alpha.id, '2026-06', head.id, 100);
+    await enter(bravo.id, '2026-06', head.id, 200);
+    await enter(orphan.id, '2026-06', head.id, 300);
+
+    const asha = (await fx.makeUser(UserRole.CLINIC_SPOC, [alpha.id], { name: 'Asha Rao' })).user;
+    const bhavin = (await fx.makeUser(UserRole.CLINIC_SPOC, [bravo.id], { name: 'Bhavin Shah' }))
+      .user;
+    return { alpha, bravo, orphan, head, asha, bhavin };
+  }
+
+  it('shows the clinic SPOC name on each tile for finance roles, and “none” when unassigned', async () => {
+    await clinicsWithSpocs();
+
+    for (const role of [UserRole.FINANCE_ADMIN, UserRole.FINANCE_MANAGER]) {
+      const viewer = (await fx.makeUser(role)).user;
+      const tiles = await dashboard.statusTracker(viewer, '2026-06');
+      const byName = new Map(tiles.map((t) => [t.clinicName, t]));
+      expect(byName.get('Alpha')!.spocNames).toEqual(['Asha Rao']);
+      expect(byName.get('Bravo')!.spocNames).toEqual(['Bhavin Shah']);
+      // A clinic with no SPOC reports an EMPTY list, not null — "nobody assigned"
+      // is a real signal for finance, distinct from "not shown to you".
+      expect(byName.get('Orphan')!.spocNames).toEqual([]);
+    }
+  });
+
+  it('lists every active SPOC of a clinic, and omits deactivated ones', async () => {
+    const clinic = await fx.makeClinic({ name: 'Shared' });
+    const head = await fx.makeExpenseHead();
+    await fx.mapHeads(clinic.id, [head.id]);
+    await enter(clinic.id, '2026-06', head.id, 100);
+
+    await fx.makeUser(UserRole.CLINIC_SPOC, [clinic.id], { name: 'Zara Khan' });
+    await fx.makeUser(UserRole.CLINIC_SPOC, [clinic.id], { name: 'Amit Verma' });
+    // Deactivated: cannot act on a submission, so naming them as the contact
+    // would be misleading.
+    await fx.makeUser(UserRole.CLINIC_SPOC, [clinic.id], { name: 'Gone Away', active: false });
+    // A clinic MANAGER on the same clinic is not a SPOC and must not appear.
+    await fx.makeUser(UserRole.CLINIC_MANAGER, [clinic.id], { name: 'The Manager' });
+
+    const tiles = await dashboard.statusTracker(finance, '2026-06');
+    expect(tiles.find((t) => t.clinicName === 'Shared')!.spocNames).toEqual([
+      'Amit Verma',
+      'Zara Khan',
+    ]);
+  });
+
+  it('hides SPOC names from clinic-scoped viewers (null, not an empty list)', async () => {
+    const { alpha } = await clinicsWithSpocs();
+    const spoc = (await fx.makeUser(UserRole.CLINIC_SPOC, [alpha.id])).user;
+    const manager = (await fx.makeUser(UserRole.CLINIC_MANAGER, [alpha.id])).user;
+
+    for (const viewer of [spoc, manager]) {
+      const tiles = await dashboard.statusTracker(viewer, '2026-06');
+      expect(tiles).toHaveLength(1);
+      // null ≠ [] — the tile hides the line rather than claiming "no SPOC".
+      expect(tiles[0].spocNames).toBeNull();
+    }
+  });
+
+  it('the SPOC filter narrows every aggregation to that SPOC’s clinics', async () => {
+    const { asha } = await clinicsWithSpocs();
+
+    const tiles = await dashboard.statusTracker(finance, '2026-06', asha.id);
+    expect(tiles.map((t) => t.clinicName)).toEqual(['Alpha']);
+
+    const totals = await dashboard.clinicTotals(finance, {
+      from: '2026-06',
+      to: '2026-06',
+      spocUserId: asha.id,
+    });
+    expect(totals.map((t) => t.clinicName)).toEqual(['Alpha']);
+    expect(totals[0].total).toBe('100.00');
+
+    // The monthly roll-up follows the same narrowing (100, not 100+200+300).
+    const monthly = await dashboard.monthlyTotals(finance, {
+      from: '2026-06',
+      to: '2026-06',
+      spocUserId: asha.id,
+    });
+    expect(monthly.find((m) => m.month === '2026-06')!.total).toBe('100.00');
+  });
+
+  it('the SPOC filter can only NARROW — it never widens a caller’s scope', async () => {
+    const { alpha, bhavin } = await clinicsWithSpocs();
+    // A SPOC scoped to Alpha filtering by BRAVO's SPOC sees nothing, rather than
+    // Bravo's data leaking through the filter.
+    const alphaSpoc = (await fx.makeUser(UserRole.CLINIC_SPOC, [alpha.id])).user;
+    expect(await dashboard.statusTracker(alphaSpoc, '2026-06', bhavin.id)).toEqual([]);
+    expect(
+      await dashboard.clinicTotals(alphaSpoc, {
+        from: '2026-06',
+        to: '2026-06',
+        spocUserId: bhavin.id,
+      }),
+    ).toEqual([]);
+  });
+
+  it('the filter options list active SPOCs for finance and none for a clinic viewer', async () => {
+    const { alpha } = await clinicsWithSpocs();
+    await fx.makeUser(UserRole.CLINIC_SPOC, [alpha.id], { name: 'Retired One', active: false });
+
+    const forFinance = await dashboard.filterOptions(finance);
+    expect(forFinance.spocs.map((s) => s.name)).toEqual(['Asha Rao', 'Bhavin Shah']);
+
+    // Clinic-scoped viewers have a single clinic and nothing to filter across.
+    const spoc = (await fx.makeUser(UserRole.CLINIC_SPOC, [alpha.id])).user;
+    expect((await dashboard.filterOptions(spoc)).spocs).toEqual([]);
   });
 
   it('applies the status filter to aggregations', async () => {

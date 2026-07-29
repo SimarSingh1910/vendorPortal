@@ -20,6 +20,8 @@ import { ClinicExpenseHeadsController } from '../clinic-expense-heads/clinic-exp
 import type { RequestUser } from '../auth/request-user';
 import { makeFixtures, type Fixtures } from '../../test/fixtures';
 import { resetDb } from '../../test/reset';
+import { AttachmentsService } from '../attachments/attachments.service';
+import { CorpDepartmentScopeService } from '../corp-submissions/corp-department-scope.service';
 
 const MONTH = '2026-08';
 
@@ -45,6 +47,8 @@ describe('FINANCE_MANAGER authorization (Step 1)', () => {
         ClinicExpenseHeadsService,
         CycleService,
         WorkflowService,
+        AttachmentsService,
+        CorpDepartmentScopeService,
         AuditService,
       ],
     }).compile();

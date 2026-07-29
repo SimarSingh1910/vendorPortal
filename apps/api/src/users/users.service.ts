@@ -87,7 +87,7 @@ export class UsersService {
     const target = [...new Set(provided ?? current ?? [])];
     if (target.length === 0) {
       throw new BadRequestException(
-        'Clinic Manager, SPOC and Viewer users must be assigned to at least one clinic',
+        'Cluster Manager, SPOC and Viewer users must be assigned to at least one clinic',
       );
     }
     return target;

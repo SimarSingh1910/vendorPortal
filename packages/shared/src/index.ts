@@ -35,8 +35,35 @@ export { isCorpActionPending, corpPendingCount } from './corp-attention';
 // Runtime constants from types.ts (values, not types).
 export { MONTHWISE_PRESETS, DEFAULT_MONTHWISE_PRESET } from './types';
 
-export { PRODUCT_CODES } from './product-codes';
+export { PRODUCT_CODES, PRODUCT_CODE_DESCRIPTIONS, productCodeLabel } from './product-codes';
 export type { ProductCode } from './product-codes';
+
+// Review-comment attachments (proof for overrides / send-backs). The server is
+// the gate; these are shared so the web can mirror the same rules for UX.
+export {
+  ALLOWED_ATTACHMENT_TYPES,
+  ALLOWED_ATTACHMENT_EXTENSIONS,
+  ATTACHMENT_LIMITS,
+  formatFileSize,
+  fileExtension,
+  isAllowedAttachment,
+} from './attachments';
+export type { CommentAttachmentView } from './attachments';
+
+// Fixed-decimal maths for particulars (rate × quantity) and the derived sums
+// above them — shared so the web's live preview and the server's stored figure
+// are produced by the same code.
+export {
+  RATE_DECIMALS,
+  QUANTITY_DECIMALS,
+  VALUE_DECIMALS,
+  MAX_VALUE_MINOR,
+  toMinorUnits,
+  minorToDecimalString,
+  computeValueMinor,
+  sumMinor,
+  decimalStringToMinor,
+} from './particular-math';
 
 export type {
   HealthResponse,
@@ -73,6 +100,8 @@ export type {
   SubmissionListItem,
   ProvisionHeadRow,
   ProvisionLine,
+  ProvisionParticular,
+  ProvisionParticularInput,
   SubmissionDetail,
   ProvisionEntryInput,
   ProvisionLineInput,

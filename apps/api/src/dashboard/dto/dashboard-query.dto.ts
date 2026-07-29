@@ -24,6 +24,15 @@ export class DashboardQueryDto {
   @IsString()
   expenseHeadId?: string;
 
+  /**
+   * Narrow to the clinics a given clinic SPOC covers. Resolved server-side from
+   * that user's real assignments and intersected with the caller's own scope, so
+   * an arbitrary user id here can only ever narrow the result, never widen it.
+   */
+  @IsOptional()
+  @IsString()
+  spocUserId?: string;
+
   @IsOptional()
   @Matches(MONTH_RE, { message: 'from must be in YYYY-MM format' })
   from?: string;

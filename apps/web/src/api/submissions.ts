@@ -7,6 +7,7 @@ import type {
   SubmissionStatus,
 } from '@portal/shared';
 import { apiClient } from '@/lib/apiClient';
+import { reviewActionBody } from './attachments';
 
 /** Per-accessible-clinic status for a month (defaults to current IST month). */
 export async function getOverview(month?: string): Promise<ClinicMonthStatus[]> {
@@ -91,12 +92,26 @@ export async function managerOpenReview(submissionId: string): Promise<void> {
   await apiClient.post(`/submissions/${submissionId}/manager/open`);
 }
 
-export async function managerApprove(submissionId: string, comment?: string): Promise<void> {
-  await apiClient.post(`/submissions/${submissionId}/manager/approve`, comment ? { comment } : {});
+export async function managerApprove(
+  submissionId: string,
+  comment?: string,
+  attachments: File[] = [],
+): Promise<void> {
+  await apiClient.post(
+    `/submissions/${submissionId}/manager/approve`,
+    reviewActionBody({ comment }, attachments),
+  );
 }
 
-export async function managerSendBack(submissionId: string, comment: string): Promise<void> {
-  await apiClient.post(`/submissions/${submissionId}/manager/send-back`, { comment });
+export async function managerSendBack(
+  submissionId: string,
+  comment: string,
+  attachments: File[] = [],
+): Promise<void> {
+  await apiClient.post(
+    `/submissions/${submissionId}/manager/send-back`,
+    reviewActionBody({ comment }, attachments),
+  );
 }
 
 // ── Finance workflow transitions ─────────────────────────────────────────────
@@ -105,12 +120,26 @@ export async function financeOpenReview(submissionId: string): Promise<void> {
   await apiClient.post(`/submissions/${submissionId}/finance/open`);
 }
 
-export async function financeApprove(submissionId: string, comment?: string): Promise<void> {
-  await apiClient.post(`/submissions/${submissionId}/finance/approve`, comment ? { comment } : {});
+export async function financeApprove(
+  submissionId: string,
+  comment?: string,
+  attachments: File[] = [],
+): Promise<void> {
+  await apiClient.post(
+    `/submissions/${submissionId}/finance/approve`,
+    reviewActionBody({ comment }, attachments),
+  );
 }
 
-export async function financeSendBack(submissionId: string, comment: string): Promise<void> {
-  await apiClient.post(`/submissions/${submissionId}/finance/send-back`, { comment });
+export async function financeSendBack(
+  submissionId: string,
+  comment: string,
+  attachments: File[] = [],
+): Promise<void> {
+  await apiClient.post(
+    `/submissions/${submissionId}/finance/send-back`,
+    reviewActionBody({ comment }, attachments),
+  );
 }
 
 /** Unlock an approved (locked) submission with a mandatory reason. */

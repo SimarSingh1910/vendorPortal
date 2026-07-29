@@ -12,6 +12,8 @@ import { CycleService } from './cycle.service';
 import { WorkflowService } from './workflow.service';
 import { makeFixtures, type Fixtures } from '../../test/fixtures';
 import { resetDb } from '../../test/reset';
+import { AttachmentsService } from '../attachments/attachments.service';
+import { CorpDepartmentScopeService } from '../corp-submissions/corp-department-scope.service';
 
 /**
  * Step 10.3 wiring: drive real transitions through the WorkflowService + the real
@@ -34,6 +36,8 @@ describe('Workflow → notification dispatch wiring (Step 10.3)', () => {
         AuditService,
         CycleService,
         WorkflowService,
+        AttachmentsService,
+        CorpDepartmentScopeService,
         NotificationService,
         NotificationEventsService,
         NotificationDispatchService,

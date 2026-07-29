@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type ExpenseHead } from '@prisma/client';
-import { AuditAction, type ActiveFilter } from '@portal/shared';
+import { AuditAction, SubmissionStatus, type ActiveFilter } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateExpenseHeadDto } from './dto/create-expense-head.dto';
@@ -45,17 +45,86 @@ export class ExpenseHeadsService {
 
   async update(id: string, dto: UpdateExpenseHeadDto): Promise<ExpenseHead> {
     const before = await this.get(id);
-    const head = await this.prisma.expenseHead
-      .update({ where: { id }, data: dto })
+    const togglingMultiVendor =
+      dto.allowsMultipleVendors !== undefined &&
+      dto.allowsMultipleVendors !== before.allowsMultipleVendors;
+
+    // The master edit and the snapshot propagation move together — a half-applied
+    // toggle would leave the admin's view and the SPOC's disagreeing.
+    const { head, propagation } = await this.prisma
+      .$transaction(async (tx) => {
+        const updated = await tx.expenseHead.update({ where: { id }, data: dto });
+        const propagation = togglingMultiVendor
+          ? await this.propagateMultiVendor(tx, id, dto.allowsMultipleVendors!)
+          : null;
+        return { head: updated, propagation };
+      })
       .catch(this.rethrowDuplicateGlAccountNo);
+
     await this.audit.record({
       action: AuditAction.EXPENSE_HEAD_UPDATE,
       entityType: 'ExpenseHead',
       entityId: id,
-      oldValue: { glAccountNo: before.glAccountNo, glAccountName: before.glAccountName },
-      newValue: dto,
+      oldValue: {
+        glAccountNo: before.glAccountNo,
+        glAccountName: before.glAccountName,
+        // Included so flipping multi-vendor on/off is visible in the trail as a
+        // real old→new change rather than an unexplained newValue.
+        allowsMultipleVendors: before.allowsMultipleVendors,
+      },
+      // Record what the toggle actually reached, so "why did last month change?"
+      // (and "why didn't it?") is answerable from the trail alone.
+      newValue: propagation ? { ...dto, snapshotPropagation: propagation } : dto,
     });
     return head;
+  }
+
+  /**
+   * Apply a multi-vendor toggle to the head snapshots of months that are still
+   * OPEN, so an admin's change reaches the SPOC who is entering data right now
+   * rather than waiting for next month's cycle.
+   *
+   * Two rules keep this safe:
+   *
+   *  1. LOCKED MONTHS ARE NEVER TOUCHED. A finance-approved submission is frozen;
+   *     its snapshot records the rules that applied when it was approved, and
+   *     rewriting that would falsify an approved record.
+   *
+   *  2. TURNING IT OFF NEVER STRANDS DATA. If a SPOC has already entered several
+   *     vendor lines against a head, switching it back to single-vendor would
+   *     leave rows the UI can't render and the API would reject on the next save.
+   *     Those snapshots keep multi-vendor until the month closes naturally; every
+   *     other open month flips. Turning it ON is purely additive, so it always
+   *     applies.
+   */
+  private async propagateMultiVendor(
+    tx: Prisma.TransactionClient,
+    expenseHeadId: string,
+    allow: boolean,
+  ): Promise<{ updated: number; skippedWithExistingLines: number }> {
+    const openSnapshots = await tx.submissionExpenseHeadSnapshot.findMany({
+      where: {
+        expenseHeadId,
+        submission: { status: { not: SubmissionStatus.FINANCE_APPROVED } },
+      },
+      select: { id: true, _count: { select: { entries: true } } },
+    });
+
+    // Turning ON is safe everywhere; turning OFF only where nothing would strand.
+    const targets = allow
+      ? openSnapshots
+      : openSnapshots.filter((s) => s._count.entries <= 1);
+
+    if (targets.length > 0) {
+      await tx.submissionExpenseHeadSnapshot.updateMany({
+        where: { id: { in: targets.map((s) => s.id) } },
+        data: { expenseHeadAllowsMultipleVendorsAtSnapshot: allow },
+      });
+    }
+    return {
+      updated: targets.length,
+      skippedWithExistingLines: openSnapshots.length - targets.length,
+    };
   }
 
   /**

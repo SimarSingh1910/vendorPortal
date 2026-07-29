@@ -172,6 +172,7 @@ model User {
   enteredProvisions        ProvisionEntry[]    @relation("EnteredBy")
   modifiedProvisions       ProvisionEntry[]    @relation("LastModifiedBy")
   comments                 SubmissionComment[]
+  uploadedAttachments      CommentAttachment[]
   auditLogs                AuditLog[]
   notifications            Notification[]
 
@@ -295,8 +296,15 @@ model ProvisionEntry {
   snapshotId   String
   // 0-based position of this line within its head, for stable render order.
   lineOrder    Int      @default(0)
-  // INR value. NULLABLE: a started-but-blank line has no amount yet (blank ≠ 0);
-  // submit requires every line to carry a non-null amount.
+  // DERIVED, NEVER TYPED: a server-computed CACHE of SUM(particulars.value),
+  // rewritten on every save from the stored particulars — a client-sent amount is
+  // always ignored. NULLABLE and deliberately so: if ANY particular of this line is
+  // still incomplete (blank rate or quantity) the line has no meaningful total, so
+  // the cache is NULL rather than a misleading partial sum (blank ≠ 0). Submit
+  // requires every line to carry a non-null amount, which is exactly "every
+  // particular of every line is complete". Dashboard/export aggregation reads this
+  // column, so its NULL semantics are what keep incomplete drafts out of finance
+  // totals.
   amount       Decimal? @db.Decimal(14, 2)
   // Optional SPOC line-item note explaining this head's value (e.g. a spike/drop).
   // One nullable note per head per submission; set only by the SPOC while editable.
@@ -318,11 +326,50 @@ model ProvisionEntry {
   snapshot       SubmissionExpenseHeadSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
   enteredBy      User                          @relation("EnteredBy", fields: [enteredById], references: [id])
   lastModifiedBy User                          @relation("LastModifiedBy", fields: [lastModifiedById], references: [id])
+  particulars    EntryParticular[]
 
   @@index([submissionId])
   // Was covered by the old unique(snapshotId); keep an explicit index for the
   // join used by the form read, dashboard aggregation and export.
   @@index([snapshotId])
+}
+
+/// One rate × quantity line item under a vendor line (ProvisionEntry). CLINIC
+/// ONLY — the corporate models have no particulars.
+///
+/// This is the level the SPOC actually types at: the vendor line no longer carries
+/// a typed amount, it carries particulars, and every money figure above this row is
+/// a derived sum. Every vendor line has AT LEAST ONE particular.
+model EntryParticular {
+  id      String @id @default(cuid())
+  entryId String
+  // 0-based position within its vendor line, for stable render order.
+  lineOrder Int  @default(0)
+
+  // What is being provisioned (e.g. "Nitrile gloves — M"). NULLABLE while the SPOC
+  // is still filling the row in; submit requires it.
+  particularName String? @db.Text
+  // Per-unit rate. 4 dp so a paise-fraction unit price survives without drift.
+  // NULLABLE: blank ≠ 0 — a blank rate is an incomplete row that blocks submit,
+  // whereas an explicit 0 is a valid rate that yields a 0.00 value.
+  rate     Decimal? @db.Decimal(14, 4)
+  // Units. 3 dp so fractional quantities (hours, kg, litres) are representable.
+  // Same NULL semantics as `rate`.
+  quantity Decimal? @db.Decimal(14, 3)
+  // DERIVED, NEVER TYPED: rate × quantity, computed server-side in integer minor
+  // units and rounded HALF-UP to 2 dp (see roundValue in @portal/shared). Stored so
+  // the vendor-line and head sums are exact sums of persisted values — the UI can
+  // never disagree with the DB. NULL exactly when rate or quantity is NULL.
+  value    Decimal? @db.Decimal(14, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entry ProvisionEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  // The form read, submit validation, export (one row per particular) and the
+  // recompute-on-save all fetch particulars by their parent line.
+  @@index([entryId])
 }
 
 model SubmissionComment {
@@ -336,9 +383,60 @@ model SubmissionComment {
 
   submission  MonthlySubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   commentedBy User              @relation(fields: [commentedById], references: [id])
+  attachments CommentAttachment[]
 
   @@index([submissionId])
   @@index([commentedById])
+}
+
+/// A file attached to a review comment as PROOF (an email screenshot, a photo, a
+/// PDF quote) for an override, send-back or approval. Shared by BOTH portals: a
+/// row belongs to EITHER a clinic `SubmissionComment` OR a corporate
+/// `CorpSubmissionComment` — exactly one of the two FKs is set, enforced by a
+/// CHECK constraint in the migration. One table (and one service) rather than a
+/// per-portal fork.
+///
+/// IMMUTABLE + APPEND-ONLY, like the audit trail it evidences: rows are written
+/// once, inside the same transaction as their comment, and there is deliberately
+/// no update or delete endpoint. They only ever disappear with their comment (and
+/// so their submission) via FK cascade.
+///
+/// STORAGE: the bytes live in the DB (`data`), NOT on local disk — the deploy
+/// target's filesystem is ephemeral, so disk-backed files would vanish on
+/// redeploy. This is the documented demo-grade choice; production should move the
+/// bytes to S3 and keep only a storage key here (see ATTACHMENT_LIMITS, which are
+/// deliberately tight because DB blobs do not scale).
+model CommentAttachment {
+  id String @id @default(cuid())
+
+  /// Set when this attachment belongs to a CLINIC review comment.
+  submissionCommentId String?
+  /// Set when this attachment belongs to a CORPORATE review comment.
+  corpSubmissionCommentId String?
+
+  /// The uploader's original filename, SANITIZED (basename only, no path, no
+  /// control characters) — never used to touch a filesystem, only echoed back as
+  /// the download name.
+  fileName  String @db.VarChar(255)
+  /// Server-validated content type, restricted to the allowed set. Downloads are
+  /// served with this plus Content-Disposition: attachment — never inline.
+  mimeType  String @db.VarChar(191)
+  /// Size in bytes of `data`, recorded so the UI can list a size without reading
+  /// the blob.
+  sizeBytes Int
+  /// The file itself. MEDIUMBLOB (16 MB) — comfortably above the per-file cap.
+  data      Bytes  @db.MediumBlob
+
+  uploadedById String
+  uploadedAt   DateTime @default(now())
+
+  submissionComment     SubmissionComment?     @relation(fields: [submissionCommentId], references: [id], onDelete: Cascade)
+  corpSubmissionComment CorpSubmissionComment? @relation(fields: [corpSubmissionCommentId], references: [id], onDelete: Cascade)
+  uploadedBy            User                   @relation(fields: [uploadedById], references: [id])
+
+  @@index([submissionCommentId])
+  @@index([corpSubmissionCommentId])
+  @@index([uploadedById])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -615,6 +713,7 @@ model CorpSubmissionComment {
 
   submission  CorpMonthlySubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   commentedBy User                  @relation(fields: [commentedById], references: [id])
+  attachments CommentAttachment[]
 
   @@index([submissionId])
   @@index([commentedById])

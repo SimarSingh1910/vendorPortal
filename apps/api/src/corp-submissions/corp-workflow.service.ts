@@ -18,6 +18,7 @@ import { CorpDepartmentScopeService } from './corp-department-scope.service';
 import { CorpNotificationDispatchService } from './corp-notification-dispatch.service';
 import { Sec24AllocationService } from './sec24-allocation.service';
 import type { RequestUser } from '../auth/request-user';
+import { AttachmentsService, type UploadedFile } from '../attachments/attachments.service';
 
 const S = CorpSubmissionStatus;
 
@@ -137,6 +138,7 @@ export class CorpWorkflowService {
     private readonly scope: CorpDepartmentScopeService,
     private readonly audit: AuditService,
     private readonly sec24: Sec24AllocationService,
+    private readonly attachments: AttachmentsService,
     // Optional so unit modules that construct CorpWorkflowService without the
     // notifications wiring keep working; dispatch is a best-effort side path.
     @Optional() private readonly dispatch?: CorpNotificationDispatchService,
@@ -159,14 +161,27 @@ export class CorpWorkflowService {
     return this.run(CorpWorkflowAction.OPEN_REVIEW, submissionId, user);
   }
 
-  /** Corporate approver: approve and LOCK. */
-  approve(submissionId: string, user: RequestUser, comment?: string): Promise<CorpMonthlySubmission> {
-    return this.run(CorpWorkflowAction.APPROVE, submissionId, user, comment);
+  /** Corporate approver: approve and LOCK. Optional proof files ride the comment. */
+  approve(
+    submissionId: string,
+    user: RequestUser,
+    comment?: string,
+    attachments: UploadedFile[] = [],
+  ): Promise<CorpMonthlySubmission> {
+    return this.run(CorpWorkflowAction.APPROVE, submissionId, user, comment, attachments);
   }
 
-  /** Corporate approver: send back to the dept SPOC with a mandatory comment. */
-  sendBack(submissionId: string, user: RequestUser, comment: string): Promise<CorpMonthlySubmission> {
-    return this.run(CorpWorkflowAction.SEND_BACK, submissionId, user, comment);
+  /**
+   * Corporate approver: send back to the dept SPOC with a mandatory comment, and
+   * optionally the proof behind it (an email screenshot, a quote).
+   */
+  sendBack(
+    submissionId: string,
+    user: RequestUser,
+    comment: string,
+    attachments: UploadedFile[] = [],
+  ): Promise<CorpMonthlySubmission> {
+    return this.run(CorpWorkflowAction.SEND_BACK, submissionId, user, comment, attachments);
   }
 
   /**
@@ -232,6 +247,7 @@ export class CorpWorkflowService {
     submissionId: string,
     user: RequestUser,
     comment?: string,
+    attachments: UploadedFile[] = [],
   ): Promise<CorpMonthlySubmission> {
     const def = this.transitions[action];
 
@@ -265,6 +281,16 @@ export class CorpWorkflowService {
 
     if (def.requiresAllValued) {
       await this.assertAllHeadsValued(submissionId);
+    }
+
+    // Files only ever ride a comment — same rule as the clinic portal (shared
+    // AttachmentsService). Reject up-front rather than silently dropping proof on
+    // a transition that writes no comment.
+    if (attachments.length > 0) {
+      if (!def.commentAction || !trimmedComment) {
+        throw new BadRequestException('Attachments require a comment');
+      }
+      this.attachments.validateBatch(attachments);
     }
 
     // BR-C05: approving the single Sec 24 SHARED_COST_POOL department snapshots the
@@ -304,7 +330,7 @@ export class CorpWorkflowService {
       }
 
       if (def.commentAction && trimmedComment) {
-        await tx.corpSubmissionComment.create({
+        const created = await tx.corpSubmissionComment.create({
           data: {
             submissionId,
             comment: trimmedComment,
@@ -313,6 +339,14 @@ export class CorpWorkflowService {
             action: def.commentAction,
           },
         });
+        // Same transaction as the comment: proof and the comment it evidences
+        // commit together, or neither does.
+        await this.attachments.persist(
+          tx,
+          { portal: 'corp', commentId: created.id },
+          attachments,
+          user.id,
+        );
       }
 
       // Freeze each line's HCL Avitas share from the snapshot % (atomic with lock).
@@ -344,6 +378,14 @@ export class CorpWorkflowService {
           status: def.to,
           ...(sec24Snapshot
             ? { sec24PctSnapshot: sec24Snapshot.pct ? sec24Snapshot.pct.toFixed(2) : null }
+            : {}),
+          // Attachments recorded ON the existing transition action — no new audit
+          // action. Names + count only; the bytes stay in the blob.
+          ...(attachments.length > 0
+            ? {
+                attachmentCount: attachments.length,
+                attachmentFileNames: attachments.map((f) => f.originalname),
+              }
             : {}),
         },
       });

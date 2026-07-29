@@ -141,7 +141,7 @@ export class NotificationDispatchService {
     await this.fanOut(recipients, {
       type: NotificationType.MANAGER_APPROVED,
       submissionId: submission.id,
-      message: `${clinic}'s ${submission.month} submission was approved by the clinic manager and awaits Finance review.`,
+      message: `${clinic}'s ${submission.month} submission was approved by the cluster manager and awaits Finance review.`,
       emailSubject: `${EMAIL_PREFIX} — ${clinic} ${submission.month} awaiting Finance review`,
     });
   }
@@ -153,8 +153,8 @@ export class NotificationDispatchService {
     await this.fanOut(recipients, {
       type: NotificationType.MANAGER_SENT_BACK,
       submissionId: submission.id,
-      message: `Your ${submission.month} submission for ${clinic} was sent back by the clinic manager. Reason: "${comment}"`,
-      emailSubject: `${EMAIL_PREFIX} — ${clinic} ${submission.month} sent back by manager`,
+      message: `Your ${submission.month} submission for ${clinic} was sent back by the cluster manager. Reason: "${comment}"`,
+      emailSubject: `${EMAIL_PREFIX} — ${clinic} ${submission.month} sent back by cluster manager`,
     });
   }
 

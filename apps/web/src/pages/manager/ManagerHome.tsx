@@ -43,7 +43,7 @@ export function ManagerHome() {
   return (
     <div className="space-y-8">
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Clinic Manager — Review</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Cluster Manager — Review</h1>
         <p className="text-sm text-muted-foreground">
           Submissions from your clinics awaiting first-level approval.
         </p>

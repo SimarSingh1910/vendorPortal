@@ -11,6 +11,8 @@ import { AuditService } from '../audit/audit.service';
 import { runWithRequestContext } from '../audit/request-context';
 import { makeFixtures, type Fixtures, expectStatus } from '../../test/fixtures';
 import { resetDb } from '../../test/reset';
+import { AttachmentsService } from '../attachments/attachments.service';
+import { CorpDepartmentScopeService } from '../corp-submissions/corp-department-scope.service';
 
 const MONTH = '2026-07';
 
@@ -30,6 +32,8 @@ describe('WorkflowService (Step 5.2 — state machine + transition guards)', () 
         ClinicExpenseHeadsService,
         CycleService,
         WorkflowService,
+        AttachmentsService,
+        CorpDepartmentScopeService,
         SubmissionsService,
         AuditService,
       ],

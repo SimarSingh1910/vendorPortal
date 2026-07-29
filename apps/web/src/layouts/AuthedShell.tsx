@@ -68,7 +68,8 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   Users: Users,
   'Notification Config': Bell,
   'Audit Log': ScrollText,
-  'Clinic Manager': ClipboardCheck,
+  // Keyed by the NAV LABEL — keep in step with roles.ts or the icon silently drops.
+  'Cluster Manager': ClipboardCheck,
   'Data Entry': SquarePen,
   'Clinic View': Eye,
   Departments: Boxes,

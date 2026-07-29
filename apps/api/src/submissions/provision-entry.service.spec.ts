@@ -1,7 +1,14 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
-import { SubmissionStatus, UserRole, type ProvisionEntryInput } from '@portal/shared';
+import {
+  PRODUCT_CODES,
+  PRODUCT_CODE_DESCRIPTIONS,
+  SubmissionStatus,
+  UserRole,
+  productCodeLabel,
+  type ProvisionEntryInput,
+} from '@portal/shared';
 import { ProvisionEntryItemDto, ProvisionLineItemDto } from './dto/save-entries.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClinicScopeService } from '../common/clinic-scope.service';
@@ -15,6 +22,8 @@ import { runWithRequestContext } from '../audit/request-context';
 import type { RequestUser } from '../auth/request-user';
 import { makeFixtures, type Fixtures, expectStatus } from '../../test/fixtures';
 import { resetDb } from '../../test/reset';
+import { AttachmentsService } from '../attachments/attachments.service';
+import { CorpDepartmentScopeService } from '../corp-submissions/corp-department-scope.service';
 
 const MONTH = '2026-07';
 
@@ -35,6 +44,8 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
         ClinicExpenseHeadsService,
         CycleService,
         WorkflowService,
+        AttachmentsService,
+        CorpDepartmentScopeService,
         SubmissionsService,
         ProvisionEntryService,
         AuditService,
@@ -58,11 +69,28 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
     await resetDb(prisma);
   });
 
-  /** A single-line save payload for one head (create when `entryId` omitted). */
+  /**
+   * One particular carrying a whole amount as rate × 1 — the shorthand these specs
+   * use wherever the old typed `amount` used to be. A null amount is a
+   * started-but-blank particular (no name/rate/quantity), which submit rejects.
+   */
+  function amt(amount: number | null, particularId?: string) {
+    return amount === null
+      ? { particularId, particularName: undefined, rate: null, quantity: null }
+      : { particularId, particularName: 'Amount', rate: amount, quantity: 1 };
+  }
+
+  /** A single-line, single-particular save payload for one head. */
   function one(
     snapshotId: string,
     amount: number | null,
-    extras: { note?: string; vendorName?: string; productCode?: string; entryId?: string } = {},
+    extras: {
+      note?: string;
+      vendorName?: string;
+      productCode?: string;
+      entryId?: string;
+      particularId?: string;
+    } = {},
   ): ProvisionEntryInput[] {
     return [
       {
@@ -70,25 +98,30 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
         lines: [
           {
             entryId: extras.entryId,
-            amount,
+            particulars: [amt(amount, extras.particularId)],
             note: extras.note,
             vendorName: extras.vendorName,
-            productCode: extras.productCode,
+            // Product code is REQUIRED at submit, so the default helper builds a
+            // complete line. Pass '' explicitly to model an unfilled/cleared one.
+            productCode: extras.productCode ?? 'P20',
           },
         ],
       },
     ];
   }
 
-  /** The current first-line entry id for a head (used for update/override saves). */
-  async function entryIdOf(
+  /**
+   * The first line + first particular ids of a head. An override targets EXISTING
+   * rows, so it needs both — the particular is the level a value now lives at.
+   */
+  async function firstIds(
     subId: string,
     user: RequestUser,
     snapshotId: string,
-    line = 0,
-  ): Promise<string | undefined> {
+  ): Promise<{ entryId: string; particularId: string }> {
     const d = await submissions.getDetail(subId, user);
-    return d.heads.find((h) => h.snapshotId === snapshotId)?.lines[line]?.entryId ?? undefined;
+    const line = d.heads.find((h) => h.snapshotId === snapshotId)!.lines[0];
+    return { entryId: line.entryId!, particularId: line.particulars[0].particularId! };
   }
 
   /** Clinic + opened cycle with `n` mapped heads, plus a scoped SPOC. */
@@ -214,8 +247,8 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
       {
         snapshotId,
         lines: [
-          { amount: 100, vendorName: 'Vendor A' },
-          { amount: 250, vendorName: 'Vendor B' },
+          { particulars: [amt(100)], vendorName: 'Vendor A' },
+          { particulars: [amt(250)], vendorName: 'Vendor B' },
         ],
       },
     ]);
@@ -230,7 +263,7 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
     const { submission, spoc, snapshotIds } = await setup(1);
     await expectStatus(
       entries.saveEntries(submission.id, spoc, [
-        { snapshotId: snapshotIds[0], lines: [{ amount: 10 }, { amount: 20 }] },
+        { snapshotId: snapshotIds[0], lines: [{ particulars: [amt(10)] }, { particulars: [amt(20)] }] },
       ]),
       400,
     );
@@ -245,8 +278,8 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
       {
         snapshotId,
         lines: [
-          { amount: 100, vendorName: 'Vendor A' },
-          { amount: 250, vendorName: 'Vendor B' },
+          { particulars: [amt(100)], vendorName: 'Vendor A' },
+          { particulars: [amt(250)], vendorName: 'Vendor B' },
         ],
       },
     ]);
@@ -260,8 +293,8 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
       {
         snapshotId,
         lines: [
-          { entryId: l0.entryId!, amount: 999, vendorName: 'Vendor A' },
-          { entryId: l1.entryId!, amount: 250, vendorName: 'Vendor B' },
+          { entryId: l0.entryId!, particulars: [amt(999, l0.particulars[0].particularId!)], vendorName: 'Vendor A' },
+          { entryId: l1.entryId!, particulars: [amt(250, l1.particulars[0].particularId!)], vendorName: 'Vendor B' },
         ],
       },
     ]);
@@ -280,7 +313,7 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
   it('removing a line persists (it drops out of the payload)', async () => {
     const { submission, spoc, snapshotId } = await setupMulti();
     await entries.saveEntries(submission.id, spoc, [
-      { snapshotId, lines: [{ amount: 100 }, { amount: 250 }] },
+      { snapshotId, lines: [{ particulars: [amt(100)] }, { particulars: [amt(250)] }] },
     ]);
     const both = (await submissions.getDetail(submission.id, spoc)).heads.find(
       (h) => h.snapshotId === snapshotId,
@@ -289,7 +322,7 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
 
     // Save with only the kept line → the sibling is removed.
     await entries.saveEntries(submission.id, spoc, [
-      { snapshotId, lines: [{ entryId: keep.entryId!, amount: 100 }] },
+      { snapshotId, lines: [{ entryId: keep.entryId!, particulars: [amt(100, keep.particulars[0].particularId!)] }] },
     ]);
     const after = (await submissions.getDetail(submission.id, spoc)).heads.find(
       (h) => h.snapshotId === snapshotId,
@@ -306,11 +339,219 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
     expect(empty.some((e) => e.property === 'lines')).toBe(true);
   });
 
+  // ── Particulars: rate × quantity, derived values and derived sums ─────────────
+
+  it('computes value = rate × quantity with decimals, rounded half-up to paise', async () => {
+    const { submission, spoc, snapshotIds } = await setup(1);
+    await entries.saveEntries(submission.id, spoc, [
+      {
+        snapshotId: snapshotIds[0],
+        lines: [
+          {
+            particulars: [
+              // 19.99 × 3 = 59.97 exactly — no binary-float drift to 59.96999…
+              { particularName: 'Syringes', rate: 19.99, quantity: 3 },
+              // 333.335 × 3 = 1000.005 → half-up → 1000.01
+              { particularName: 'Reagent', rate: 333.335, quantity: 3 },
+              // 0.1 × 3 = 0.30, the classic float trap
+              { particularName: 'Swabs', rate: 0.1, quantity: 3 },
+            ],
+          },
+        ],
+      },
+    ]);
+
+    const head = (await submissions.getDetail(submission.id, spoc)).heads[0];
+    expect(head.lines[0].particulars.map((p) => p.value)).toEqual(['59.97', '1000.01', '0.30']);
+    // The vendor-line amount is the EXACT sum of the stored values.
+    expect(head.lines[0].amount).toBe('1060.28');
+  });
+
+  it('derives the vendor-line amount and the head roll-up server-side, ignoring any client total', async () => {
+    const { submission, spoc, snapshotId } = await setupMulti();
+    await entries.saveEntries(submission.id, spoc, [
+      {
+        snapshotId,
+        lines: [
+          {
+            vendorName: 'Acme',
+            particulars: [
+              { particularName: 'Gloves', rate: 400, quantity: 30 }, // 12,000.00
+              { particularName: 'Masks', rate: 15, quantity: 300 }, //  4,500.00
+            ],
+            // A client asserting its own total must have NO effect — the DTO has no
+            // amount field, so this is stripped before the service ever sees it.
+            amount: 999999,
+          } as never,
+          {
+            vendorName: 'Beta',
+            particulars: [{ particularName: 'Syringes', rate: 9, quantity: 1000 }], // 9,000.00
+          },
+        ],
+      },
+    ]);
+
+    const head = (await submissions.getDetail(submission.id, spoc)).heads.find(
+      (h) => h.snapshotId === snapshotId,
+    )!;
+    expect(head.lines.map((l) => l.amount)).toEqual(['16500.00', '9000.00']);
+
+    // The head roll-up equals the sum of the lines, which equals the sum of every
+    // stored particular value — no client figure anywhere in the chain.
+    const stored = await prisma.entryParticular.findMany({
+      where: { entry: { snapshotId } },
+    });
+    const particularSum = stored.reduce((s, p) => s + Number(p.value), 0);
+    expect(particularSum).toBe(25500);
+    expect(Number(head.lines[0].amount) + Number(head.lines[1].amount)).toBe(particularSum);
+  });
+
+  it('a vendor line requires at least one particular (DTO), and the last one cannot be removed', async () => {
+    // Zero particulars is rejected before it reaches the service.
+    const none = await validate(plainToInstance(ProvisionLineItemDto, { particulars: [] }));
+    expect(none.some((e) => e.property === 'particulars')).toBe(true);
+
+    // A save that keeps one particular succeeds and the row survives; there is no
+    // payload shape that leaves a persisted line with zero particulars.
+    const { submission, spoc, snapshotIds } = await setup(1);
+    await entries.saveEntries(submission.id, spoc, [
+      {
+        snapshotId: snapshotIds[0],
+        lines: [
+          {
+            particulars: [
+              { particularName: 'A', rate: 10, quantity: 1 },
+              { particularName: 'B', rate: 20, quantity: 1 },
+            ],
+          },
+        ],
+      },
+    ]);
+    const head = (await submissions.getDetail(submission.id, spoc)).heads[0];
+    expect(head.lines[0].particulars).toHaveLength(2);
+
+    // Drop one — the remaining particular (and its line) is still there.
+    const keep = head.lines[0].particulars[0];
+    await entries.saveEntries(submission.id, spoc, [
+      {
+        snapshotId: snapshotIds[0],
+        lines: [
+          {
+            entryId: head.lines[0].entryId!,
+            particulars: [
+              { particularId: keep.particularId!, particularName: 'A', rate: 10, quantity: 1 },
+            ],
+          },
+        ],
+      },
+    ]);
+    const after = (await submissions.getDetail(submission.id, spoc)).heads[0];
+    expect(after.lines[0].particulars).toHaveLength(1);
+    expect(after.lines[0].particulars[0].particularId).toBe(keep.particularId);
+    expect(after.lines[0].amount).toBe('10.00');
+  });
+
+  it('submit blocks on a particular missing a name/rate/quantity and names it; 0 is valid', async () => {
+    const { submission, spoc, snapshotIds } = await setup(1);
+    // Product code present throughout — this test isolates PARTICULAR completeness.
+    const save = (particulars: unknown[]) =>
+      entries.saveEntries(submission.id, spoc, [
+        { snapshotId: snapshotIds[0], lines: [{ particulars, productCode: 'P20' }] } as never,
+      ]);
+
+    // Missing name.
+    await save([{ rate: 5, quantity: 2 }]);
+    await expectStatus(workflow.submit(submission.id, spoc), 422);
+
+    // Missing rate (blank ≠ 0).
+    await save([{ particularName: 'X', rate: null, quantity: 2 }]);
+    await expectStatus(workflow.submit(submission.id, spoc), 422);
+
+    // Missing quantity.
+    await save([{ particularName: 'X', rate: 5, quantity: null }]);
+    const err = await workflow.submit(submission.id, spoc).catch((e: Error) => e);
+    expect((err as Error).message).toContain('particular 1');
+    expect((err as Error).message).toContain('a quantity');
+
+    // All three present, with 0 for both numbers — valid, submit passes.
+    await save([{ particularName: 'Zero row', rate: 0, quantity: 0 }]);
+    await workflow.submit(submission.id, spoc);
+    expect((await submissions.getDetail(submission.id, spoc)).status).toBe(
+      SubmissionStatus.SUBMITTED,
+    );
+  });
+
+  it('an incomplete particular makes its line amount NULL, not a partial sum', async () => {
+    const { submission, spoc, snapshotIds } = await setup(1);
+    await entries.saveEntries(submission.id, spoc, [
+      {
+        snapshotId: snapshotIds[0],
+        lines: [
+          {
+            particulars: [
+              { particularName: 'Done', rate: 100, quantity: 1 },
+              // Half-filled: no quantity yet.
+              { particularName: 'Pending', rate: 50, quantity: null },
+            ],
+          },
+        ],
+      },
+    ]);
+    const head = (await submissions.getDetail(submission.id, spoc)).heads[0];
+    // NOT '100.00' — a line with an incomplete particular has no trustworthy total.
+    expect(head.lines[0].amount).toBeNull();
+    expect(head.lines[0].particulars.map((p) => p.value)).toEqual(['100.00', null]);
+  });
+
+  it('a reviewer override edits particulars and every total re-sums from them', async () => {
+    const { submission, snapshotIds } = await setup(1);
+    const { manager } = await fx.driveToStatus(
+      submission.id,
+      SubmissionStatus.CLINIC_MANAGER_REVIEW,
+    );
+    const before = (await submissions.getDetail(submission.id, manager)).heads[0].lines[0];
+
+    // Override the QUANTITY of the existing particular; the value and the line
+    // amount must both follow, without the reviewer ever sending a total.
+    await runWithRequestContext({ user: { id: manager.id } }, () =>
+      entries.saveEntries(submission.id, manager, [
+        {
+          snapshotId: snapshotIds[0],
+          lines: [
+            {
+              entryId: before.entryId!,
+              particulars: [
+                {
+                  particularId: before.particulars[0].particularId!,
+                  particularName: before.particulars[0].particularName ?? 'Amount',
+                  rate: 100,
+                  quantity: 2.5,
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+    );
+
+    const after = (await submissions.getDetail(submission.id, manager)).heads[0].lines[0];
+    expect(after.particulars[0].value).toBe('250.00');
+    expect(after.amount).toBe('250.00'); // re-summed, never asserted by the client
+    const row = await prisma.provisionEntry.findUniqueOrThrow({ where: { id: before.entryId! } });
+    expect(row.amount!.toFixed(2)).toBe('250.00');
+  });
+
   it('submit is blocked while a multi-vendor head has a blank line, and passes once every line has an amount', async () => {
     const { submission, spoc, snapshotId } = await setupMulti();
     // One filled line + one blank (null-amount) line persisted.
     await entries.saveEntries(submission.id, spoc, [
-      { snapshotId, lines: [{ amount: 100 }, { amount: null, vendorName: 'incomplete' }] },
+      {
+        snapshotId,
+        lines: [
+          { particulars: [amt(100)], productCode: 'P20' },
+          { particulars: [amt(null)], vendorName: 'incomplete', productCode: 'P20' },
+        ],
+      },
     ]);
     await expectStatus(workflow.submit(submission.id, spoc), 422);
 
@@ -321,7 +562,11 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
     await entries.saveEntries(submission.id, spoc, [
       {
         snapshotId,
-        lines: head.lines.map((l) => ({ entryId: l.entryId!, amount: Number(l.amount ?? 50) })),
+        lines: head.lines.map((l) => ({
+          entryId: l.entryId!,
+          productCode: 'P20',
+          particulars: [amt(Number(l.amount ?? 50), l.particulars[0].particularId!)],
+        })),
       },
     ]);
     await workflow.submit(submission.id, spoc);
@@ -344,10 +589,10 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
     const { submission, snapshotIds } = await setup(1);
     await fx.driveToStatus(submission.id, SubmissionStatus.FINANCE_APPROVED);
     const admin = (await fx.makeUser(UserRole.FINANCE_ADMIN)).user;
-    const id = await entryIdOf(submission.id, admin, snapshotIds[0]);
+    const ids = await firstIds(submission.id, admin, snapshotIds[0]);
 
     const detail = await runWithRequestContext({ user: { id: admin.id }, ip: '203.0.113.7' }, () =>
-      entries.saveEntries(submission.id, admin, one(snapshotIds[0], 4242, { entryId: id })),
+      entries.saveEntries(submission.id, admin, one(snapshotIds[0], 4242, ids)),
     );
 
     // Edit applied; status stays FINANCE_APPROVED (still locked).
@@ -384,8 +629,9 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
     });
     expect(original.lastModifiedById).not.toBe(manager.id);
 
+    const ids = await firstIds(submission.id, manager, snapshotIds[0]);
     const detail = await runWithRequestContext({ user: { id: manager.id }, ip: '198.51.100.9' }, () =>
-      entries.saveEntries(submission.id, manager, one(snapshotIds[0], 9999, { entryId: original.id })),
+      entries.saveEntries(submission.id, manager, one(snapshotIds[0], 9999, ids)),
     );
 
     // Value overwritten; status unchanged (override never advances the workflow).
@@ -409,18 +655,35 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
     expect(audits).toHaveLength(1);
     expect(audits[0].performedById).toBe(manager.id);
     expect(audits[0].ipAddress).toBe('198.51.100.9');
+    // The audit captures PARTICULAR identity, not just a head amount.
     expect(audits[0].newValue).toEqual([
-      { snapshotId: snapshotIds[0], lines: [{ entryId: original.id, amount: 9999 }] },
+      {
+        snapshotId: snapshotIds[0],
+        lines: [
+          {
+            entryId: original.id,
+            productCode: 'P20',
+            particulars: [
+              {
+                particularId: ids.particularId,
+                particularName: 'Amount',
+                rate: 9999,
+                quantity: 1,
+              },
+            ],
+          },
+        ],
+      },
     ]);
   });
 
   it('Manager override is allowed in the SUBMITTED stage too (before opening review)', async () => {
     const { submission, snapshotIds } = await setup(1);
     const { manager } = await fx.driveToStatus(submission.id, SubmissionStatus.SUBMITTED);
-    const id = await entryIdOf(submission.id, manager, snapshotIds[0]);
+    const ids = await firstIds(submission.id, manager, snapshotIds[0]);
 
     const detail = await runWithRequestContext({ user: { id: manager.id } }, () =>
-      entries.saveEntries(submission.id, manager, one(snapshotIds[0], 12, { entryId: id })),
+      entries.saveEntries(submission.id, manager, one(snapshotIds[0], 12, ids)),
     );
     expect(detail.status).toBe(SubmissionStatus.SUBMITTED);
     expect(detail.heads[0].lines[0].amount).toBe('12.00');
@@ -494,10 +757,11 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
       'rent revised in lease renewal',
     );
 
-    // The note is SPOC-owned: a manager value override (only amount is sent) doesn't change it.
-    const id = await entryIdOf(submission.id, manager, snapshotIds[0]);
+    // The note is SPOC-owned: a manager override (only particulars are sent)
+    // doesn't change it.
+    const ids = await firstIds(submission.id, manager, snapshotIds[0]);
     await runWithRequestContext({ user: { id: manager.id } }, () =>
-      entries.saveEntries(submission.id, manager, one(snapshotIds[0], 1234, { entryId: id })),
+      entries.saveEntries(submission.id, manager, one(snapshotIds[0], 1234, ids)),
     );
     const after = await submissions.getDetail(submission.id, manager);
     expect(after.heads[0].lines[0].amount).toBe('1234.00'); // value overridden
@@ -558,15 +822,15 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
     const { submission, spoc, snapshotIds } = await setup(2);
 
     const saved = await entries.saveEntries(submission.id, spoc, [
-      ...one(snapshotIds[0], 500, { productCode: 'p10' }),
-      ...one(snapshotIds[1], 100), // no product code → null
+      ...one(snapshotIds[0], 500, { productCode: 'P10' }),
+      ...one(snapshotIds[1], 100, { productCode: '' }), // left unfilled -> stored null → null
     ]);
     const l0 = (d: typeof saved) => d.heads.find((x) => x.snapshotId === snapshotIds[0])!.lines[0];
-    expect(l0(saved).productCode).toBe('p10');
+    expect(l0(saved).productCode).toBe('P10');
     expect(saved.heads.find((h) => h.snapshotId === snapshotIds[1])!.lines[0].productCode).toBeNull();
 
     const refetched = await submissions.getDetail(submission.id, spoc);
-    expect(l0(refetched).productCode).toBe('p10');
+    expect(l0(refetched).productCode).toBe('P10');
 
     const id = l0(refetched).entryId!;
     const cleared = await entries.saveEntries(submission.id, spoc, one(snapshotIds[0], 500, { productCode: '', entryId: id }));
@@ -576,24 +840,90 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
   });
 
   it('rejects a product code outside the fixed set at the DTO layer (source of the 400)', async () => {
-    const invalid = await validate(plainToInstance(ProvisionLineItemDto, { amount: 10, productCode: 'p99' }));
-    expect(invalid.some((e) => e.property === 'productCode')).toBe(true);
+    const unknown = await validate(
+      plainToInstance(ProvisionLineItemDto, { particulars: [amt(10)], productCode: 'P99' }),
+    );
+    expect(unknown.some((e) => e.property === 'productCode')).toBe(true);
 
-    const valid = await validate(plainToInstance(ProvisionLineItemDto, { amount: 10, productCode: 'p18' }));
+    // Case matters: the retired lowercase demo codes are no longer valid values.
+    const lowercase = await validate(
+      plainToInstance(ProvisionLineItemDto, { particulars: [amt(10)], productCode: 'p10' }),
+    );
+    expect(lowercase.some((e) => e.property === 'productCode')).toBe(true);
+
+    const valid = await validate(plainToInstance(ProvisionLineItemDto, { particulars: [amt(10)], productCode: 'P18' }));
     expect(valid).toHaveLength(0);
 
     // A blank (null) amount is allowed at the DTO layer (submit enforces it later).
-    const blankAmount = await validate(plainToInstance(ProvisionLineItemDto, { amount: null }));
+    const blankAmount = await validate(plainToInstance(ProvisionLineItemDto, { particulars: [amt(null)] }));
     expect(blankAmount).toHaveLength(0);
   });
 
-  it('submit succeeds with the product code blank — it is optional (completeness rule unchanged)', async () => {
+  it('the product-code list is exactly the six real finance codes, with labels and no “PC”', async () => {
+    expect([...PRODUCT_CODES]).toEqual(['P27', 'P21', 'P20', 'P18', 'P17', 'P10']);
+    // "PC" is the sheet's column header, not a code — it must never be an option.
+    expect(PRODUCT_CODES).not.toContain('PC' as never);
+
+    // The dropdown label is "Code - Description"; the stored value stays the code.
+    expect(productCodeLabel('P27')).toBe('P27 - NCV / VAS');
+    expect(productCodeLabel('P21')).toBe('P21 - Dental Rental');
+    expect(productCodeLabel('P10')).toBe('P10 - Care Plan');
+    // A code that isn't in the list still renders (a retired historical value).
+    expect(productCodeLabel('p10')).toBe('p10');
+
+    // Every code the server accepts has a label — the two cannot drift.
+    for (const code of PRODUCT_CODES) {
+      expect(productCodeLabel(code)).toBe(`${code} - ${PRODUCT_CODE_DESCRIPTIONS[code]}`);
+    }
+
+    // Each one really is accepted by the server-side validation.
+    for (const code of PRODUCT_CODES) {
+      const ok = await validate(
+        plainToInstance(ProvisionLineItemDto, { particulars: [amt(10)], productCode: code }),
+      );
+      expect(ok).toHaveLength(0);
+    }
+  });
+
+  it('submit is BLOCKED while a product code is blank, and passes once every line has one', async () => {
     const { submission, spoc, snapshotIds } = await setup(2);
     await entries.saveEntries(submission.id, spoc, [
-      ...one(snapshotIds[0], 100), // no product code
-      ...one(snapshotIds[1], 200, { productCode: 'p20' }),
+      ...one(snapshotIds[0], 100, { productCode: '' }), // unfilled
+      ...one(snapshotIds[1], 200, { productCode: 'P20' }),
     ]);
+
+    // A partial draft SAVES fine — the code is only required to submit, exactly
+    // like rate and quantity. It is stored as null, never coerced.
+    const draft = await submissions.getDetail(submission.id, spoc);
+    expect(draft.heads.find((h) => h.snapshotId === snapshotIds[0])!.lines[0].productCode).toBeNull();
+    expect(draft.status).toBe(SubmissionStatus.DRAFT);
+
+    const err = await workflow.submit(submission.id, spoc).catch((e: Error) => e);
+    expect((err as Error).message).toContain('needs a product code');
+
+    // Fill it → submit passes.
+    const id = draft.heads.find((h) => h.snapshotId === snapshotIds[0])!.lines[0].entryId!;
+    await entries.saveEntries(
+      submission.id,
+      spoc,
+      one(snapshotIds[0], 100, { productCode: 'P17', entryId: id }),
+    );
     await workflow.submit(submission.id, spoc);
     expect((await submissions.getDetail(submission.id, spoc)).status).toBe(SubmissionStatus.SUBMITTED);
+  });
+
+  it('names the offending VENDOR LINE when a multi-vendor head is missing a code', async () => {
+    const { submission, spoc, snapshotId } = await setupMulti();
+    await entries.saveEntries(submission.id, spoc, [
+      {
+        snapshotId,
+        lines: [
+          { particulars: [amt(100)], productCode: 'P20' },
+          { particulars: [amt(250)] }, // line 2 has no code
+        ],
+      },
+    ]);
+    const err = await workflow.submit(submission.id, spoc).catch((e: Error) => e);
+    expect((err as Error).message).toContain('line 2 needs a product code');
   });
 });

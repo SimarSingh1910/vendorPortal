@@ -9,6 +9,8 @@ import { SubmissionCommentsService } from './submission-comments.service';
 import { AuditService } from '../audit/audit.service';
 import { makeFixtures, type Fixtures, expectStatus } from '../../test/fixtures';
 import { resetDb } from '../../test/reset';
+import { AttachmentsService } from '../attachments/attachments.service';
+import { CorpDepartmentScopeService } from '../corp-submissions/corp-department-scope.service';
 
 const MONTH = '2026-07';
 
@@ -28,6 +30,8 @@ describe('SubmissionCommentsService (Step 5.3 — comment timeline)', () => {
         ClinicExpenseHeadsService,
         CycleService,
         WorkflowService,
+        AttachmentsService,
+        CorpDepartmentScopeService,
         SubmissionCommentsService,
         AuditService,
       ],

@@ -7,9 +7,17 @@ import {
 } from '@nestjs/common';
 import {
   AuditAction,
+  MAX_VALUE_MINOR,
+  QUANTITY_DECIMALS,
+  RATE_DECIMALS,
   SubmissionStatus,
   UserRole,
+  computeValueMinor,
+  minorToDecimalString,
+  sumMinor,
+  toMinorUnits,
   type ProvisionEntryInput,
+  type ProvisionParticularInput,
   type SubmissionDetail,
 } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -21,6 +29,19 @@ import { WorkflowService, isSpocEditable } from './workflow.service';
 import { SubmissionsService } from './submissions.service';
 
 const isLocked = (status: SubmissionStatus): boolean => status === SubmissionStatus.FINANCE_APPROVED;
+
+/**
+ * One particular resolved to storage form: text normalised, rate/quantity scaled to
+ * exact integer minor units, and `value` COMPUTED here. Nothing downstream of this
+ * type can inject a value the server did not derive.
+ */
+interface ResolvedParticular {
+  particularId?: string;
+  particularName: string | null;
+  rateMinor: bigint | null;
+  quantityMinor: bigint | null;
+  valueMinor: bigint | null;
+}
 
 /** Statuses in which the clinic manager owns the submission and may override values. */
 const MANAGER_REVIEW_STATUSES: SubmissionStatus[] = [
@@ -118,6 +139,59 @@ export class ProvisionEntryService {
     return this.submissions.getDetail(submissionId, user);
   }
 
+  /**
+   * Resolve one incoming particular to storage form, COMPUTING its value.
+   *
+   * This is the only place a value is ever produced on the write path: the DTO has
+   * no `value` field, so whatever a client believes the total to be is structurally
+   * incapable of reaching the database. Rate and quantity are converted to exact
+   * integer minor units first, so the multiplication carries no float drift.
+   */
+  private resolveParticular(p: ProvisionParticularInput): ResolvedParticular {
+    const valueMinor = computeValueMinor(p.rate ?? null, p.quantity ?? null);
+    // rate × quantity can overflow DECIMAL(14,2) even when both inputs are within
+    // their own column ranges — reject rather than let MySQL truncate the figure.
+    if (valueMinor !== null && valueMinor > MAX_VALUE_MINOR) {
+      throw new BadRequestException('Rate × quantity is too large for this particular');
+    }
+    return {
+      particularId: p.particularId ?? undefined,
+      particularName: p.particularName?.trim() || null,
+      rateMinor: p.rate === null || p.rate === undefined ? null : toMinorUnits(p.rate, RATE_DECIMALS),
+      quantityMinor:
+        p.quantity === null || p.quantity === undefined
+          ? null
+          : toMinorUnits(p.quantity, QUANTITY_DECIMALS),
+      valueMinor,
+    };
+  }
+
+  /**
+   * The vendor line's amount: the exact sum of its particulars' COMPUTED values, or
+   * null if any of them is still incomplete (a half-filled line has no trustworthy
+   * subtotal — see sumMinor). Never derived from anything the client sent.
+   */
+  private lineAmount(particulars: ResolvedParticular[]): string | null {
+    const total = sumMinor(particulars.map((p) => p.valueMinor));
+    if (total === null) return null;
+    if (total > MAX_VALUE_MINOR) {
+      throw new BadRequestException('This vendor line total is too large');
+    }
+    return minorToDecimalString(total);
+  }
+
+  /** A resolved particular as Prisma column data (decimals passed as exact strings). */
+  private particularData(p: ResolvedParticular, lineOrder: number) {
+    return {
+      lineOrder,
+      particularName: p.particularName,
+      rate: p.rateMinor === null ? null : minorToDecimalString(p.rateMinor, RATE_DECIMALS),
+      quantity:
+        p.quantityMinor === null ? null : minorToDecimalString(p.quantityMinor, QUANTITY_DECIMALS),
+      value: p.valueMinor === null ? null : minorToDecimalString(p.valueMinor),
+    };
+  }
+
   /** Validate the targets, capture before/after, reconcile lines, then audit. */
   private async applyEntries(
     submissionId: string,
@@ -126,8 +200,9 @@ export class ProvisionEntryService {
     kind: WriteKind,
     clinicId: string,
   ): Promise<void> {
-    // Load the referenced snapshots WITH their current lines — the reconciliation
-    // key is the entry id, so we must know each head's existing lines.
+    // Load the referenced snapshots WITH their current lines AND particulars — the
+    // reconciliation keys are the entry id and the particular id, so we must know
+    // each head's existing lines and each line's existing particulars.
     const snaps = await this.prisma.submissionExpenseHeadSnapshot.findMany({
       where: { submissionId },
       select: {
@@ -135,7 +210,23 @@ export class ProvisionEntryService {
         expenseHeadAllowsMultipleVendorsAtSnapshot: true,
         entries: {
           orderBy: { lineOrder: 'asc' },
-          select: { id: true, amount: true, vendorName: true, productCode: true, note: true },
+          select: {
+            id: true,
+            amount: true,
+            vendorName: true,
+            productCode: true,
+            note: true,
+            particulars: {
+              orderBy: { lineOrder: 'asc' },
+              select: {
+                id: true,
+                particularName: true,
+                rate: true,
+                quantity: true,
+                value: true,
+              },
+            },
+          },
         },
       },
     });
@@ -150,17 +241,28 @@ export class ProvisionEntryService {
       if (item.lines.length > 1 && !snap.expenseHeadAllowsMultipleVendorsAtSnapshot) {
         throw new BadRequestException('This expense head does not allow multiple vendor lines');
       }
-      // Every provided entryId must be an existing line of THAT head (never another).
-      const existingIds = new Set(snap.entries.map((e) => e.id));
+      // Every provided entryId must be an existing line of THAT head (never another),
+      // and every particularId an existing particular of THAT line (never another's).
+      const entryById = new Map(snap.entries.map((e) => [e.id, e]));
       for (const line of item.lines) {
-        if (line.entryId && !existingIds.has(line.entryId)) {
+        if (line.entryId && !entryById.has(line.entryId)) {
           throw new BadRequestException('Unknown line for this head');
+        }
+        const ownParticularIds = new Set(
+          line.entryId ? entryById.get(line.entryId)!.particulars.map((p) => p.id) : [],
+        );
+        for (const p of line.particulars) {
+          if (p.particularId && !ownParticularIds.has(p.particularId)) {
+            throw new BadRequestException('Unknown particular for this vendor line');
+          }
         }
       }
     }
 
-    // Before-image (per existing line) so the audit captures the change with line
-    // identity. Covers every line of the referenced heads.
+    // Before-image (per existing line, with its particulars) so the audit captures
+    // the change with full line AND particular identity — a particular added,
+    // edited or removed is visible in the old→new diff. Covers every line of the
+    // referenced heads.
     const before = items.flatMap((item) =>
       snapById.get(item.snapshotId)!.entries.map((e) => ({
         entryId: e.id,
@@ -168,6 +270,13 @@ export class ProvisionEntryService {
         amount: e.amount === null ? null : e.amount.toFixed(2),
         vendorName: e.vendorName,
         productCode: e.productCode,
+        particulars: e.particulars.map((p) => ({
+          particularId: p.id,
+          particularName: p.particularName,
+          rate: p.rate === null ? null : p.rate.toFixed(RATE_DECIMALS),
+          quantity: p.quantity === null ? null : p.quantity.toFixed(QUANTITY_DECIMALS),
+          value: p.value === null ? null : p.value.toFixed(2),
+        })),
       })),
     );
 
@@ -181,9 +290,12 @@ export class ProvisionEntryService {
     await this.prisma.$transaction(async (tx) => {
       for (const item of items) {
         const existing = snapById.get(item.snapshotId)!.entries;
+        const existingById = new Map(existing.map((e) => [e.id, e]));
+
         if (writesSpocFields) {
           // SPOC full reconcile: update lines with an id, create those without one,
-          // delete existing lines the payload dropped (a removed vendor row).
+          // delete existing lines the payload dropped (a removed vendor row). A
+          // deleted line takes its particulars with it (FK ON DELETE CASCADE).
           const keepIds = new Set(item.lines.map((l) => l.entryId).filter(Boolean) as string[]);
           const toDelete = existing.filter((e) => !keepIds.has(e.id)).map((e) => e.id);
           if (toDelete.length > 0) {
@@ -191,20 +303,36 @@ export class ProvisionEntryService {
           }
           for (let i = 0; i < item.lines.length; i++) {
             const line = item.lines[i];
+            const resolved = line.particulars.map((p) => this.resolveParticular(p));
             const data = {
               lineOrder: i,
-              amount: line.amount ?? null,
+              // DERIVED — recomputed from the particulars on every single save.
+              amount: this.lineAmount(resolved),
               note: trimOrNull(line.note),
               vendorName: trimOrNull(line.vendorName),
               productCode: trimOrNull(line.productCode),
             };
+            let entryId: string;
             if (line.entryId) {
               await tx.provisionEntry.update({
                 where: { id: line.entryId },
                 data: { ...data, lastModifiedById: user.id },
               });
+              entryId = line.entryId;
+              // Reconcile this line's particulars the same way: drop the ones the
+              // payload no longer carries, then update/create the rest.
+              const keepParticularIds = new Set(
+                resolved.map((p) => p.particularId).filter(Boolean) as string[],
+              );
+              const staleParticulars = existingById
+                .get(line.entryId)!
+                .particulars.filter((p) => !keepParticularIds.has(p.id))
+                .map((p) => p.id);
+              if (staleParticulars.length > 0) {
+                await tx.entryParticular.deleteMany({ where: { id: { in: staleParticulars } } });
+              }
             } else {
-              await tx.provisionEntry.create({
+              const created = await tx.provisionEntry.create({
                 data: {
                   ...data,
                   submissionId,
@@ -213,18 +341,65 @@ export class ProvisionEntryService {
                   lastModifiedById: user.id,
                 },
               });
+              entryId = created.id;
+            }
+            for (let j = 0; j < resolved.length; j++) {
+              const p = resolved[j];
+              if (p.particularId) {
+                await tx.entryParticular.update({
+                  where: { id: p.particularId },
+                  data: this.particularData(p, j),
+                });
+              } else {
+                await tx.entryParticular.create({
+                  data: { ...this.particularData(p, j), entryId },
+                });
+              }
             }
           }
         } else {
-          // Manager/finance override: edit the amount of existing lines only —
-          // never add, remove, or touch the SPOC's vendor/product/note.
+          // Manager/finance override (BR-08): edit the PARTICULARS of existing
+          // lines — the level values now live at — and let every total re-sum from
+          // them. Reviewers may not add or remove lines/particulars, nor touch the
+          // SPOC's vendor/product/note. Because the line amount is recomputed here
+          // exactly as on the SPOC path, an override can never leave a head amount
+          // that contradicts its particulars.
           for (const line of item.lines) {
             if (!line.entryId) {
               throw new BadRequestException('An override must target an existing line');
             }
+            const current = existingById.get(line.entryId)!;
+            const byId = new Map(line.particulars.map((p) => [p.particularId, p]));
+            // Start from what is stored and apply the override on top, so the
+            // recomputed amount covers ALL of the line's particulars, not just the
+            // subset the reviewer edited.
+            const resolved = current.particulars.map((stored) => {
+              const patch = byId.get(stored.id);
+              if (!patch) {
+                return this.resolveParticular({
+                  particularId: stored.id,
+                  particularName: stored.particularName ?? undefined,
+                  rate: stored.rate === null ? null : Number(stored.rate),
+                  quantity: stored.quantity === null ? null : Number(stored.quantity),
+                });
+              }
+              return this.resolveParticular({ ...patch, particularId: stored.id });
+            });
+            for (const p of line.particulars) {
+              if (!p.particularId) {
+                throw new BadRequestException('An override must target an existing particular');
+              }
+            }
+            for (let j = 0; j < resolved.length; j++) {
+              await tx.entryParticular.update({
+                where: { id: resolved[j].particularId! },
+                data: this.particularData(resolved[j], j),
+              });
+            }
             await tx.provisionEntry.update({
               where: { id: line.entryId },
-              data: { amount: line.amount ?? null, lastModifiedById: user.id },
+              // DERIVED — recomputed from the (now overridden) particulars.
+              data: { amount: this.lineAmount(resolved), lastModifiedById: user.id },
             });
           }
         }

@@ -42,6 +42,7 @@ const FILTERS: { value: ActiveFilter; label: string }[] = [
 const headSchema = z.object({
   glAccountNo: z.string().min(1, 'Required').max(191),
   glAccountName: z.string().min(1, 'Required').max(191),
+  allowsMultipleVendors: z.boolean(),
 });
 type HeadFormValues = z.infer<typeof headSchema>;
 
@@ -125,6 +126,7 @@ export function ExpenseHeadsAdmin() {
             <TableRow>
               <TableHead>G/L Account No.</TableHead>
               <TableHead>G/L Account Name</TableHead>
+              <TableHead>Vendor lines</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -132,13 +134,13 @@ export function ExpenseHeadsAdmin() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-center text-muted-foreground">
+                <TableCell colSpan={5} className="text-center text-muted-foreground">
                   Loading…
                 </TableCell>
               </TableRow>
             ) : heads.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-center text-muted-foreground">
+                <TableCell colSpan={5} className="text-center text-muted-foreground">
                   No expense heads.
                 </TableCell>
               </TableRow>
@@ -147,6 +149,13 @@ export function ExpenseHeadsAdmin() {
                 <TableRow key={head.id}>
                   <TableCell className="font-medium">{head.glAccountNo}</TableCell>
                   <TableCell>{head.glAccountName}</TableCell>
+                  <TableCell>
+                    {head.allowsMultipleVendors ? (
+                      <Badge variant="secondary">Multi-vendor</Badge>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">Single</span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Badge variant={head.isActive ? 'success' : 'muted'}>
                       {head.isActive ? 'Active' : 'Inactive'}
@@ -215,15 +224,19 @@ function ExpenseHeadFormDialog({
     formState: { errors },
   } = useForm<HeadFormValues>({
     resolver: zodResolver(headSchema),
-    defaultValues: { glAccountNo: '', glAccountName: '' },
+    defaultValues: { glAccountNo: '', glAccountName: '', allowsMultipleVendors: false },
   });
 
   useEffect(() => {
     if (open) {
       reset(
         editing
-          ? { glAccountNo: editing.glAccountNo, glAccountName: editing.glAccountName }
-          : { glAccountNo: '', glAccountName: '' },
+          ? {
+              glAccountNo: editing.glAccountNo,
+              glAccountName: editing.glAccountName,
+              allowsMultipleVendors: editing.allowsMultipleVendors,
+            }
+          : { glAccountNo: '', glAccountName: '', allowsMultipleVendors: false },
       );
     }
   }, [open, editing, reset]);
@@ -254,6 +267,43 @@ function ExpenseHeadFormDialog({
               <p className="text-xs text-destructive">{errors.glAccountName.message}</p>
             )}
           </div>
+          {/*
+            Multi-vendor entry. Finance Admin only — this dialog lives on an
+            admin-only route and the API's create/update routes are already
+            @Roles(FINANCE_ADMIN), so no extra gating is needed here.
+          */}
+          <div className="space-y-1.5 rounded-md border p-3">
+            <div className="flex items-start gap-2.5">
+              <input
+                id="allowsMultipleVendors"
+                type="checkbox"
+                className="mt-0.5 size-4 rounded border-input accent-[#0F6CB6]"
+                {...register('allowsMultipleVendors')}
+              />
+              <div className="space-y-1">
+                <Label htmlFor="allowsMultipleVendors" className="font-medium">
+                  Allow multiple vendor lines
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Lets the SPOC add more than one vendor row against this head, each with its own
+                  vendor, product code and particulars. The head&rsquo;s total is the sum of all its
+                  vendor lines.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">Applies immediately.</span> Every
+                  month still open picks this up at once, so a SPOC mid-entry sees it without
+                  waiting for the next cycle. Approved (locked) months keep the setting they were
+                  approved under and never change.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Switching it back off leaves any month where vendor rows have already been
+                  entered as multi-vendor, so nothing entered is stranded; those close out
+                  normally.
+                </p>
+              </div>
+            </div>
+          </div>
+
           {errorMessage && <p className="text-sm text-destructive">{errorMessage}</p>}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

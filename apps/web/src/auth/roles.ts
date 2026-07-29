@@ -84,7 +84,7 @@ export const NAV_ITEMS: NavItem[] = [
   { path: '/admin/users', label: 'Users', roles: [UserRole.FINANCE_ADMIN], tab: PortalTab.CLINIC },
   { path: '/admin/notifications', label: 'Notification Config', roles: FINANCE_FULL, tab: PortalTab.CLINIC },
   { path: '/admin/audit', label: 'Audit Log', roles: FINANCE_FULL, tab: PortalTab.CLINIC },
-  { path: '/manager', label: 'Clinic Manager', roles: [UserRole.CLINIC_MANAGER], tab: PortalTab.CLINIC },
+  { path: '/manager', label: 'Cluster Manager', roles: [UserRole.CLINIC_MANAGER], tab: PortalTab.CLINIC },
   { path: '/spoc', label: 'Data Entry', roles: [UserRole.CLINIC_SPOC], tab: PortalTab.CLINIC },
   {
     path: '/clinic/dashboard',

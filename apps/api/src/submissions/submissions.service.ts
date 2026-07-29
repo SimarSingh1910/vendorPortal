@@ -1,8 +1,11 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import {
+  QUANTITY_DECIMALS,
+  RATE_DECIMALS,
   SubmissionStatus,
   UserRole,
   type ClinicMonthStatus,
+  type ProvisionParticular,
   type SubmissionDetail,
   type SubmissionListItem,
 } from '@portal/shared';
@@ -12,6 +15,19 @@ import type { RequestUser } from '../auth/request-user';
 import { canSpocRecall, isSpocEditable } from './workflow.service';
 
 const isLocked = (status: SubmissionStatus): boolean => status === SubmissionStatus.FINANCE_APPROVED;
+
+/**
+ * The empty particular a not-yet-started vendor line renders. Blank rather than
+ * zeroed: an untouched head is INCOMPLETE (and blocks submit), not a ₹0 head.
+ */
+const BLANK_PARTICULAR: ProvisionParticular = {
+  particularId: null,
+  particularName: null,
+  rate: null,
+  quantity: null,
+  value: null,
+  lineOrder: 0,
+};
 
 /**
  * Read side of the submission/provision surface (Phase 6): the SPOC home
@@ -134,7 +150,12 @@ export class SubmissionsService {
         clinic: { select: { name: true, accLocationCode: true, customerCode: true } },
         reviewStartedBy: { select: { name: true } },
         snapshots: {
-          include: { entries: { orderBy: { lineOrder: 'asc' } } },
+          include: {
+            entries: {
+              orderBy: { lineOrder: 'asc' },
+              include: { particulars: { orderBy: { lineOrder: 'asc' } } },
+            },
+          },
           orderBy: [{ expenseHeadGlNoAtSnapshot: 'asc' }, { expenseHeadGlNameAtSnapshot: 'asc' }],
         },
       },
@@ -172,17 +193,32 @@ export class SubmissionsService {
         glAccountNo: snap.expenseHeadGlNoAtSnapshot,
         glAccountName: snap.expenseHeadGlNameAtSnapshot,
         allowsMultipleVendors: snap.expenseHeadAllowsMultipleVendorsAtSnapshot,
-        // Always at least one line: a head with no entries shows a single blank
-        // line so the form/review renders a row (null amount, not "0.00").
+        // Always at least one line, and every line always at least one particular:
+        // a head with no entries shows a single blank line holding a single blank
+        // particular, so the form/review renders the full nesting (null amount and
+        // null rate/quantity, never "0.00").
         lines:
           snap.entries.length > 0
             ? snap.entries.map((e) => ({
                 entryId: e.id,
+                // DERIVED server-side from the particulars on save; read back here.
                 amount: e.amount === null ? null : e.amount.toFixed(2),
                 note: e.note ?? null,
                 vendorName: e.vendorName ?? null,
                 productCode: e.productCode ?? null,
                 lineOrder: e.lineOrder,
+                particulars:
+                  e.particulars.length > 0
+                    ? e.particulars.map((p) => ({
+                        particularId: p.id,
+                        particularName: p.particularName ?? null,
+                        rate: p.rate === null ? null : p.rate.toFixed(RATE_DECIMALS),
+                        quantity:
+                          p.quantity === null ? null : p.quantity.toFixed(QUANTITY_DECIMALS),
+                        value: p.value === null ? null : p.value.toFixed(2),
+                        lineOrder: p.lineOrder,
+                      }))
+                    : [BLANK_PARTICULAR],
               }))
             : [
                 {
@@ -192,6 +228,7 @@ export class SubmissionsService {
                   vendorName: null,
                   productCode: null,
                   lineOrder: 0,
+                  particulars: [BLANK_PARTICULAR],
                 },
               ],
       })),

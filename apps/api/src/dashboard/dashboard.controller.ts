@@ -22,7 +22,7 @@ export class DashboardController {
   /** (a) Current-month submission-status tracker for the in-scope active clinics. */
   @Get('status')
   status(@Query() q: DashboardQueryDto, @CurrentUser() user: RequestUser) {
-    return this.dashboard.statusTracker(user, q.month);
+    return this.dashboard.statusTracker(user, q.month, q.spocUserId);
   }
 
   /** (b) Month-on-month expense totals over the range. */
@@ -52,7 +52,7 @@ export class DashboardController {
   /** (e) Variance alerts vs the prior month (BR-12). */
   @Get('variance')
   variance(@Query() q: DashboardQueryDto, @CurrentUser() user: RequestUser) {
-    return this.dashboard.variance(user, q.month, q.clinicId);
+    return this.dashboard.variance(user, q.month, q.clinicId, q.spocUserId);
   }
 
   /** Scoped clinic + expense-head options for the filter dropdowns. */

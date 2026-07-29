@@ -6,6 +6,7 @@ import type {
   SubmissionCommentView,
 } from '@portal/shared';
 import { apiClient } from '@/lib/apiClient';
+import { reviewActionBody } from './attachments';
 
 /**
  * Corporate submission workflow client (Phase C2). Mirrors the clinic
@@ -90,16 +91,26 @@ export async function corpOpenReview(submissionId: string): Promise<void> {
   await apiClient.post(`/corp/submissions/${submissionId}/review/open`);
 }
 
-export async function corpApprove(submissionId: string, comment?: string): Promise<void> {
-  const trimmed = comment?.trim();
+export async function corpApprove(
+  submissionId: string,
+  comment?: string,
+  attachments: File[] = [],
+): Promise<void> {
   await apiClient.post(
     `/corp/submissions/${submissionId}/review/approve`,
-    trimmed ? { comment: trimmed } : {},
+    reviewActionBody({ comment: comment?.trim() }, attachments),
   );
 }
 
-export async function corpSendBack(submissionId: string, comment: string): Promise<void> {
-  await apiClient.post(`/corp/submissions/${submissionId}/review/send-back`, { comment });
+export async function corpSendBack(
+  submissionId: string,
+  comment: string,
+  attachments: File[] = [],
+): Promise<void> {
+  await apiClient.post(
+    `/corp/submissions/${submissionId}/review/send-back`,
+    reviewActionBody({ comment }, attachments),
+  );
 }
 
 /** Finance Admin only: unlock an approved (locked) submission with a mandatory reason. */

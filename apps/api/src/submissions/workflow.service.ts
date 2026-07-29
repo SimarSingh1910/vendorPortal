@@ -17,6 +17,7 @@ import { FINANCE_APPROVER_ROLES } from '../common/rbac.constants';
 import { AuditService } from '../audit/audit.service';
 import { NotificationDispatchService } from '../notifications/notification-dispatch.service';
 import type { RequestUser } from '../auth/request-user';
+import { AttachmentsService, type UploadedFile } from '../attachments/attachments.service';
 
 const S = SubmissionStatus;
 
@@ -201,6 +202,7 @@ export class WorkflowService {
     private readonly prisma: PrismaService,
     private readonly scope: ClinicScopeService,
     private readonly audit: AuditService,
+    private readonly attachments: AttachmentsService,
     // Optional so the many unit modules that construct WorkflowService without
     // the notifications wiring keep working; dispatch is a best-effort side path.
     @Optional() private readonly dispatch?: NotificationDispatchService,
@@ -238,16 +240,18 @@ export class WorkflowService {
     submissionId: string,
     user: RequestUser,
     comment?: string,
+    attachments: UploadedFile[] = [],
   ): Promise<MonthlySubmission> {
-    return this.run(WorkflowAction.MANAGER_APPROVE, submissionId, user, comment);
+    return this.run(WorkflowAction.MANAGER_APPROVE, submissionId, user, comment, attachments);
   }
 
   managerSendBack(
     submissionId: string,
     user: RequestUser,
     comment: string,
+    attachments: UploadedFile[] = [],
   ): Promise<MonthlySubmission> {
-    return this.run(WorkflowAction.MANAGER_SEND_BACK, submissionId, user, comment);
+    return this.run(WorkflowAction.MANAGER_SEND_BACK, submissionId, user, comment, attachments);
   }
 
   /** Finance: open a clinic-approved item (stamps reviewStartedAt/ById). */
@@ -260,16 +264,18 @@ export class WorkflowService {
     submissionId: string,
     user: RequestUser,
     comment?: string,
+    attachments: UploadedFile[] = [],
   ): Promise<MonthlySubmission> {
-    return this.run(WorkflowAction.FINANCE_APPROVE, submissionId, user, comment);
+    return this.run(WorkflowAction.FINANCE_APPROVE, submissionId, user, comment, attachments);
   }
 
   financeSendBack(
     submissionId: string,
     user: RequestUser,
     comment: string,
+    attachments: UploadedFile[] = [],
   ): Promise<MonthlySubmission> {
-    return this.run(WorkflowAction.FINANCE_SEND_BACK, submissionId, user, comment);
+    return this.run(WorkflowAction.FINANCE_SEND_BACK, submissionId, user, comment, attachments);
   }
 
   /**
@@ -344,6 +350,7 @@ export class WorkflowService {
     submissionId: string,
     user: RequestUser,
     comment?: string,
+    attachments: UploadedFile[] = [],
   ): Promise<MonthlySubmission> {
     const def = this.transitions[action];
 
@@ -379,6 +386,17 @@ export class WorkflowService {
       await this.assertAllHeadsValued(submissionId);
     }
 
+    // Files only ever ride a comment. Reject them up-front rather than silently
+    // dropping them on a transition that writes no comment — a reviewer who
+    // attached proof must never be told "saved" when it went nowhere.
+    if (attachments.length > 0) {
+      if (!def.commentAction || !trimmedComment) {
+        throw new BadRequestException('Attachments require a comment');
+      }
+      // Validate BEFORE opening the transaction so a bad file costs nothing.
+      this.attachments.validateBatch(attachments);
+    }
+
     const now = new Date();
     const data: Prisma.MonthlySubmissionUncheckedUpdateInput = {
       status: def.to,
@@ -399,7 +417,7 @@ export class WorkflowService {
       }
 
       if (def.commentAction && trimmedComment) {
-        await tx.submissionComment.create({
+        const created = await tx.submissionComment.create({
           data: {
             submissionId,
             comment: trimmedComment,
@@ -408,6 +426,14 @@ export class WorkflowService {
             action: def.commentAction,
           },
         });
+        // Same transaction as the comment: proof and the comment it evidences
+        // commit together, or neither does.
+        await this.attachments.persist(
+          tx,
+          { portal: 'clinic', commentId: created.id },
+          attachments,
+          user.id,
+        );
       }
 
       return tx.monthlySubmission.findUniqueOrThrow({ where: { id: submissionId } });
@@ -422,7 +448,17 @@ export class WorkflowService {
         entityId: submissionId,
         clinicId: submission.clinicId,
         oldValue: { status: fromStatus },
-        newValue: { status: def.to },
+        newValue: {
+          status: def.to,
+          // Attachments are recorded ON the existing transition action — no new
+          // audit action. Names + count only; the bytes stay in the blob.
+          ...(attachments.length > 0
+            ? {
+                attachmentCount: attachments.length,
+                attachmentFileNames: attachments.map((f) => f.originalname),
+              }
+            : {}),
+        },
       });
     }
 
@@ -477,18 +513,36 @@ export class WorkflowService {
   }
 
   /**
-   * BR-03 (multi-vendor): a submission may be SUBMITTED only when every snapshot
-   * head has at least one line AND every line carries an explicit amount (0 is
-   * valid; blank is not). A submission with no mapped heads has nothing to
-   * provision and cannot be submitted. The error names the offending head(s) and,
-   * for a half-filled multi-vendor head, the specific blank line.
+   * BR-03 (particulars): a submission may be SUBMITTED only when every snapshot
+   * head has at least one vendor line, every vendor line carries a PRODUCT CODE
+   * and at least one particular, and every particular carries a name, a rate AND a
+   * quantity. 0 is a valid rate/quantity; blank is not. A submission with no mapped
+   * heads has nothing to provision and cannot be submitted.
+   *
+   * The product code is REQUIRED (it was optional until this rule changed), and is
+   * enforced HERE rather than at save time — a SPOC must still be able to park a
+   * half-filled draft, exactly as with rate and quantity. The DTO therefore keeps
+   * it nullable; submit is the gate.
+   *
+   * Amounts are DERIVED, so they can never be "missing" independently — a head is
+   * incomplete precisely when one of its particulars is. The error therefore names
+   * the full path to the offending row: head → vendor line → particular.
    */
   private async assertAllHeadsValued(submissionId: string): Promise<void> {
     const snapshots = await this.prisma.submissionExpenseHeadSnapshot.findMany({
       where: { submissionId },
       select: {
         expenseHeadGlNameAtSnapshot: true,
-        entries: { orderBy: { lineOrder: 'asc' }, select: { amount: true } },
+        entries: {
+          orderBy: { lineOrder: 'asc' },
+          select: {
+            productCode: true,
+            particulars: {
+              orderBy: { lineOrder: 'asc' },
+              select: { particularName: true, rate: true, quantity: true },
+            },
+          },
+        },
       },
       orderBy: [{ expenseHeadGlNoAtSnapshot: 'asc' }, { expenseHeadGlNameAtSnapshot: 'asc' }],
     });
@@ -504,14 +558,33 @@ export class WorkflowService {
         problems.push(`“${name}” has no value entered`);
         continue;
       }
-      // A null-amount line is a half-filled row — name which line (1-based).
-      const blankLines = snap.entries
-        .map((e, i) => (e.amount === null ? i + 1 : 0))
-        .filter((n) => n > 0);
-      if (blankLines.length > 0) {
-        const label = snap.entries.length > 1 ? ` line ${blankLines.join(', ')}` : '';
-        problems.push(`“${name}”${label} has no amount`);
-      }
+      // Only name the vendor line when there is more than one, so a single-vendor
+      // head reads "“Head” particular 2 …" rather than a redundant "line 1".
+      const multiLine = snap.entries.length > 1;
+      snap.entries.forEach((entry, li) => {
+        const where = `“${name}”${multiLine ? ` line ${li + 1}` : ''}`;
+        // Per-line, not per-head: on a multi-vendor head every vendor line needs
+        // its own product code.
+        if (!entry.productCode?.trim()) {
+          problems.push(`${where} needs a product code`);
+        }
+        if (entry.particulars.length === 0) {
+          problems.push(`${where} has no particulars`);
+          return;
+        }
+        entry.particulars.forEach((p, pi) => {
+          // NULL ≠ 0: an explicit 0 rate/quantity is complete and valid; only a
+          // blank one is missing. Name each missing field so the SPOC knows what
+          // to fix without hunting.
+          const missing: string[] = [];
+          if (!p.particularName?.trim()) missing.push('a name');
+          if (p.rate === null) missing.push('a rate');
+          if (p.quantity === null) missing.push('a quantity');
+          if (missing.length > 0) {
+            problems.push(`${where} particular ${pi + 1} needs ${missing.join(', ')}`);
+          }
+        });
+      });
     }
     if (problems.length > 0) {
       throw new UnprocessableEntityException(`Cannot submit: ${problems.join('; ')}`);
