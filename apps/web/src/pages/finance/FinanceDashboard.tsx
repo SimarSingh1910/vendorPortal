@@ -64,27 +64,6 @@ function monthsInRange(from: string, to: string): string[] {
   return out;
 }
 
-/** A native, Input-styled select for the filter row. */
-function Select({
-  value,
-  onChange,
-  children,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-    >
-      {children}
-    </select>
-  );
-}
-
 const STATUS_OPTIONS = Object.values(SubmissionStatus);
 // {id,name} items for the status multi-select (id = enum value, name = label).
 const statusItems = STATUS_OPTIONS.map((s) => ({ id: s, name: SUBMISSION_STATUS_LABELS[s] }));
@@ -96,7 +75,7 @@ export function FinanceDashboard() {
   const [clinicIds, setClinicIds] = useState<Set<string> | null>(null);
   const [spocUserIds, setSpocUserIds] = useState<Set<string> | null>(null);
   const [statuses, setStatuses] = useState<Set<SubmissionStatus> | null>(null);
-  const [expenseHeadId, setExpenseHeadId] = useState('');
+  const [expenseHeadIds, setExpenseHeadIds] = useState<Set<string> | null>(null);
   const [fromMonth, setFromMonth] = useState(shiftMonth(thisMonth, -11));
   const [toMonth, setToMonth] = useState(thisMonth);
   // Shared month focus for the trend, clinic-total and split cards. Empty = whole
@@ -117,6 +96,7 @@ export function FinanceDashboard() {
   const clinicIdList = clinicIds ? [...clinicIds] : undefined;
   const spocUserIdList = spocUserIds ? [...spocUserIds] : undefined;
   const statusList = statuses ? [...statuses] : undefined;
+  const expenseHeadIdList = expenseHeadIds ? [...expenseHeadIds] : undefined;
   // An explicitly emptied filter ("none" — every option unticked, incl. via the
   // "All" toggle) means NOTHING matches: the whole dashboard shows its empty state
   // until a selection is made (mirrors the expense-head 'none'), rather than
@@ -124,7 +104,8 @@ export function FinanceDashboard() {
   const anyEmpty =
     (clinicIds !== null && clinicIds.size === 0) ||
     (spocUserIds !== null && spocUserIds.size === 0) ||
-    (statuses !== null && statuses.size === 0);
+    (statuses !== null && statuses.size === 0) ||
+    (expenseHeadIds !== null && expenseHeadIds.size === 0);
 
   // `toMonth` is the as-of month for the status tracker + variance; the pair
   // (from, to) bounds the trend charts.
@@ -132,21 +113,22 @@ export function FinanceDashboard() {
   const rangeFilter: DashboardFilter = {
     clinicIds: clinicIdList,
     spocUserIds: spocUserIdList,
-    expenseHeadId: expenseHeadId || undefined,
+    expenseHeadIds: expenseHeadIdList,
     from: fromMonth || undefined,
     to: toMonth || undefined,
     status: statusList,
   };
 
-  // Exports are single-clinic-or-all by design (unchanged): pass a clinic/SPOC id
-  // only when exactly one is selected, otherwise omit (all). Status lists already
-  // flow through the export endpoints as-is.
+  // Exports are single-value-or-all by design (unchanged): pass a clinic / SPOC /
+  // head id only when exactly one is selected, otherwise omit (all). Status lists
+  // already flow through the export endpoints as-is.
   const soleClinicId = clinicIds && clinicIds.size === 1 ? [...clinicIds][0] : undefined;
   const soleSpocUserId = spocUserIds && spocUserIds.size === 1 ? [...spocUserIds][0] : undefined;
+  const soleExpenseHeadId = expenseHeadIds && expenseHeadIds.size === 1 ? [...expenseHeadIds][0] : undefined;
   const exportFilter: DashboardFilter = {
     clinicId: soleClinicId,
     spocUserId: soleSpocUserId,
-    expenseHeadId: expenseHeadId || undefined,
+    expenseHeadId: soleExpenseHeadId,
     from: fromMonth || undefined,
     to: toMonth || undefined,
     status: statusList,
@@ -318,14 +300,16 @@ export function FinanceDashboard() {
         </div>
         <div className="space-y-1.5">
           <Label>Expense head</Label>
-          <Select value={expenseHeadId} onChange={setExpenseHeadId}>
-            <option value="">All heads</option>
-            {options?.expenseHeads.map((h) => (
-              <option key={h.id} value={h.id}>
-                {h.name}
-              </option>
-            ))}
-          </Select>
+          <MultiSelect
+            items={options?.expenseHeads ?? []}
+            selected={expenseHeadIds}
+            onChange={setExpenseHeadIds}
+            nounSingular="head"
+            nounPlural="heads"
+            ariaLabel="Filter by expense head"
+            allowEmpty
+            fullWidth
+          />
         </div>
         <div className="space-y-1.5">
           <Label>Status</Label>

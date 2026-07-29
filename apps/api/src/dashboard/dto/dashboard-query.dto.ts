@@ -43,6 +43,16 @@ export class DashboardQueryDto {
   expenseHeadId?: string;
 
   /**
+   * Multi-select expense-head filter (`a` or `a,b`). Superset of `expenseHeadId`;
+   * when both are present the list wins. OR within the list.
+   */
+  @IsOptional()
+  @Transform(({ value }) => toStringArray(value))
+  @IsArray()
+  @IsString({ each: true })
+  expenseHeadIds?: string[];
+
+  /**
    * Narrow to the clinics a given clinic SPOC covers. Resolved server-side from
    * that user's real assignments and intersected with the caller's own scope, so
    * an arbitrary user id here can only ever narrow the result, never widen it.

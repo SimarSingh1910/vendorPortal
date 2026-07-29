@@ -20,6 +20,8 @@ export interface DashboardFilter {
   /** Multi-select SPOCs (union of their clinics, OR). Superset of `spocUserId`. */
   spocUserIds?: string[];
   expenseHeadId?: string;
+  /** Multi-select expense heads (OR within). Superset of `expenseHeadId`. */
+  expenseHeadIds?: string[];
   from?: string; // YYYY-MM
   to?: string; // YYYY-MM
   month?: string; // YYYY-MM

@@ -56,6 +56,8 @@ interface DashboardFilters {
   /** Multi-select clinics (OR within the list). Superset of `clinicId`. */
   clinicIds?: string[];
   expenseHeadId?: string;
+  /** Multi-select expense heads (OR within the list). Superset of `expenseHeadId`. */
+  expenseHeadIds?: string[];
   from?: string;
   to?: string;
   month?: string;
@@ -151,13 +153,13 @@ export class DashboardService {
    */
   private entryWhere(
     clinicIds: string[],
-    opts: { from?: string; to?: string; month?: string; expenseHeadId?: string; statuses?: SubmissionStatus[] },
+    opts: { from?: string; to?: string; month?: string; expenseHeadIds?: string[]; statuses?: SubmissionStatus[] },
   ): Prisma.Sql {
     const conds: Prisma.Sql[] = [Prisma.sql`m.clinicId IN (${Prisma.join(clinicIds)})`];
     if (opts.month) conds.push(Prisma.sql`m.month = ${opts.month}`);
     if (opts.from) conds.push(Prisma.sql`m.month >= ${opts.from}`);
     if (opts.to) conds.push(Prisma.sql`m.month <= ${opts.to}`);
-    if (opts.expenseHeadId) conds.push(Prisma.sql`s.expenseHeadId = ${opts.expenseHeadId}`);
+    if (opts.expenseHeadIds?.length) conds.push(Prisma.sql`s.expenseHeadId IN (${Prisma.join(opts.expenseHeadIds)})`);
     if (opts.statuses?.length) conds.push(Prisma.sql`m.status IN (${Prisma.join(opts.statuses)})`);
     return Prisma.sql`WHERE ${Prisma.join(conds, ' AND ')}`;
   }
@@ -245,7 +247,7 @@ export class DashboardService {
       FROM provisionentry p
       JOIN submissionexpenseheadsnapshot s ON s.id = p.snapshotId
       JOIN monthlysubmission m ON m.id = p.submissionId
-      ${this.entryWhere(clinicIds, { from, to, expenseHeadId: filters.expenseHeadId, statuses: filters.status })}
+      ${this.entryWhere(clinicIds, { from, to, expenseHeadIds: DashboardService.ids(filters.expenseHeadId, filters.expenseHeadIds), statuses: filters.status })}
       GROUP BY m.month
       ORDER BY m.month ASC
     `);
@@ -271,7 +273,7 @@ export class DashboardService {
       JOIN submissionexpenseheadsnapshot s ON s.id = p.snapshotId
       JOIN monthlysubmission m ON m.id = p.submissionId
       JOIN expensehead e ON e.id = s.expenseHeadId
-      ${this.entryWhere(clinicIds, { from, to, expenseHeadId: filters.expenseHeadId, statuses: filters.status })}
+      ${this.entryWhere(clinicIds, { from, to, expenseHeadIds: DashboardService.ids(filters.expenseHeadId, filters.expenseHeadIds), statuses: filters.status })}
       GROUP BY m.month, s.expenseHeadId
       ORDER BY m.month ASC, expenseHeadName ASC
     `);
@@ -316,7 +318,7 @@ export class DashboardService {
       JOIN submissionexpenseheadsnapshot s ON s.id = p.snapshotId
       JOIN monthlysubmission m ON m.id = p.submissionId
       JOIN expensehead e ON e.id = s.expenseHeadId
-      ${this.entryWhere(clinicIds, { from, to, expenseHeadId: filters.expenseHeadId, statuses: filters.status })}
+      ${this.entryWhere(clinicIds, { from, to, expenseHeadIds: DashboardService.ids(filters.expenseHeadId, filters.expenseHeadIds), statuses: filters.status })}
         AND p.amount IS NOT NULL
       GROUP BY m.month, s.expenseHeadId, p.vendorName
       ORDER BY m.month ASC, expenseHeadName ASC, p.vendorName ASC
@@ -349,7 +351,7 @@ export class DashboardService {
       JOIN submissionexpenseheadsnapshot s ON s.id = p.snapshotId
       JOIN monthlysubmission m ON m.id = p.submissionId
       JOIN clinic c ON c.id = m.clinicId
-      ${this.entryWhere(clinicIds, { from, to, expenseHeadId: filters.expenseHeadId, statuses: filters.status })}
+      ${this.entryWhere(clinicIds, { from, to, expenseHeadIds: DashboardService.ids(filters.expenseHeadId, filters.expenseHeadIds), statuses: filters.status })}
       GROUP BY m.clinicId
       ORDER BY SUM(p.amount) DESC
     `);

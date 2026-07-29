@@ -587,6 +587,40 @@ describe('DashboardService (Phase 11, FR-07)', () => {
     expect(nonMatching).toEqual([]);
   });
 
+  it('expenseHeadIds narrows aggregations to the selected heads (OR within the filter)', async () => {
+    const clinic = await fx.makeClinic({ name: 'Heads' });
+    const rent = await fx.makeExpenseHead({ glAccountName: 'Rent' });
+    const power = await fx.makeExpenseHead({ glAccountName: 'Power' });
+    const water = await fx.makeExpenseHead({ glAccountName: 'Water' });
+    await fx.mapHeads(clinic.id, [rent.id, power.id, water.id]);
+    await enter(clinic.id, '2026-06', rent.id, 100);
+    await enter(clinic.id, '2026-06', power.id, 200);
+    await enter(clinic.id, '2026-06', water.id, 400);
+
+    // Two of three heads → the head trend shows just those, and the monthly/clinic
+    // roll-ups sum only them (100 + 200), never the unselected head.
+    const trends = await dashboard.headTrends(finance, {
+      from: '2026-06',
+      to: '2026-06',
+      expenseHeadIds: [rent.id, power.id],
+    });
+    expect(trends.map((t) => t.expenseHeadName).sort()).toEqual(['Power', 'Rent']);
+
+    const monthly = await dashboard.monthlyTotals(finance, {
+      from: '2026-06',
+      to: '2026-06',
+      expenseHeadIds: [rent.id, power.id],
+    });
+    expect(monthly.find((m) => m.month === '2026-06')!.total).toBe('300.00');
+
+    const totals = await dashboard.clinicTotals(finance, {
+      from: '2026-06',
+      to: '2026-06',
+      expenseHeadIds: [rent.id, power.id],
+    });
+    expect(totals.find((c) => c.clinicName === 'Heads')!.total).toBe('300.00');
+  });
+
   // ── Step 4 — month-wise clinic report ───────────────────────────────────────
 
   it('month-wise report: window = current + N preceding (chronological, current last) with gaps as null', async () => {
