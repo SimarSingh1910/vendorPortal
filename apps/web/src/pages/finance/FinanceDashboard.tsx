@@ -117,6 +117,14 @@ export function FinanceDashboard() {
   const clinicIdList = clinicIds ? [...clinicIds] : undefined;
   const spocUserIdList = spocUserIds ? [...spocUserIds] : undefined;
   const statusList = statuses ? [...statuses] : undefined;
+  // An explicitly emptied filter ("none" — every option unticked, incl. via the
+  // "All" toggle) means NOTHING matches: the whole dashboard shows its empty state
+  // until a selection is made (mirrors the expense-head 'none'), rather than
+  // silently falling back to "all".
+  const anyEmpty =
+    (clinicIds !== null && clinicIds.size === 0) ||
+    (spocUserIds !== null && spocUserIds.size === 0) ||
+    (statuses !== null && statuses.size === 0);
 
   // `toMonth` is the as-of month for the status tracker + variance; the pair
   // (from, to) bounds the trend charts.
@@ -156,48 +164,66 @@ export function FinanceDashboard() {
     queryKey: ['dashboard', 'filters'],
     queryFn: getDashboardFilters,
   });
-  const { data: tiles = [], isLoading: tilesLoading } = useQuery({
+  // Data queries are SKIPPED while a filter is empty (`enabled: !anyEmpty`) — no
+  // wasted fetch — and the results are forced to empty below so the cards show
+  // their no-data state.
+  const { data: tilesData = [], isLoading: tilesLoading } = useQuery({
     queryKey: ['dashboard', 'status', asOf, spocUserIdList],
     queryFn: () => getStatusTracker(asOf, spocUserIdList),
+    enabled: !anyEmpty,
   });
-  const { data: variance } = useQuery({
+  const { data: varianceData } = useQuery({
     queryKey: ['dashboard', 'variance', asOf, clinicIdList, spocUserIdList],
     queryFn: () => getVariance(asOf, clinicIdList, spocUserIdList),
+    enabled: !anyEmpty,
   });
-  const { data: monthly = [] } = useQuery({
+  const { data: monthlyData = [] } = useQuery({
     queryKey: ['dashboard', 'monthly', rangeFilter],
     queryFn: () => getMonthlyTotals(rangeFilter),
     placeholderData: keepPreviousData,
+    enabled: !anyEmpty,
   });
-  const { data: headTrends = [] } = useQuery({
+  const { data: headTrendsData = [] } = useQuery({
     queryKey: ['dashboard', 'head-trends', rangeFilter],
     queryFn: () => getHeadTrends(rangeFilter),
     placeholderData: keepPreviousData,
+    enabled: !anyEmpty,
   });
-  const { data: headVendorTrends = [] } = useQuery({
+  const { data: headVendorTrendsData = [] } = useQuery({
     queryKey: ['dashboard', 'head-vendor-trends', rangeFilter],
     queryFn: () => getHeadVendorTrends(rangeFilter),
     placeholderData: keepPreviousData,
+    enabled: !anyEmpty,
   });
-  const { data: clinicTotals = [] } = useQuery({
+  const { data: clinicTotalsData = [] } = useQuery({
     queryKey: ['dashboard', 'clinic-totals', clinicFilter],
     queryFn: () => getClinicTotals(clinicFilter),
     placeholderData: keepPreviousData,
+    enabled: !anyEmpty,
   });
 
+  // Empty selection → nothing matches: render every card empty (charts/tables all
+  // handle []; variance falls to its "no data" state on undefined). The head-trend
+  // views fold the same empty override into their useMemo (below).
+  const tiles = anyEmpty ? [] : tilesData;
+  const variance = anyEmpty ? undefined : varianceData;
+  const monthly = anyEmpty ? [] : monthlyData;
+  const clinicTotals = anyEmpty ? [] : clinicTotalsData;
+
   // Trend + pie share one client-side month filter (the head-trend query already
-  // holds the whole range) — a specific month narrows to that month, NULL ≠ 0.
-  const headTrendsView = useMemo(
-    () => (effectiveMonth ? headTrends.filter((d) => d.month === effectiveMonth) : headTrends),
-    [headTrends, effectiveMonth],
-  );
+  // holds the whole range) — a specific month narrows to that month, NULL ≠ 0. The
+  // empty-selection override folds in here (empty → [] → charts show no data).
+  const headTrendsView = useMemo(() => {
+    const base = anyEmpty ? [] : headTrendsData;
+    return effectiveMonth ? base.filter((d) => d.month === effectiveMonth) : base;
+  }, [headTrendsData, effectiveMonth, anyEmpty]);
   // The vendor breakdown (Table views) honours the same focus-month as the trend.
   const headVendorTrendsView = useMemo(
-    () =>
-      effectiveMonth
-        ? headVendorTrends.filter((d) => d.month === effectiveMonth)
-        : headVendorTrends,
-    [headVendorTrends, effectiveMonth],
+    () => {
+      const base = anyEmpty ? [] : headVendorTrendsData;
+      return effectiveMonth ? base.filter((d) => d.month === effectiveMonth) : base;
+    },
+    [headVendorTrendsData, effectiveMonth, anyEmpty],
   );
 
   // Master head→colour map (built from the full in-scope head list) so every
@@ -273,6 +299,7 @@ export function FinanceDashboard() {
             nounSingular="clinic"
             nounPlural="clinics"
             ariaLabel="Filter by clinic"
+            allowEmpty
             fullWidth
           />
         </div>
@@ -285,6 +312,7 @@ export function FinanceDashboard() {
             nounSingular="SPOC"
             nounPlural="SPOCs"
             ariaLabel="Filter by clinic SPOC"
+            allowEmpty
             fullWidth
           />
         </div>
@@ -308,6 +336,7 @@ export function FinanceDashboard() {
             nounSingular="status"
             nounPlural="statuses"
             ariaLabel="Filter by status"
+            allowEmpty
             fullWidth
           />
         </div>
