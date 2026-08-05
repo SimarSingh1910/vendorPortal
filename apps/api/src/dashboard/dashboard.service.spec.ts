@@ -468,16 +468,33 @@ describe('DashboardService (Phase 11, FR-07)', () => {
     ).toEqual([]);
   });
 
-  it('the filter options list active SPOCs for finance and none for a clinic viewer', async () => {
+  it('the filter options list active SPOCs, scoped to the caller’s own clinics', async () => {
     const { alpha } = await clinicsWithSpocs();
     await fx.makeUser(UserRole.CLINIC_SPOC, [alpha.id], { name: 'Retired One', active: false });
 
     const forFinance = await dashboard.filterOptions(finance);
     expect(forFinance.spocs.map((s) => s.name)).toEqual(['Asha Rao', 'Bhavin Shah']);
+    // Finance sees every clinic — including the one with no SPOC at all.
+    expect(forFinance.clinics.map((c) => c.name)).toEqual(['Alpha', 'Bravo', 'Orphan']);
 
-    // Clinic-scoped viewers have a single clinic and nothing to filter across.
-    const spoc = (await fx.makeUser(UserRole.CLINIC_SPOC, [alpha.id])).user;
-    expect((await dashboard.filterOptions(spoc)).spocs).toEqual([]);
+    // Step 11.3: clinic roles get the SPOC dropdown too — but derived FROM their
+    // own clinic scope, so it can only ever name SPOCs of clinics they already
+    // see. A SPOC scoped to Alpha gets Alpha's SPOC (Asha) and NOT Bravo's
+    // (Bhavin); the inactive one is excluded for everyone.
+    const alphaSpoc = (await fx.makeUser(UserRole.CLINIC_SPOC, [alpha.id], { name: 'Alpha Spoc' }))
+      .user;
+    const forSpoc = await dashboard.filterOptions(alphaSpoc);
+    // Alpha's two SPOCs (the caller included — they co-cover the clinic) and
+    // crucially NOT Bravo's, whose clinic they cannot see.
+    expect(forSpoc.spocs.map((s) => s.name)).toEqual(['Alpha Spoc', 'Asha Rao']);
+    expect(forSpoc.clinics.map((c) => c.id)).toEqual([alpha.id]);
+
+    // Same for a cluster manager: their own clinics' SPOCs, nobody else's. This
+    // is the multi-clinic case the shared filter bar exists for.
+    const manager = (await fx.makeUser(UserRole.CLINIC_MANAGER, [alpha.id])).user;
+    const forManager = await dashboard.filterOptions(manager);
+    expect(forManager.spocs.map((s) => s.name)).toEqual(['Alpha Spoc', 'Asha Rao']);
+    expect(forManager.clinics.map((c) => c.id)).toEqual([alpha.id]);
   });
 
   it('applies the status filter to aggregations', async () => {

@@ -194,7 +194,11 @@ export function AuthedShell() {
                 {initialsOf(user.name)}
               </div>
               <div className="min-w-0 flex-1 leading-tight">
-                <div className="truncate text-sm font-medium text-white">{user.name}</div>
+                {/* Real staff names run well past this column ("Dr.Chillara Anjana
+                    Sesha Kiranmayi"), so keep the full one on hover. */}
+                <div className="truncate text-sm font-medium text-white" title={user.name}>
+                  {user.name}
+                </div>
                 <div className="truncate text-xs text-sidebar-foreground">
                   {ROLE_LABELS[user.role]}
                 </div>

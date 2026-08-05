@@ -108,7 +108,9 @@ describe('Audit logging (Step 9.1 — append-only, unified write path)', () => {
           snapshotId: snap.id,
           lines: [
             {
-              // Product code is required at submit, and this spec submits below.
+              // Vendor name and product code are both required at submit, and this
+              // spec submits below.
+              vendorName: 'Acme Services',
               productCode: 'P20',
               particulars: [{ particularName: 'Amount', rate: 100, quantity: 1 }],
             },

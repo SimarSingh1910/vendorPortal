@@ -8,7 +8,7 @@ process.env.BCRYPT_ROUNDS = '4';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
-import { UserRole } from '@portal/shared';
+import { PortalTab, UserRole } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from './auth.service';
 import { resetDb } from '../../test/reset';
@@ -45,14 +45,14 @@ describe('AuthService flows', () => {
     await resetDb(prisma);
   });
 
-  async function makeUser(opts: { active?: boolean } = {}) {
+  async function makeUser(opts: { active?: boolean; role?: UserRole } = {}) {
     const hash = await auth.hashPassword(PASSWORD);
     return prisma.user.create({
       data: {
         name: 'U',
         email: `auth${(seq += 1)}@t.local`,
         passwordHash: hash,
-        role: UserRole.FINANCE_ADMIN,
+        role: opts.role ?? UserRole.FINANCE_ADMIN,
         isActive: opts.active ?? true,
       },
     });
@@ -74,6 +74,65 @@ describe('AuthService flows', () => {
   it('refuses login for a deactivated account', async () => {
     const user = await makeUser({ active: false });
     await expectStatus(auth.login(user.email, PASSWORD), 401);
+  });
+
+  // ── Portal-scoped sign-in (the login tabs) ──────────────────────────────────
+  // The tab the credentials were entered on is enforced HERE, against the
+  // account's own role — the client's choice of tab is a hint, never the gate.
+
+  it('a clinic-only account is refused on the Corporate tab and accepted on Clinic', async () => {
+    const spoc = await makeUser({ role: UserRole.CLINIC_SPOC });
+
+    await expectStatus(auth.login(spoc.email, PASSWORD, PortalTab.CORPORATE), 401);
+    // Right password, wrong portal — nothing is issued.
+    expect(await prisma.refreshToken.count({ where: { userId: spoc.id } })).toBe(0);
+
+    const ok = await auth.login(spoc.email, PASSWORD, PortalTab.CLINIC);
+    expect(ok.user.id).toBe(spoc.id);
+  });
+
+  it('a corporate-only account is refused on the Clinic tab and accepted on Corporate', async () => {
+    const deptSpoc = await makeUser({ role: UserRole.DEPT_SPOC });
+
+    await expectStatus(auth.login(deptSpoc.email, PASSWORD, PortalTab.CLINIC), 401);
+    expect(await prisma.refreshToken.count({ where: { userId: deptSpoc.id } })).toBe(0);
+
+    const ok = await auth.login(deptSpoc.email, PASSWORD, PortalTab.CORPORATE);
+    expect(ok.user.id).toBe(deptSpoc.id);
+  });
+
+  it('FINANCE_ADMIN spans both portals, and omitting the tab keeps the old behaviour', async () => {
+    const admin = await makeUser({ role: UserRole.FINANCE_ADMIN });
+    expect((await auth.login(admin.email, PASSWORD, PortalTab.CLINIC)).user.id).toBe(admin.id);
+    expect((await auth.login(admin.email, PASSWORD, PortalTab.CORPORATE)).user.id).toBe(admin.id);
+
+    // No tab supplied → authenticates unrestricted, so scripts and older clients
+    // that don't know about portals are unaffected.
+    const clinicOnly = await makeUser({ role: UserRole.CLINIC_MANAGER });
+    expect((await auth.login(clinicOnly.email, PASSWORD)).user.id).toBe(clinicOnly.id);
+  });
+
+  it('the wrong-portal refusal never leaks whether the account exists', async () => {
+    const spoc = await makeUser({ role: UserRole.CLINIC_SPOC });
+
+    // A BAD password on the wrong tab must fail as plain bad credentials — the
+    // portal hint is only ever given once the password has been proved.
+    const badPassword = await auth
+      .login(spoc.email, 'wrong', PortalTab.CORPORATE)
+      .catch((e: Error) => e);
+    expect((badPassword as Error).message).toBe('Invalid credentials');
+
+    // An unknown address on either tab says the same thing.
+    const unknown = await auth
+      .login('ghost@t.local', PASSWORD, PortalTab.CORPORATE)
+      .catch((e: Error) => e);
+    expect((unknown as Error).message).toBe('Invalid credentials');
+
+    // Only a VERIFIED password gets the helpful "use the other tab" message.
+    const rightPassword = await auth
+      .login(spoc.email, PASSWORD, PortalTab.CORPORATE)
+      .catch((e: Error) => e);
+    expect((rightPassword as Error).message).toContain('Clinic tab');
   });
 
   it('rotates the refresh token: old becomes unusable, new works', async () => {

@@ -92,17 +92,19 @@ const CLINICS: ClinicDef[] = [
 ];
 
 // Expense heads carry realistic G/L account numbers (6xxxxx series) and an
-// EXAMPLE per-line vendor / product code / description. Product code is REQUIRED
-// (every head has one, and submit rejects a line without it); vendor and
-// description remain OPTIONAL by design — the blanks below (e.g. no vendor for
-// salaries) are intentional so the export still demos the "may or may not be
-// entered" spread. `entryExtras` varies those two across clinics/months.
+// EXAMPLE per-line vendor / product code / description. Vendor name AND product
+// code are both REQUIRED (submit rejects a line missing either), so every head
+// below carries both — seeded submissions must be data the workflow would actually
+// have accepted. Only the description (the per-particular remark) stays OPTIONAL,
+// and `entryExtras` varies it across clinics/months so the export still demos the
+// "may or may not be entered" spread.
 interface HeadDef {
   key: string;
   glAccountNo: string;
   glAccountName: string;
   base: number;
-  vendor?: string;
+  /** REQUIRED — a vendor line cannot be submitted without a vendor name. */
+  vendor: string;
   /** REQUIRED — a vendor line cannot be submitted without a product code. */
   product: string;
   description?: string;
@@ -114,16 +116,16 @@ interface HeadDef {
 // The 15 real clinic G/L accounts (from the finance sheet). glAccountNo is a CODE
 // stored as a string — never an integer, never reformatted. Names are verbatim
 // (including their original capitalisation/spacing, e.g. "House keeping and
-// maintenance", "Rent - building for Dental") — do not "correct" them. The
-// vendor / description mix keeps some fields intentionally BLANK so the export
-// demos the "may or may not be entered" spread (product code is mandatory, so it
-// is always set). RADIOLOGY is the variance spiker (see amountFor).
+// maintenance", "Rent - building for Dental") — do not "correct" them. Vendor and
+// product code are always set (both are mandatory at submit); only the description
+// mix is left partly BLANK, so the export still demos the "may or may not be
+// entered" spread. RADIOLOGY is the variance spiker (see amountFor).
 const HEADS: HeadDef[] = [
   { key: 'CCHIRE', glAccountNo: '41402005', glAccountName: 'Credit Card Machine Hire Charges', base: 8_000, vendor: 'Pine Labs', product: 'P10', description: 'Two additional POS terminals installed' },
   { key: 'OUTSVC', glAccountNo: '41117004', glAccountName: 'Other Outsourced Services', base: 60_000, vendor: 'Quess Corp', product: 'P20', allowsMultipleVendors: true, vendor2: 'Sodexo Facilities' },
   { key: 'BIOWASTE', glAccountNo: '41117002', glAccountName: 'Biomedical Waste Services', base: 15_000, vendor: 'SembRamky Environmental', product: 'P17' },
   { key: 'AMBUL', glAccountNo: '41117001', glAccountName: 'Ambulance Services', base: 30_000, vendor: 'Ziqitza Healthcare' , product: 'P27' },
-  { key: 'REFRESH', glAccountNo: '41115013', glAccountName: 'Refreshment for patients', base: 12_000, product: 'P18' },
+  { key: 'REFRESH', glAccountNo: '41115013', glAccountName: 'Refreshment for patients', base: 12_000, vendor: 'Nestle Professional', product: 'P18' },
   { key: 'POSTAGE', glAccountNo: '41115009', glAccountName: 'Postage and courier charges', base: 5_000, vendor: 'Blue Dart', product: 'P10' },
   { key: 'HOUSE', glAccountNo: '41115002', glAccountName: 'House keeping and maintenance', base: 25_000, vendor: 'BVG India Ltd', product: 'P20', description: 'Additional deep-clean contract' },
   { key: 'LAUNDRY', glAccountNo: '41109004', glAccountName: 'Laundry Expenses', base: 18_000, vendor: 'UClean' , product: 'P20' },
@@ -131,8 +133,8 @@ const HEADS: HeadDef[] = [
   { key: 'RADIOLOGY', glAccountNo: '41104016', glAccountName: 'Radiology Services', base: 55_000, vendor: 'Siemens Healthineers', product: 'P27', description: 'Scheduled AMC for imaging equipment' }, // the variance spiker
   { key: 'CONSUM', glAccountNo: '41104002', glAccountName: 'Consumables common', base: 80_000, vendor: 'Romsons Scientific & Surgical', product: 'P17' },
   { key: 'TELECOM', glAccountNo: '41103001', glAccountName: 'Telephone/Mobile expenses', base: 12_000, vendor: 'Airtel Business', product: 'P18', description: 'Bandwidth upgrade' },
-  { key: 'WELFARE', glAccountNo: '41003001', glAccountName: 'Staff welfare expense', base: 40_000, product: 'P20' },
-  { key: 'LOCUM', glAccountNo: '41002007', glAccountName: 'Locum', base: 90_000, product: 'P17', allowsMultipleVendors: true, vendor2: 'Apollo Locum Pool' },
+  { key: 'WELFARE', glAccountNo: '41003001', glAccountName: 'Staff welfare expense', base: 40_000, vendor: 'Sodexo BRS India', product: 'P20' },
+  { key: 'LOCUM', glAccountNo: '41002007', glAccountName: 'Locum', base: 90_000, vendor: 'Medanta Locum Services', product: 'P17', allowsMultipleVendors: true, vendor2: 'Apollo Locum Pool' },
   { key: 'EVENTS', glAccountNo: '41112001', glAccountName: 'Events and exhibitions - Domestic', base: 20_000, vendor: 'Cvent India', product: 'P27', description: 'Quarterly community health camp', allowsMultipleVendors: true, vendor2: 'Local Event Partners' },
 ];
 
@@ -162,7 +164,16 @@ function amountFor(clinic: ClinicDef, month: string, head: HeadDef): number {
 function particularsFor(
   headName: string,
   amount: number,
-): Array<{ lineOrder: number; particularName: string; rate: string; quantity: string; value: string }> {
+  /** Optional SPOC remark — seeded on the FIRST particular only (see entryExtras). */
+  remark: string | null = null,
+): Array<{
+  lineOrder: number;
+  particularName: string;
+  rate: string;
+  quantity: string;
+  value: string;
+  remark: string | null;
+}> {
   const totalPaise = Math.round(amount * 100);
   // ~60% of the line across a whole number of units, at a 2-dp unit rate.
   const units = 12;
@@ -178,6 +189,7 @@ function particularsFor(
       rate: money(firstRatePaise),
       quantity: String(units),
       value: money(firstValuePaise),
+      remark,
     },
     {
       lineOrder: 1,
@@ -185,28 +197,30 @@ function particularsFor(
       rate: money(restPaise),
       quantity: '1',
       value: money(restPaise),
+      remark: null,
     },
   ];
 }
 
-// Per-line Vendor Name / Product Code / Description (the Description column maps to
-// the per-line SPOC note). All three are OPTIONAL: they start from the head's
-// example, then vary by clinic and month so a consolidated export isn't uniform and
-// shows the "may or may not be entered" spread (blanks are intentional).
+// Per-line Vendor Name / Product Code, plus the SPOC remark that the export's
+// trailing Remarks column reads (seeded on the line's FIRST particular). Vendor and
+// product are both mandatory at submit, so both are always populated; only the
+// remark is optional, and it varies by clinic and month so a consolidated export
+// isn't uniform and shows the "may or may not be entered" spread.
 function entryExtras(
   clinic: ClinicDef,
   month: string,
   head: HeadDef,
-): { vendorName: string | null; productCode: string | null; note: string | null } {
+): { vendorName: string; productCode: string; remark: string | null } {
   const ci = CLINICS.findIndex((x) => x.code === clinic.code);
   const mi = MONTHS.indexOf(month);
-  // Vendor names are stable where a vendor is seeded (blank for e.g. staff salaries).
-  const vendorName = head.vendor ?? null;
+  // Vendor name is MANDATORY per vendor line — always populated, never blank.
+  const vendorName = head.vendor;
   // Product code is MANDATORY per vendor line — always populated, never blank.
   const productCode = head.product;
   // Descriptions are event-driven — only the recent months, and not every clinic.
-  const note = mi >= 2 && (ci + mi) % 2 === 0 ? head.description ?? null : null;
-  return { vendorName, productCode, note };
+  const remark = mi >= 2 && (ci + mi) % 2 === 0 ? head.description ?? null : null;
+  return { vendorName, productCode, remark };
 }
 
 // ── Users ────────────────────────────────────────────────────────────────────
@@ -400,10 +414,11 @@ async function main(): Promise<void> {
             amount: primary,
             vendorName: extras.vendorName,
             productCode: extras.productCode,
-            note: extras.note,
             enteredById: spocByCode[c.code],
             lastModifiedById: spocByCode[c.code],
-            particulars: { create: particularsFor(head.glAccountName, primary) },
+            particulars: {
+              create: particularsFor(head.glAccountName, primary, extras.remark),
+            },
           },
         });
         // A multi-vendor head carries a SECOND vendor line (~40% of the first) so
@@ -418,7 +433,6 @@ async function main(): Promise<void> {
               amount: secondary,
               vendorName: head.vendor2,
               productCode: head.product,
-              note: null,
               enteredById: spocByCode[c.code],
               lastModifiedById: spocByCode[c.code],
               particulars: { create: particularsFor(head.glAccountName, secondary) },

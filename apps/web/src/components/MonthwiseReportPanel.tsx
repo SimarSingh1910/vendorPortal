@@ -17,9 +17,17 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { getClinicMonthwiseReport } from '@/api/dashboard';
-import { ChartTableView } from '@/components/dashboard/ChartTableView';
+import {
+  ChartTableView,
+  type ChartTableViewMode,
+} from '@/components/dashboard/ChartTableView';
 import { MonthwiseChart } from '@/components/dashboard/charts';
 import { formatINR, formatMonth } from '@/lib/format';
+import {
+  HEAD_HIGHLIGHT_CELL,
+  HEAD_HIGHLIGHT_ROW,
+  reportHeadAnchorId,
+} from '@/lib/headHighlight';
 import { cn } from '@/lib/utils';
 
 /**
@@ -27,9 +35,46 @@ import { cn } from '@/lib/utils';
  * alongside a selectable number of preceding months. Embedded on the SPOC entry,
  * clinic-manager review and finance review screens (same component, clinic in
  * context). Table-first; Step 5 will add a chart/table view toggle here.
+ *
+ * Both directions of the head jump run through here (see lib/headHighlight):
+ *
+ *   • `onHeadClick` makes the CHART's G/L heads clickable — the host screen passes
+ *     the trigger from `useHeadHighlight()` and the click scrolls to that head's
+ *     block in the provision table ABOVE. Screens with no such table omit it and the
+ *     legend stays static.
+ *   • `highlightedHeadId` / `highlightNonce` come from the host's second instance,
+ *     driven by clicking a G/L number/name in the provision table above: the row for
+ *     that head in the TREND TABLE below is anchored and lit, so a figure can be
+ *     checked against its own history in one click.
+ *
+ * Read-only in both directions — nothing is selected, filtered or written.
  */
-export function MonthwiseReportPanel({ clinicId }: { clinicId: string }) {
+export function MonthwiseReportPanel({
+  clinicId,
+  onHeadClick,
+  highlightedHeadId = null,
+  highlightNonce = 0,
+}: {
+  clinicId: string;
+  onHeadClick?: (expenseHeadId: string) => void;
+  /** The head to anchor + light up in the trend table (null = none). */
+  highlightedHeadId?: string | null;
+  /** Bumped on every jump, so re-picking the SAME head still forces the table view. */
+  highlightNonce?: number;
+}) {
   const [months, setMonths] = useState<MonthwisePreset>(DEFAULT_MONTHWISE_PRESET);
+  const [view, setView] = useState<ChartTableViewMode>('table');
+
+  // A jump targets a ROW, which only exists in the table half — so switch to it.
+  // Done during render (not in an effect) so the row is already in the DOM by the
+  // time the host's scroll effect runs; an effect here would commit the chart
+  // first and the scroll would find nothing. Keyed on the NONCE so re-picking the
+  // same head after manually flipping back to the chart still works.
+  const [seenNonce, setSeenNonce] = useState(0);
+  if (highlightedHeadId && highlightNonce !== seenNonce) {
+    setSeenNonce(highlightNonce);
+    setView('table');
+  }
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['report', 'clinic-monthwise', clinicId, months],
@@ -67,9 +112,10 @@ export function MonthwiseReportPanel({ clinicId }: { clinicId: string }) {
           <p className="text-sm text-destructive">Could not load the report.</p>
         ) : (
           <ChartTableView
-            defaultView="table"
-            chart={<MonthwiseChart report={data} />}
-            table={<MonthwiseTable report={data} />}
+            view={view}
+            onViewChange={setView}
+            chart={<MonthwiseChart report={data} onHeadClick={onHeadClick} />}
+            table={<MonthwiseTable report={data} highlightedHeadId={highlightedHeadId} />}
           />
         )}
       </CardContent>
@@ -77,7 +123,20 @@ export function MonthwiseReportPanel({ clinicId }: { clinicId: string }) {
   );
 }
 
-function MonthwiseTable({ report }: { report: MonthwiseReport }) {
+/**
+ * The trend grid: one row per expense head, one column per month in the window.
+ *
+ * Each row carries the head's anchor id, so a click on that G/L in the provision
+ * table above can scroll straight to it; `highlightedHeadId` lights the row that was
+ * jumped to. `scroll-mt` keeps it clear of anything sticky above the table.
+ */
+function MonthwiseTable({
+  report,
+  highlightedHeadId = null,
+}: {
+  report: MonthwiseReport;
+  highlightedHeadId?: string | null;
+}) {
   const isCurrent = (m: string) => m === report.currentMonth;
 
   if (report.rows.length === 0) {
@@ -109,9 +168,17 @@ function MonthwiseTable({ report }: { report: MonthwiseReport }) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {report.rows.map((row) => (
-            <TableRow key={row.expenseHeadId}>
-              <TableCell className="font-medium">{row.expenseHeadName}</TableCell>
+          {report.rows.map((row) => {
+            const lit = highlightedHeadId === row.expenseHeadId;
+            return (
+            <TableRow key={row.expenseHeadId} className={cn(lit && HEAD_HIGHLIGHT_ROW)}>
+              <TableCell
+                // Scroll target for this head, keyed by expense-head id.
+                id={reportHeadAnchorId(row.expenseHeadId)}
+                className={cn('scroll-mt-24 font-medium', lit && HEAD_HIGHLIGHT_CELL)}
+              >
+                {row.expenseHeadName}
+              </TableCell>
               {row.values.map((v, i) => (
                 <TableCell
                   key={report.months[i]}
@@ -124,7 +191,8 @@ function MonthwiseTable({ report }: { report: MonthwiseReport }) {
                 </TableCell>
               ))}
             </TableRow>
-          ))}
+            );
+          })}
           <TableRow className="border-t-2">
             <TableCell className="font-semibold">Total</TableCell>
             {report.totals.map((t, i) => (

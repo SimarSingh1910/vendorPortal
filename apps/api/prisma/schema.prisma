@@ -116,7 +116,7 @@ model ExpenseHead {
   // Descriptive G/L account name (carried over from the former `name` field).
   glAccountName String
   // When true the SPOC may enter MULTIPLE vendor lines for this head in one
-  // submission (same G/L, separate vendor/amount/product/note per line). A head
+  // submission (same G/L, separate vendor/amount/product per line). A head
   // DEFINITION attribute — snapshotted at cycle-open so an open submission knows.
   allowsMultipleVendors Boolean @default(false)
   isActive      Boolean  @default(true)
@@ -306,11 +306,13 @@ model ProvisionEntry {
   // column, so its NULL semantics are what keep incomplete drafts out of finance
   // totals.
   amount       Decimal? @db.Decimal(14, 2)
-  // Optional SPOC line-item note explaining this head's value (e.g. a spike/drop).
-  // One nullable note per head per submission; set only by the SPOC while editable.
-  note         String?  @db.Text
-  // Optional free-text vendor name the SPOC enters against this line (NOT a vendor
-  // master / dropdown, NOT snapshotted). Nullable; set only by the SPOC while editable.
+  // NOTE: the SPOC's free-text explanation used to live here as `note`. It moved
+  // DOWN to EntryParticular.remark (20260730120000_particular_remark) so the
+  // remark sits on the figure it explains. Nothing line-level replaces it.
+  // Free-text vendor name the SPOC enters against this line (NOT a vendor master /
+  // dropdown, NOT snapshotted). REQUIRED at submit, but the COLUMN stays nullable —
+  // exactly like productCode — so a half-filled draft can still be parked; submit is
+  // the gate. Set only by the SPOC while editable.
   vendorName   String?  @db.Text
   // Optional Product Code the SPOC picks from a FIXED predefined set (PRODUCT_CODES
   // in @portal/shared) — validated against that set at the API, NOT an admin master,
@@ -361,6 +363,13 @@ model EntryParticular {
   // the vendor-line and head sums are exact sums of persisted values — the UI can
   // never disagree with the DB. NULL exactly when rate or quantity is NULL.
   value    Decimal? @db.Decimal(14, 2)
+  // Optional SPOC remark explaining THIS particular (e.g. why its rate moved this
+  // month). Nullable and blank-is-null (never a placeholder); set only by the SPOC
+  // while editable — a manager/finance value override preserves it. This is where
+  // the former per-vendor-line `ProvisionEntry.note` moved to, and it is what the
+  // finance export's Description column reads (one export row per particular).
+  // NOT related to SubmissionComment — review comments are a separate feature.
+  remark   String?  @db.Text
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -669,7 +678,9 @@ model CorpProvisionEntry {
 
   // Optional SPOC line-item note explaining this head's value (e.g. a spike/drop).
   // One nullable note per head per submission; set only by the SPOC while editable
-  // (approver overrides preserve it). Mirrors the clinic ProvisionEntry.note.
+  // (approver overrides preserve it). Corporate lines have NO particulars, so this
+  // stays head-level here — it is NOT the clinic EntryParticular.remark and did not
+  // move with it.
   note String? @db.Text
 
   // Optional SPOC free-text vendor name for this line (NOT a master / dropdown,

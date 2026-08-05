@@ -23,6 +23,12 @@ export interface ParticularDraft {
   name: string;
   rate: string;
   quantity: string;
+  /**
+   * The SPOC's optional free-text explanation for THIS row (it used to hang off the
+   * vendor line as `note`). Empty string here = "not entered" and is sent as
+   * undefined → stored as null; a blank remark is never a placeholder value.
+   */
+  remark: string;
 }
 
 /**
@@ -35,7 +41,6 @@ export interface LineDraft {
   particulars: ParticularDraft[];
   vendor: string;
   product: string;
-  note: string;
 }
 
 /** Per-head (snapshotId → its lines) editable state. */
@@ -92,29 +97,37 @@ export function isParticularComplete(p: ParticularDraft): boolean {
   return p.name.trim() !== '' && parseRate(p.rate) !== null && parseQuantity(p.quantity) !== null;
 }
 
-/** True when a particular carries any user data at all (drives remove-confirm). */
+/**
+ * True when a particular carries any user data at all (drives remove-confirm). A
+ * remark counts: dropping a row the SPOC has written an explanation on is still a
+ * loss of typed work, even if no figures were entered.
+ */
 export function particularHasData(p: ParticularDraft): boolean {
-  return p.name.trim() !== '' || p.rate.trim() !== '' || p.quantity.trim() !== '';
+  return (
+    p.name.trim() !== '' ||
+    p.rate.trim() !== '' ||
+    p.quantity.trim() !== '' ||
+    p.remark.trim() !== ''
+  );
 }
 
-/** True when a line carries any user data (particulars, vendor, product or note). */
+/** True when a line carries any user data (particulars, vendor or product). */
 function hasData(line: LineDraft): boolean {
   return (
     line.particulars.some(particularHasData) ||
     line.vendor.trim() !== '' ||
-    line.product.trim() !== '' ||
-    line.note.trim() !== ''
+    line.product.trim() !== ''
   );
 }
 
 /** A fresh, empty particular the user just added (never saved yet). */
 export function blankParticular(): ParticularDraft {
-  return { particularId: null, name: '', rate: '', quantity: '' };
+  return { particularId: null, name: '', rate: '', quantity: '', remark: '' };
 }
 
 /** A fresh, empty vendor line — always born with its one required particular. */
 export function blankLine(): LineDraft {
-  return { entryId: null, particulars: [blankParticular()], vendor: '', product: '', note: '' };
+  return { entryId: null, particulars: [blankParticular()], vendor: '', product: '' };
 }
 
 /** Build the editable line state from a freshly-loaded detail (>=1 line per head). */
@@ -132,11 +145,11 @@ export function seedLines(detail: SubmissionDetail): LinesState {
               name: p.particularName ?? '',
               rate: p.rate ?? '',
               quantity: p.quantity ?? '',
+              remark: p.remark ?? '',
             }))
           : [blankParticular()],
       vendor: l.vendorName ?? '',
       product: l.productCode ?? '',
-      note: l.note ?? '',
     }));
   }
   return state;
@@ -148,6 +161,7 @@ function toParticularInput(p: ParticularDraft): ProvisionParticularInput {
     particularName: p.name.trim() || undefined,
     rate: parseRate(p.rate),
     quantity: parseQuantity(p.quantity),
+    remark: p.remark.trim() || undefined,
   };
 }
 
@@ -155,7 +169,6 @@ function toLineInput(line: LineDraft): ProvisionLineInput {
   return {
     entryId: line.entryId ?? undefined,
     particulars: line.particulars.map(toParticularInput),
-    note: line.note.trim() || undefined,
     vendorName: line.vendor.trim() || undefined,
     productCode: line.product.trim() || undefined,
   };
@@ -194,9 +207,10 @@ export function collectSpocEntries(detail: SubmissionDetail, state: LinesState):
 
 /**
  * Manager/finance override payload: edit the PARTICULARS of EXISTING lines only
- * (never add or remove lines/particulars, never touch vendor/product/note). Values
- * and totals re-derive server-side from the rate/quantity sent here, so an
- * override can't assert an amount that contradicts its particulars.
+ * (never add or remove lines/particulars, never touch the line's vendor/product or a
+ * particular's remark). Values and totals re-derive server-side from the
+ * rate/quantity sent here, so an override can't assert an amount that contradicts
+ * its particulars.
  */
 export function collectOverrideEntries(
   detail: SubmissionDetail,
@@ -210,7 +224,15 @@ export function collectOverrideEntries(
         entryId: l.entryId!,
         particulars: l.particulars
           .filter((p) => p.particularId)
-          .map((p) => ({ ...toParticularInput(p), particularId: p.particularId! })),
+          .map((p) => ({
+            particularId: p.particularId!,
+            particularName: p.name.trim() || undefined,
+            rate: parseRate(p.rate),
+            quantity: parseQuantity(p.quantity),
+            // `remark` is deliberately OMITTED: it is SPOC-owned, the server keeps
+            // the stored value on this path, and sending it would only add noise to
+            // the audit diff.
+          })),
       }))
       .filter((l) => l.particulars.length > 0);
     if (payload.length > 0) out.push({ snapshotId: head.snapshotId, lines: payload });
@@ -218,10 +240,15 @@ export function collectOverrideEntries(
   return out;
 }
 
-/** True when a vendor line is fully entered: a product code AND complete particulars. */
+/**
+ * True when a vendor line is fully entered: a vendor name, a product code AND
+ * complete particulars.
+ */
 export function isLineComplete(line: LineDraft): boolean {
   return (
-    // Product code is REQUIRED per vendor line (vendor and note remain optional).
+    // Vendor name and product code are BOTH required per vendor line; only the
+    // per-particular remark stays optional.
+    line.vendor.trim() !== '' &&
     line.product.trim() !== '' &&
     line.particulars.length > 0 &&
     line.particulars.every(isParticularComplete)
@@ -230,8 +257,9 @@ export function isLineComplete(line: LineDraft): boolean {
 
 /**
  * Heads that block submit: a head is incomplete when it has no lines, or when any
- * of its lines is missing a product code, has no particulars, or holds a particular
- * missing a name, a rate or a quantity (0 is valid; blank is not). Amounts are
+ * of its lines is missing a vendor name or a product code, has no particulars, or
+ * holds a particular missing a name, a rate or a quantity (0 is valid; blank is
+ * not). Amounts are
  * derived so they're never independently "missing" — a head is incomplete exactly
  * when one of its lines is. Mirrors the server's submit rule so the button
  * disables before the request rather than after a 422.
@@ -242,4 +270,97 @@ export function incompleteHeadCount(detail: SubmissionDetail, state: LinesState)
     if (lines.length === 0) return true;
     return !lines.every(isLineComplete);
   }).length;
+}
+
+// ── Per-field submit validation (the inline "fix these" markers) ──────────────
+
+/** Which required input a validation error belongs to. */
+export type FieldErrorKind = 'vendor' | 'product' | 'name' | 'rate' | 'quantity';
+
+/**
+ * ONE required field that is not filled in. `key` doubles as the input's DOM id,
+ * so the same value drives the inline marker, the error message and the
+ * scroll-to-first-invalid on a blocked submit.
+ */
+export interface FieldError {
+  key: string;
+  snapshotId: string;
+  lineIndex: number;
+  /** Null for the line-level fields (vendor, product code). */
+  particularIndex: number | null;
+  kind: FieldErrorKind;
+  /** Short, imperative, shown under the field. */
+  message: string;
+}
+
+/** DOM id / error key for a LINE-level required field. */
+export function lineFieldId(snapshotId: string, lineIndex: number, kind: FieldErrorKind): string {
+  return `f-${snapshotId}-l${lineIndex}-${kind}`;
+}
+
+/** DOM id / error key for a PARTICULAR-level required field. */
+export function particularFieldId(
+  snapshotId: string,
+  lineIndex: number,
+  particularIndex: number,
+  kind: FieldErrorKind,
+): string {
+  return `f-${snapshotId}-l${lineIndex}-p${particularIndex}-${kind}`;
+}
+
+/**
+ * Every unfilled required field in the whole form, in DOM order.
+ *
+ * This is `incompleteHeadCount`'s rule at FIELD granularity — the same conditions,
+ * reported one-per-input instead of one-per-head, so submit can mark each offender
+ * inline rather than showing a single sentence about "3 incomplete heads". Both
+ * mirror the server's `assertAllHeadsValued`, which remains the real gate; this is
+ * purely how the gap is shown.
+ *
+ * Deliberately collects EVERYTHING rather than short-circuiting on the first
+ * failure — the point is to let the SPOC see and fix the whole list in one pass.
+ *
+ * Order is the reading order of the form (head → vendor line → vendor, product,
+ * then each particular's name, rate, quantity), so `[0]` really is the topmost
+ * offending field on screen.
+ *
+ * NULL ≠ 0 throughout: a rate or quantity of 0 is complete and valid, a blank one
+ * is missing. Nothing here defaults a blank to 0.
+ */
+export function collectFieldErrors(detail: SubmissionDetail, state: LinesState): FieldError[] {
+  const errors: FieldError[] = [];
+  for (const head of detail.heads as ProvisionHeadRow[]) {
+    const lines = state[head.snapshotId] ?? [];
+    lines.forEach((line, li) => {
+      const at = (kind: FieldErrorKind, message: string) =>
+        errors.push({
+          key: lineFieldId(head.snapshotId, li, kind),
+          snapshotId: head.snapshotId,
+          lineIndex: li,
+          particularIndex: null,
+          kind,
+          message,
+        });
+      if (line.vendor.trim() === '') at('vendor', 'Enter a vendor name');
+      if (line.product.trim() === '') at('product', 'Select a product code');
+
+      line.particulars.forEach((p, pi) => {
+        const atP = (kind: FieldErrorKind, message: string) =>
+          errors.push({
+            key: particularFieldId(head.snapshotId, li, pi, kind),
+            snapshotId: head.snapshotId,
+            lineIndex: li,
+            particularIndex: pi,
+            kind,
+            message,
+          });
+        if (p.name.trim() === '') atP('name', 'Enter a name');
+        // parseRate/parseQuantity return null for blank AND for unparseable text;
+        // 0 parses to 0, which is valid and therefore never flagged.
+        if (parseRate(p.rate) === null) atP('rate', 'Enter a rate');
+        if (parseQuantity(p.quantity) === null) atP('quantity', 'Enter a quantity');
+      });
+    });
+  }
+  return errors;
 }

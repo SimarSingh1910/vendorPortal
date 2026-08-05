@@ -187,7 +187,12 @@ export const TAB_LABELS: Record<PortalTab, string> = {
 /** Human-readable labels for submission statuses. */
 export const SUBMISSION_STATUS_LABELS: Record<SubmissionStatus, string> = {
   [SubmissionStatus.NOT_STARTED]: 'Not Started',
-  [SubmissionStatus.DRAFT]: 'Draft',
+  // DRAFT reads as "Not Started" too, by request. To anyone reviewing a cycle the
+  // two are the same thing — nothing has been submitted — and the distinction
+  // (cycle opened vs. SPOC part-way through) is internal bookkeeping. The ENUM
+  // VALUES stay separate: they drive different workflow transitions, are persisted,
+  // and are baked into audit history. Only the label is shared.
+  [SubmissionStatus.DRAFT]: 'Not Started',
   [SubmissionStatus.SUBMITTED]: 'Submitted',
   [SubmissionStatus.CLINIC_MANAGER_REVIEW]: 'Cluster Manager Review',
   [SubmissionStatus.CLINIC_APPROVED]: 'Clinic Approved',
@@ -196,3 +201,31 @@ export const SUBMISSION_STATUS_LABELS: Record<SubmissionStatus, string> = {
   [SubmissionStatus.SENT_BACK_BY_MANAGER]: 'Sent Back by Manager',
   [SubmissionStatus.SENT_BACK_BY_FINANCE]: 'Sent Back by Finance',
 };
+
+/**
+ * Every status that SHARES a label with the given one — itself, plus any other
+ * status the UI presents under the same name (today: NOT_STARTED and DRAFT both
+ * read "Not Started").
+ *
+ * This exists so a merged label stays honest in a FILTER. Two options reading
+ * "Not Started" that match different rows would be a trap: picking one would
+ * silently omit half the clinics the user meant. Filters therefore offer one
+ * option per distinct LABEL and expand it back to every status behind it.
+ */
+export function statusesSharingLabel(status: SubmissionStatus): SubmissionStatus[] {
+  const label = SUBMISSION_STATUS_LABELS[status];
+  return (Object.values(SubmissionStatus) as SubmissionStatus[]).filter(
+    (s) => SUBMISSION_STATUS_LABELS[s] === label,
+  );
+}
+
+/** One entry per DISTINCT status label, for filter dropdowns. */
+export const SUBMISSION_STATUS_FILTER_OPTIONS: ReadonlyArray<{
+  id: SubmissionStatus;
+  name: string;
+}> = (Object.values(SubmissionStatus) as SubmissionStatus[])
+  .filter(
+    (s, i, all) =>
+      all.findIndex((o) => SUBMISSION_STATUS_LABELS[o] === SUBMISSION_STATUS_LABELS[s]) === i,
+  )
+  .map((s) => ({ id: s, name: SUBMISSION_STATUS_LABELS[s] }));

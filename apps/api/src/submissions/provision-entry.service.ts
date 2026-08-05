@@ -41,6 +41,8 @@ interface ResolvedParticular {
   rateMinor: bigint | null;
   quantityMinor: bigint | null;
   valueMinor: bigint | null;
+  /** SPOC's optional free text on this row; blank/whitespace normalised to null. */
+  remark: string | null;
 }
 
 /** Statuses in which the clinic manager owns the submission and may override values. */
@@ -163,6 +165,7 @@ export class ProvisionEntryService {
           ? null
           : toMinorUnits(p.quantity, QUANTITY_DECIMALS),
       valueMinor,
+      remark: p.remark?.trim() || null,
     };
   }
 
@@ -189,6 +192,7 @@ export class ProvisionEntryService {
       quantity:
         p.quantityMinor === null ? null : minorToDecimalString(p.quantityMinor, QUANTITY_DECIMALS),
       value: p.valueMinor === null ? null : minorToDecimalString(p.valueMinor),
+      remark: p.remark,
     };
   }
 
@@ -215,7 +219,6 @@ export class ProvisionEntryService {
             amount: true,
             vendorName: true,
             productCode: true,
-            note: true,
             particulars: {
               orderBy: { lineOrder: 'asc' },
               select: {
@@ -224,6 +227,9 @@ export class ProvisionEntryService {
                 rate: true,
                 quantity: true,
                 value: true,
+                // Needed by the override path, which must PRESERVE the SPOC's
+                // remark while rewriting the row's rate/quantity/value.
+                remark: true,
               },
             },
           },
@@ -276,13 +282,16 @@ export class ProvisionEntryService {
           rate: p.rate === null ? null : p.rate.toFixed(RATE_DECIMALS),
           quantity: p.quantity === null ? null : p.quantity.toFixed(QUANTITY_DECIMALS),
           value: p.value === null ? null : p.value.toFixed(2),
+          // The per-particular remark rides the existing PROVISION_SAVE audit row:
+          // it is part of the before-image, so an edited remark shows in old→new.
+          remark: p.remark,
         })),
       })),
     );
 
-    // Only the SPOC owns the per-line note, vendor name and product code;
-    // manager/finance value overrides leave all three untouched. Blank or
-    // whitespace-only text is stored as null (never empty strings). The product
+    // Only the SPOC owns the per-particular remark and the line's vendor name and
+    // product code; manager/finance value overrides leave all three untouched. Blank
+    // or whitespace-only text is stored as null (never empty strings). The product
     // code is validated against the fixed set by the DTO.
     const writesSpocFields = kind === 'spoc';
     const trimOrNull = (v?: string): string | null => v?.trim() || null;
@@ -308,7 +317,6 @@ export class ProvisionEntryService {
               lineOrder: i,
               // DERIVED — recomputed from the particulars on every single save.
               amount: this.lineAmount(resolved),
-              note: trimOrNull(line.note),
               vendorName: trimOrNull(line.vendorName),
               productCode: trimOrNull(line.productCode),
             };
@@ -361,7 +369,7 @@ export class ProvisionEntryService {
           // Manager/finance override (BR-08): edit the PARTICULARS of existing
           // lines — the level values now live at — and let every total re-sum from
           // them. Reviewers may not add or remove lines/particulars, nor touch the
-          // SPOC's vendor/product/note. Because the line amount is recomputed here
+          // SPOC's vendor/product or a particular's remark. Because the line amount is recomputed here
           // exactly as on the SPOC path, an override can never leave a head amount
           // that contradicts its particulars.
           for (const line of item.lines) {
@@ -373,17 +381,20 @@ export class ProvisionEntryService {
             // Start from what is stored and apply the override on top, so the
             // recomputed amount covers ALL of the line's particulars, not just the
             // subset the reviewer edited.
+            // The remark is SPOC-owned, so it is always taken from what is STORED —
+            // a reviewer cannot rewrite (or blank) the explanation, whether or not
+            // their payload carries a `remark`.
             const resolved = current.particulars.map((stored) => {
               const patch = byId.get(stored.id);
-              if (!patch) {
-                return this.resolveParticular({
-                  particularId: stored.id,
-                  particularName: stored.particularName ?? undefined,
-                  rate: stored.rate === null ? null : Number(stored.rate),
-                  quantity: stored.quantity === null ? null : Number(stored.quantity),
-                });
-              }
-              return this.resolveParticular({ ...patch, particularId: stored.id });
+              const base = patch
+                ? this.resolveParticular({ ...patch, particularId: stored.id })
+                : this.resolveParticular({
+                    particularId: stored.id,
+                    particularName: stored.particularName ?? undefined,
+                    rate: stored.rate === null ? null : Number(stored.rate),
+                    quantity: stored.quantity === null ? null : Number(stored.quantity),
+                  });
+              return { ...base, remark: stored.remark };
             });
             for (const p of line.particulars) {
               if (!p.particularId) {

@@ -33,7 +33,13 @@ export function CorpDepartmentTotalsChart({ data }: { data: CorpDepartmentTotalP
     <div className="space-y-2">
       {rows.map((r) => (
         <div key={r.name} className="flex items-center gap-3 text-sm">
-          <span className="w-40 shrink-0 truncate text-right text-muted-foreground">{r.name}</span>
+          {/* Same fixed-width clipping as the clinic-wise chart — full name on hover. */}
+          <span
+            className="w-40 shrink-0 truncate text-right text-muted-foreground"
+            title={r.name}
+          >
+            {r.name}
+          </span>
           <div className="h-5 flex-1 overflow-hidden rounded bg-muted">
             <div
               className="h-full rounded"

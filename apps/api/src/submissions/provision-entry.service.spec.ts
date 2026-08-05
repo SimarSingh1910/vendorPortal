@@ -74,10 +74,10 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
    * use wherever the old typed `amount` used to be. A null amount is a
    * started-but-blank particular (no name/rate/quantity), which submit rejects.
    */
-  function amt(amount: number | null, particularId?: string) {
+  function amt(amount: number | null, particularId?: string, remark?: string) {
     return amount === null
-      ? { particularId, particularName: undefined, rate: null, quantity: null }
-      : { particularId, particularName: 'Amount', rate: amount, quantity: 1 };
+      ? { particularId, particularName: undefined, rate: null, quantity: null, remark }
+      : { particularId, particularName: 'Amount', rate: amount, quantity: 1, remark };
   }
 
   /** A single-line, single-particular save payload for one head. */
@@ -85,7 +85,8 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
     snapshotId: string,
     amount: number | null,
     extras: {
-      note?: string;
+      /** Goes on the ONE particular this helper builds (remarks are per-particular). */
+      remark?: string;
       vendorName?: string;
       productCode?: string;
       entryId?: string;
@@ -98,11 +99,11 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
         lines: [
           {
             entryId: extras.entryId,
-            particulars: [amt(amount, extras.particularId)],
-            note: extras.note,
-            vendorName: extras.vendorName,
-            // Product code is REQUIRED at submit, so the default helper builds a
-            // complete line. Pass '' explicitly to model an unfilled/cleared one.
+            particulars: [amt(amount, extras.particularId, extras.remark)],
+            // Vendor name and product code are BOTH required at submit, so the
+            // default helper builds a complete line. Pass '' explicitly for either
+            // to model an unfilled/cleared one.
+            vendorName: extras.vendorName ?? 'Acme Services',
             productCode: extras.productCode ?? 'P20',
           },
         ],
@@ -453,10 +454,14 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
 
   it('submit blocks on a particular missing a name/rate/quantity and names it; 0 is valid', async () => {
     const { submission, spoc, snapshotIds } = await setup(1);
-    // Product code present throughout — this test isolates PARTICULAR completeness.
+    // Vendor + product code present throughout — this test isolates PARTICULAR
+    // completeness, so the line-level required fields must never be the fault.
     const save = (particulars: unknown[]) =>
       entries.saveEntries(submission.id, spoc, [
-        { snapshotId: snapshotIds[0], lines: [{ particulars, productCode: 'P20' }] } as never,
+        {
+          snapshotId: snapshotIds[0],
+          lines: [{ particulars, productCode: 'P20', vendorName: 'Acme Services' }],
+        } as never,
       ]);
 
     // Missing name.
@@ -547,8 +552,10 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
     await entries.saveEntries(submission.id, spoc, [
       {
         snapshotId,
+        // Both lines carry vendor + product code, so the BLANK AMOUNT is the only
+        // thing that can block submit here.
         lines: [
-          { particulars: [amt(100)], productCode: 'P20' },
+          { particulars: [amt(100)], vendorName: 'complete', productCode: 'P20' },
           { particulars: [amt(null)], vendorName: 'incomplete', productCode: 'P20' },
         ],
       },
@@ -565,6 +572,9 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
         lines: head.lines.map((l) => ({
           entryId: l.entryId!,
           productCode: 'P20',
+          // Resent: a SPOC save rewrites the line's fields wholesale, so omitting
+          // the vendor here would CLEAR it and re-block submit on a different fault.
+          vendorName: l.vendorName ?? 'complete',
           particulars: [amt(Number(l.amount ?? 50), l.particulars[0].particularId!)],
         })),
       },
@@ -663,6 +673,9 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
           {
             entryId: original.id,
             productCode: 'P20',
+            // Echoed back by the helper that built the payload; the override path
+            // ignores it and keeps the SPOC's stored vendor either way.
+            vendorName: 'Acme Services',
             particulars: [
               {
                 particularId: ids.particularId,
@@ -705,73 +718,88 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
     await expectStatus(entries.saveEntries(submission.id, outsideManager, []), 403);
   });
 
-  // ── SPOC per-line notes ──────────────────────────────────────────────────────
+  // ── SPOC per-PARTICULAR remarks ──────────────────────────────────────────────
+  // The explanation used to hang off the vendor line as `note`; it now sits on the
+  // particular whose figure it explains. The line carries no free text at all.
 
-  it('persists a SPOC note with the entry, returns it in detail, and clearing it stores null', async () => {
+  it('persists a SPOC remark on the particular, returns it in detail, and clearing it stores null', async () => {
     const { submission, spoc, snapshotIds } = await setup(2);
 
     const saved = await entries.saveEntries(submission.id, spoc, [
-      ...one(snapshotIds[0], 500, { note: '  spiked due to new equipment  ' }),
-      ...one(snapshotIds[1], 100), // no note → null
+      ...one(snapshotIds[0], 500, { remark: '  spiked due to new equipment  ' }),
+      ...one(snapshotIds[1], 100), // no remark → null
     ]);
-    const line0 = (h: typeof saved) => h.heads.find((x) => x.snapshotId === snapshotIds[0])!.lines[0];
-    expect(line0(saved).note).toBe('spiked due to new equipment');
-    expect(saved.heads.find((h) => h.snapshotId === snapshotIds[1])!.lines[0].note).toBeNull();
+    const p0 = (h: typeof saved) =>
+      h.heads.find((x) => x.snapshotId === snapshotIds[0])!.lines[0].particulars[0];
+    expect(p0(saved).remark).toBe('spiked due to new equipment');
+    expect(
+      saved.heads.find((h) => h.snapshotId === snapshotIds[1])!.lines[0].particulars[0].remark,
+    ).toBeNull();
 
-    // Persisted: a fresh read returns the note.
+    // Persisted: a fresh read returns the remark.
     const refetched = await submissions.getDetail(submission.id, spoc);
-    expect(line0(refetched).note).toBe('spiked due to new equipment');
+    expect(p0(refetched).remark).toBe('spiked due to new equipment');
 
-    // Clearing it (whitespace-only) stores null and leaves the amount intact.
-    const id = line0(refetched).entryId!;
-    const cleared = await entries.saveEntries(submission.id, spoc, one(snapshotIds[0], 500, { note: '   ', entryId: id }));
-    const h0 = cleared.heads.find((h) => h.snapshotId === snapshotIds[0])!.lines[0];
-    expect(h0.note).toBeNull();
-    expect(h0.amount).toBe('500.00');
+    // Clearing it (whitespace-only) stores null and leaves the value intact.
+    const head0 = refetched.heads.find((h) => h.snapshotId === snapshotIds[0])!;
+    const cleared = await entries.saveEntries(
+      submission.id,
+      spoc,
+      one(snapshotIds[0], 500, {
+        remark: '   ',
+        entryId: head0.lines[0].entryId!,
+        particularId: head0.lines[0].particulars[0].particularId!,
+      }),
+    );
+    const line = cleared.heads.find((h) => h.snapshotId === snapshotIds[0])!.lines[0];
+    expect(line.particulars[0].remark).toBeNull();
+    expect(line.particulars[0].value).toBe('500.00');
+    expect(line.amount).toBe('500.00');
   });
 
-  it('a SPOC note is editable only while SPOC-editable; once submitted the SPOC is rejected (409)', async () => {
+  it('a remark is editable only while SPOC-editable; once submitted the SPOC is rejected (409)', async () => {
     const { submission, spoc, snapshotIds } = await setup(1);
 
-    const draft = await entries.saveEntries(submission.id, spoc, one(snapshotIds[0], 10, { note: 'editable note' }));
+    const draft = await entries.saveEntries(submission.id, spoc, one(snapshotIds[0], 10, { remark: 'editable remark' }));
     expect(draft.status).toBe(SubmissionStatus.DRAFT);
-    expect(draft.heads[0].lines[0].note).toBe('editable note');
+    expect(draft.heads[0].lines[0].particulars[0].remark).toBe('editable remark');
 
     await workflow.submit(submission.id, spoc);
-    await expectStatus(entries.saveEntries(submission.id, spoc, one(snapshotIds[0], 10, { note: 'too late' })), 409);
-    expect((await submissions.getDetail(submission.id, spoc)).heads[0].lines[0].note).toBe('editable note');
+    await expectStatus(entries.saveEntries(submission.id, spoc, one(snapshotIds[0], 10, { remark: 'too late' })), 409);
+    expect(
+      (await submissions.getDetail(submission.id, spoc)).heads[0].lines[0].particulars[0].remark,
+    ).toBe('editable remark');
   });
 
-  it('reviewers receive the SPOC note in detail; a value override leaves the note untouched', async () => {
+  it('reviewers receive the remark in detail; a value override leaves it untouched', async () => {
     const { clinic, submission, spoc, snapshotIds } = await setup(1);
-    await entries.saveEntries(submission.id, spoc, one(snapshotIds[0], 700, { note: 'rent revised in lease renewal' }));
+    await entries.saveEntries(submission.id, spoc, one(snapshotIds[0], 700, { remark: 'rent revised in lease renewal' }));
     await workflow.submit(submission.id, spoc);
 
     const manager = (await fx.makeUser(UserRole.CLINIC_MANAGER, [clinic.id])).user;
     const finance = (await fx.makeUser(UserRole.FINANCE_ADMIN)).user;
 
-    expect((await submissions.getDetail(submission.id, manager)).heads[0].lines[0].note).toBe(
-      'rent revised in lease renewal',
-    );
-    expect((await submissions.getDetail(submission.id, finance)).heads[0].lines[0].note).toBe(
-      'rent revised in lease renewal',
-    );
+    const remarkFor = async (user: RequestUser) =>
+      (await submissions.getDetail(submission.id, user)).heads[0].lines[0].particulars[0].remark;
+    expect(await remarkFor(manager)).toBe('rent revised in lease renewal');
+    expect(await remarkFor(finance)).toBe('rent revised in lease renewal');
 
-    // The note is SPOC-owned: a manager override (only particulars are sent)
-    // doesn't change it.
+    // The remark is SPOC-owned: a manager override rewrites the rate/quantity and
+    // leaves the remark exactly as the SPOC wrote it — even when the override
+    // payload carries a different one.
     const ids = await firstIds(submission.id, manager, snapshotIds[0]);
     await runWithRequestContext({ user: { id: manager.id } }, () =>
-      entries.saveEntries(submission.id, manager, one(snapshotIds[0], 1234, ids)),
+      entries.saveEntries(submission.id, manager, one(snapshotIds[0], 1234, { ...ids, remark: 'reviewer text' })),
     );
     const after = await submissions.getDetail(submission.id, manager);
     expect(after.heads[0].lines[0].amount).toBe('1234.00'); // value overridden
-    expect(after.heads[0].lines[0].note).toBe('rent revised in lease renewal'); // note preserved
+    expect(after.heads[0].lines[0].particulars[0].remark).toBe('rent revised in lease renewal');
   });
 
-  it('saving a note records no audit row beyond the single PROVISION_SAVE', async () => {
+  it('saving a remark records no audit row beyond the single PROVISION_SAVE', async () => {
     const { submission, spoc, snapshotIds } = await setup(1);
 
-    await entries.saveEntries(submission.id, spoc, one(snapshotIds[0], 50, { note: 'just a note' }));
+    await entries.saveEntries(submission.id, spoc, one(snapshotIds[0], 50, { remark: 'just a remark' }));
 
     const provisionAudits = await prisma.auditLog.findMany({
       where: {
@@ -790,7 +818,7 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
 
     const saved = await entries.saveEntries(submission.id, spoc, [
       ...one(snapshotIds[0], 500, { vendorName: '  Acme Medical Supplies  ' }),
-      ...one(snapshotIds[1], 100), // no vendor → null
+      ...one(snapshotIds[1], 100, { vendorName: '' }), // left unfilled → stored null
     ]);
     const l0 = (d: typeof saved) => d.heads.find((x) => x.snapshotId === snapshotIds[0])!.lines[0];
     expect(l0(saved).vendorName).toBe('Acme Medical Supplies');
@@ -806,12 +834,29 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
     expect(h0.amount).toBe('500.00');
   });
 
-  it('submit succeeds with the vendor name blank — it is optional (completeness rule unchanged)', async () => {
+  it('submit is BLOCKED while a vendor name is blank, and passes once every line has one', async () => {
     const { submission, spoc, snapshotIds } = await setup(2);
     await entries.saveEntries(submission.id, spoc, [
-      ...one(snapshotIds[0], 100), // no vendor
+      ...one(snapshotIds[0], 100, { vendorName: '' }), // unfilled
       ...one(snapshotIds[1], 200, { vendorName: 'Only on one line' }),
     ]);
+
+    // A partial draft SAVES fine — the vendor is only required to submit, exactly
+    // like the product code. It is stored as null, never coerced to a placeholder.
+    const draft = await submissions.getDetail(submission.id, spoc);
+    expect(draft.heads.find((h) => h.snapshotId === snapshotIds[0])!.lines[0].vendorName).toBeNull();
+    expect(draft.status).toBe(SubmissionStatus.DRAFT);
+
+    const err = await workflow.submit(submission.id, spoc).catch((e: Error) => e);
+    expect((err as Error).message).toContain('needs a vendor name');
+
+    // Fill it → submit passes.
+    const id = draft.heads.find((h) => h.snapshotId === snapshotIds[0])!.lines[0].entryId!;
+    await entries.saveEntries(
+      submission.id,
+      spoc,
+      one(snapshotIds[0], 100, { vendorName: 'Acme Medical Supplies', entryId: id }),
+    );
     await workflow.submit(submission.id, spoc);
     expect((await submissions.getDetail(submission.id, spoc)).status).toBe(SubmissionStatus.SUBMITTED);
   });
@@ -918,8 +963,9 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
       {
         snapshotId,
         lines: [
-          { particulars: [amt(100)], productCode: 'P20' },
-          { particulars: [amt(250)] }, // line 2 has no code
+          { particulars: [amt(100)], productCode: 'P20', vendorName: 'Vendor A' },
+          // Line 2 has no code (its vendor IS filled, so the code is the only fault).
+          { particulars: [amt(250)], vendorName: 'Vendor B' },
         ],
       },
     ]);

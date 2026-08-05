@@ -4,6 +4,7 @@ import { JwtService, type JwtSignOptions } from '@nestjs/jwt';
 import { createHash, randomUUID } from 'node:crypto';
 import * as bcrypt from 'bcrypt';
 import type { User } from '@prisma/client';
+import { PortalTab, roleCanAccessTab } from '@portal/shared';
 import type { AuthUser, JwtClaims, UserRole } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -38,8 +39,19 @@ export class AuthService {
 
   // ── Public endpoints ───────────────────────────────────────────────────────
 
-  /** Verify credentials and issue the first token pair. */
-  async login(email: string, password: string): Promise<IssuedSession> {
+  /**
+   * Verify credentials and issue the first token pair.
+   *
+   * `portal` is the tab the sign-in came from. When given, the account must be
+   * entitled to that portal — a clinic user cannot sign in on the Corporate tab and
+   * vice versa. FINANCE_ADMIN is the one cross-portal role and passes on either.
+   * The check reuses `roleCanAccessTab`, the same predicate the route guard uses,
+   * so login and navigation can never disagree about who belongs where.
+   *
+   * Optional so a caller that doesn't model portals (scripts, older clients) still
+   * authenticates exactly as before.
+   */
+  async login(email: string, password: string, portal?: PortalTab): Promise<IssuedSession> {
     const user = await this.prisma.user.findUnique({ where: { email } });
     // Same generic error whether the email is unknown, the password is wrong, or
     // the account is deactivated — never leak which.
@@ -52,6 +64,19 @@ export class AuthService {
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) {
       throw new UnauthorizedException('Invalid credentials');
+    }
+    // DELIBERATELY after the password check, and only then specific about why.
+    // Naming the right portal to someone who has NOT proved the password would
+    // confirm the address exists and hint at its role — the enumeration leak the
+    // generic error above exists to prevent. Once the password is verified the
+    // caller could learn the same thing simply by retrying on the other tab, so
+    // saying it plainly costs nothing and saves them guessing.
+    if (portal && !roleCanAccessTab(user.role as UserRole, portal)) {
+      throw new UnauthorizedException(
+        portal === PortalTab.CORPORATE
+          ? 'This account is not set up for the Corporate portal. Please sign in from the Clinic tab.'
+          : 'This account is not set up for the Clinic portal. Please sign in from the Corporate tab.',
+      );
     }
     return this.issueTokens(user);
   }

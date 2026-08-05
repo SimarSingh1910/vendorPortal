@@ -585,9 +585,15 @@ export class DashboardService {
       }),
       // ACTIVE SPOCs covering the accessible clinics. Distinct by user, because a
       // SPOC assigned to several clinics must appear once in the dropdown, not
-      // once per clinic. Only offered cross-clinic (finance); a clinic-scoped
-      // viewer has a single clinic and nothing to filter.
-      clinicIds.length && isFinanceRole(user.role)
+      // once per clinic.
+      //
+      // Offered to CLINIC ROLES TOO (Step 11.3): a cluster manager covering
+      // several clinics has several SPOCs and a real reason to filter by one. The
+      // `clinicId IN accessible` predicate is what makes that safe — the list is
+      // derived FROM the caller's own clinic scope, so it can only ever name
+      // SPOCs of clinics they already see, and a single-clinic SPOC just gets
+      // themselves. Scope, not role, is the gate.
+      clinicIds.length
         ? this.prisma.user.findMany({
             where: {
               role: UserRole.CLINIC_SPOC,

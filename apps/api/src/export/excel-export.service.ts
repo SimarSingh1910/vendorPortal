@@ -23,25 +23,33 @@ const INR_FMT = '[>=10000000]#,##,##,##0.00;[>=100000]#,##,##0.00;#,##0.00';
  * line's particulars — so the column still sums to exactly the same grand total as
  * the old one-row-per-vendor-line sheet, over more rows.
  *
- * The original ten columns keep their exact headers AND positions. Particular /
- * Rate / Quantity are APPENDED at positions 11-13, so an existing template that
- * reads the first ten columns is unaffected.
+ * DESCRIPTION IS THE PARTICULAR NAME. The row describes a particular, so the sheet
+ * reads left-to-right as the arithmetic behind it: Description (what) → Rate ×
+ * Quantity → Amount (LCY). That replaces the earlier layout, where Description
+ * carried the SPOC's free text and Rate/Quantity sat orphaned at the far right,
+ * away from the Amount they produce. There is consequently no separate `Particular`
+ * column — it WAS this column's content all along.
+ *
+ * REMARKS IS LAST. The SPOC's per-particular free text is commentary, not a figure,
+ * so it sits after the clinic/product codes rather than interrupting them.
  */
 const COLUMNS: Array<{ key: string; header: string; width: number }> = [
   { key: 'glNo', header: 'G/L Account No.', width: 18 },
   { key: 'glName', header: 'G/L Account Name', width: 30 },
   { key: 'month', header: 'Month', width: 10 },
+  // The particular's own name — and the three columns that derive its amount, kept
+  // adjacent so `Rate × Quantity = Amount (LCY)` reads across in one glance.
   { key: 'description', header: 'Description', width: 34 },
+  { key: 'rate', header: 'Rate', width: 14 },
+  { key: 'quantity', header: 'Quantity', width: 12 },
   { key: 'amount', header: 'Amount (LCY)', width: 16 },
   { key: 'vendor', header: 'Vendor Name', width: 24 },
   { key: 'clinic', header: 'Clinic Name', width: 26 },
   { key: 'accLocation', header: 'Acc. Location Code', width: 18 },
   { key: 'customer', header: 'Customer Code', width: 18 },
   { key: 'product', header: 'Product Code', width: 14 },
-  // ── Appended for the particulars model; never reorder the ten above. ──
-  { key: 'particular', header: 'Particular', width: 30 },
-  { key: 'rate', header: 'Rate', width: 14 },
-  { key: 'quantity', header: 'Quantity', width: 12 },
+  // ── Free text last: it annotates the row, it isn't part of its arithmetic. ──
+  { key: 'remarks', header: 'Remarks', width: 34 },
 ];
 
 /** Rate carries 4 dp and quantity 3 dp — show them as entered, not as money. */
@@ -108,7 +116,12 @@ function writeCorpSheet(sheet: Worksheet, rows: CorpExportRow[]): void {
  *
  * Amounts, rates and quantities are real numbers (spreadsheet-live, so finance can
  * re-total or re-derive rate × quantity in the sheet itself); a null
- * note/vendor/product/particular name is blank (never "null"/"0").
+ * remark/vendor/product/particular name is blank (never "null"/"0").
+ *
+ * Description = the PARTICULAR's name, sat immediately before the Rate × Quantity
+ * that produce its Amount. The SPOC's free text is a separate `Remarks` column at
+ * the far right — it is per-particular too, so like Description it varies row by
+ * row rather than repeating down a vendor line.
  */
 function writeLineSheet(sheet: Worksheet, rows: ExportRow[]): void {
   sheet.columns = COLUMNS.map((c) => ({ key: c.key, width: c.width }));
@@ -121,16 +134,16 @@ function writeLineSheet(sheet: Worksheet, rows: ExportRow[]): void {
       glNo: r.glAccountNo,
       glName: r.glAccountName,
       month: r.month,
-      description: r.note ?? '',
+      description: r.particularName ?? '',
+      rate: Number(r.rate),
+      quantity: Number(r.quantity),
       amount: Number(r.amount),
       vendor: r.vendorName ?? '',
       clinic: r.clinicName,
       accLocation: r.accLocationCode,
       customer: r.customerCode,
       product: r.productCode ?? '',
-      particular: r.particularName ?? '',
-      rate: Number(r.rate),
-      quantity: Number(r.quantity),
+      remarks: r.remark ?? '',
     });
     added.getCell('amount').numFmt = INR_FMT;
     added.getCell('rate').numFmt = RATE_FMT;

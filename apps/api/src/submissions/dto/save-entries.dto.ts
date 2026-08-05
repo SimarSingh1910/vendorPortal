@@ -53,6 +53,15 @@ export class ProvisionParticularItemDto {
   @Min(0)
   @Max(9999999.999)
   quantity!: number | null;
+
+  // Optional SPOC remark on THIS particular (why its figure moved). Blank/
+  // whitespace is normalised to null by the service (don't persist empty strings);
+  // same length cap as the submit comment. SPOC-owned: a manager/finance override
+  // may send it, but the override path preserves the stored value.
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  remark?: string;
 }
 
 /**
@@ -77,15 +86,12 @@ export class ProvisionLineItemDto {
   @Type(() => ProvisionParticularItemDto)
   particulars!: ProvisionParticularItemDto[];
 
-  // Optional SPOC line-item note. Blank/whitespace is normalised to null by the
-  // service (don't persist empty strings); same length cap as the submit comment.
-  @IsOptional()
-  @IsString()
-  @MaxLength(2000)
-  note?: string;
+  // NOTE: the line-level `note` moved DOWN to the particular (`remark` above) —
+  // see 20260730120000_particular_remark. There is no line-level free text left.
 
-  // Optional free-text vendor name for this line. Blank/whitespace is normalised
-  // to null by the service (never an empty string).
+  // Free-text vendor name for this line. REQUIRED at submit but OPTIONAL here, so a
+  // half-filled draft still saves (the same split as productCode); blank/whitespace
+  // is normalised to null by the service (never an empty string).
   @IsOptional()
   @IsString()
   @MaxLength(191)

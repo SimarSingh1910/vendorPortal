@@ -1,15 +1,21 @@
 import { useCallback } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import type { AuthResponse } from '@portal/shared';
+import type { AuthResponse, PortalTab } from '@portal/shared';
 import { apiClient } from '@/lib/apiClient';
 import { queryClient } from '@/lib/queryClient';
 import { useAuthStore } from '@/store/auth.store';
-import { roleHome } from '@/auth/roles';
+import { tabHome } from '@/auth/roles';
 
 export interface LoginCredentials {
   email: string;
   password: string;
+  /**
+   * The portal tab the sign-in was made from. The API rejects an account that
+   * isn't entitled to it, so this is a real credential-scoping input, not a UI
+   * preference.
+   */
+  portal: PortalTab;
 }
 
 /**
@@ -25,10 +31,13 @@ export function useAuthActions() {
       const { data } = await apiClient.post<AuthResponse>('/auth/login', credentials);
       return data;
     },
-    onSuccess: (data) => {
+    onSuccess: (data, credentials) => {
       useAuthStore.getState().setSession(data.accessToken, data.user);
       queryClient.clear();
-      navigate(roleHome(data.user.role), { replace: true });
+      // Land in the tab they signed in from. Only differs for FINANCE_ADMIN, the
+      // one role in both portals: signing in on Corporate should open Corporate,
+      // not their clinic home.
+      navigate(tabHome(data.user.role, credentials.portal), { replace: true });
     },
   });
 

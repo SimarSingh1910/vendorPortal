@@ -26,6 +26,7 @@ const BLANK_PARTICULAR: ProvisionParticular = {
   rate: null,
   quantity: null,
   value: null,
+  remark: null,
   lineOrder: 0,
 };
 
@@ -203,7 +204,6 @@ export class SubmissionsService {
                 entryId: e.id,
                 // DERIVED server-side from the particulars on save; read back here.
                 amount: e.amount === null ? null : e.amount.toFixed(2),
-                note: e.note ?? null,
                 vendorName: e.vendorName ?? null,
                 productCode: e.productCode ?? null,
                 lineOrder: e.lineOrder,
@@ -216,6 +216,7 @@ export class SubmissionsService {
                         quantity:
                           p.quantity === null ? null : p.quantity.toFixed(QUANTITY_DECIMALS),
                         value: p.value === null ? null : p.value.toFixed(2),
+                        remark: p.remark ?? null,
                         lineOrder: p.lineOrder,
                       }))
                     : [BLANK_PARTICULAR],
@@ -224,7 +225,6 @@ export class SubmissionsService {
                 {
                   entryId: null,
                   amount: null,
-                  note: null,
                   vendorName: null,
                   productCode: null,
                   lineOrder: 0,

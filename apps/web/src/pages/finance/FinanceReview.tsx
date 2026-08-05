@@ -56,6 +56,14 @@ import {
   statusLabel,
 } from '@/lib/format';
 import { MonthwiseReportPanel } from '@/components/MonthwiseReportPanel';
+import {
+  HEAD_HIGHLIGHT_CELL,
+  HEAD_HIGHLIGHT_ROW,
+  HEAD_JUMP_BUTTON,
+  headAnchorId,
+  reportHeadAnchorId,
+  useHeadHighlight,
+} from '@/lib/headHighlight';
 
 export function FinanceReview() {
   const { submissionId = '' } = useParams();
@@ -74,6 +82,17 @@ export function FinanceReview() {
   const [unlockReason, setUnlockReason] = useState('');
   const [lines, setLines] = useState<LinesState>({});
   const [error, setError] = useState<string | null>(null);
+  // Chart → table jump: clicking a G/L head in the month-wise chart below scrolls to
+  // and briefly highlights that head's block above. Navigation only — no data change.
+  const { highlightedHeadId, highlightHead } = useHeadHighlight();
+  // The reverse jump: clicking this table's G/L number/name drops to that head's row
+  // in the trend report below, so a figure can be checked against its own history in
+  // one click. A separate instance so the two highlights never fight.
+  const {
+    highlightedHeadId: trendHeadId,
+    highlightNonce: trendNonce,
+    highlightHead: jumpToTrend,
+  } = useHeadHighlight(reportHeadAnchorId);
 
   const { data: detail, isLoading } = useQuery({
     queryKey: ['submissions', 'detail', submissionId],
@@ -261,31 +280,51 @@ export function FinanceReview() {
             {detail.heads.map((head) => {
               const headLines = lines[head.snapshotId] ?? [];
               const headTotal = minorToAmountString(headAmountMinor(headLines));
+              // Highlighted by a click on this head in the chart below.
+              const lit = highlightedHeadId === head.expenseHeadId;
               return (
                 <Fragment key={head.snapshotId}>
                   {headLines.map((line, li) => {
                     const lineAmount = minorToAmountString(lineAmountMinor(line));
                     return (
                     <Fragment key={line.entryId ?? `line-${li}`}>
-                    <TableRow className={li === 0 ? HEAD_ROW : VENDOR_ROW}>
-                      <TableCell className={cn('align-top', li === 0 ? HEAD_TEXT : 'text-muted-foreground')}>
-                        {li === 0 ? head.glAccountNo : ''}
+                    <TableRow className={cn(li === 0 ? HEAD_ROW : VENDOR_ROW, lit && HEAD_HIGHLIGHT_ROW)}>
+                      <TableCell
+                        // Scroll target for this head, keyed by expense-head id.
+                        id={li === 0 ? headAnchorId(head.expenseHeadId) : undefined}
+                        className={cn(
+                          'scroll-mt-24 align-top',
+                          li === 0 ? HEAD_TEXT : 'text-muted-foreground',
+                          lit && HEAD_HIGHLIGHT_CELL,
+                        )}
+                      >
+                        {/* Both G/L cells jump DOWN to this head's row in the
+                            trend report — read-only navigation, nothing is
+                            selected or saved. Only on the head row (li === 0),
+                            which is the only one that names the G/L. */}
+                        {li === 0 && (
+                          <button
+                            type="button"
+                            className={HEAD_JUMP_BUTTON}
+                            title={`See ${head.glAccountName} in the month-wise report below`}
+                            onClick={() => jumpToTrend(head.expenseHeadId)}
+                          >
+                            {head.glAccountNo}
+                          </button>
+                        )}
                       </TableCell>
                       <TableCell className={cn('align-top', li === 0 ? HEAD_TEXT : 'font-medium')}>
                         {li === 0 ? (
-                          <div>{head.glAccountName}</div>
+                          <button
+                            type="button"
+                            className={HEAD_JUMP_BUTTON}
+                            title={`See ${head.glAccountName} in the month-wise report below`}
+                            onClick={() => jumpToTrend(head.expenseHeadId)}
+                          >
+                            {head.glAccountName}
+                          </button>
                         ) : (
                           <div className="pl-4 text-muted-foreground">↳</div>
-                        )}
-                        {line.note && (
-                          <p
-                            className={cn(
-                              'mt-1 whitespace-pre-wrap text-xs font-normal text-muted-foreground',
-                              li > 0 && 'ml-4',
-                            )}
-                          >
-                            <span className="font-medium">SPOC note:</span> {line.note}
-                          </p>
                         )}
                       </TableCell>
                       <TableCell className="align-top text-sm text-muted-foreground">
@@ -307,31 +346,31 @@ export function FinanceReview() {
                       </TableCell>
                     </TableRow>
                     {/* The particulars behind that subtotal — the level a finance
-                        approver overrides at. Indented so the head → vendor line →
-                        particular nesting reads the same as on the entry screen. */}
-                    <TableRow className={PARTICULARS_ROW}>
-                      <TableCell />
+                        approver overrides at, and where the SPOC's per-row Remark is
+                        shown read-only (it replaced the line-level note that used to
+                        sit in the G/L Account Name cell). Laid out exactly as on the
+                        entry screen: flush under G/L Account Name, full width. */}
+                    <TableRow className={cn(PARTICULARS_ROW, lit && HEAD_HIGHLIGHT_ROW)}>
+                      <TableCell className={cn(lit && HEAD_HIGHLIGHT_CELL)} />
                       <TableCell colSpan={4} className="py-2 pr-4">
-                        <div className="pl-4">
-                          <ParticularsTable
-                            particulars={line.particulars}
-                            editable={isFinanceApprover}
-                            onPatch={(pi, patch) => patchParticular(head.snapshotId, li, pi, patch)}
-                            // An override retypes existing particulars; adding or
-                            // removing rows stays with the SPOC.
-                            onAdd={() => {}}
-                            onRemove={() => {}}
-                            allowAddRemove={false}
-                          />
-                        </div>
+                        <ParticularsTable
+                          particulars={line.particulars}
+                          editable={isFinanceApprover}
+                          onPatch={(pi, patch) => patchParticular(head.snapshotId, li, pi, patch)}
+                          // An override retypes existing particulars; adding or
+                          // removing rows — and the remark itself — stay with the SPOC.
+                          onAdd={() => {}}
+                          onRemove={() => {}}
+                          allowAddRemove={false}
+                        />
                       </TableCell>
                     </TableRow>
                     </Fragment>
                     );
                   })}
                   {headLines.length > 1 && (
-                    <TableRow className={TOTAL_ROW}>
-                      <TableCell />
+                    <TableRow className={cn(TOTAL_ROW, lit && HEAD_HIGHLIGHT_ROW)}>
+                      <TableCell className={cn(lit && HEAD_HIGHLIGHT_CELL)} />
                       <TableCell colSpan={3} className="py-2 text-right text-sm font-semibold">
                         Total — {head.glAccountName}
                       </TableCell>
@@ -425,7 +464,12 @@ export function FinanceReview() {
         )
       )}
 
-      <MonthwiseReportPanel clinicId={detail.clinicId} />
+      <MonthwiseReportPanel
+        clinicId={detail.clinicId}
+        onHeadClick={highlightHead}
+        highlightedHeadId={trendHeadId}
+        highlightNonce={trendNonce}
+      />
     </div>
   );
 }

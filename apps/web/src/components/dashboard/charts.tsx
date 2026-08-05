@@ -412,8 +412,24 @@ export function HeadTrendCharts({
   );
 }
 
-/** Month-wise clinic report as per-head lines over the window (Step 4 panel chart view). */
-export function MonthwiseChart({ report }: { report: MonthwiseReport }) {
+/**
+ * Month-wise clinic report as per-head lines over the window (Step 4 panel chart
+ * view).
+ *
+ * When `onHeadClick` is supplied each head in the legend becomes a button that jumps
+ * to that head's block in the provision table on the same screen (see
+ * lib/headHighlight) — a read-only navigation aid: it scrolls and highlights, and
+ * changes neither the data nor this chart's own series. Without the prop the legend
+ * is plain text, so the chart is unchanged wherever no table is there to jump to.
+ * Colours stay keyed by head id either way.
+ */
+export function MonthwiseChart({
+  report,
+  onHeadClick,
+}: {
+  report: MonthwiseReport;
+  onHeadClick?: (expenseHeadId: string) => void;
+}) {
   if (report.rows.length === 0) return <Empty label="No figures recorded in this window yet." />;
   // One recharts row per month; a numeric column per head (null gaps → 0 for plotting).
   const rows = report.months.map((month, i) => {
@@ -425,30 +441,77 @@ export function MonthwiseChart({ report }: { report: MonthwiseReport }) {
     report.rows.map((h) => ({ id: h.expenseHeadId, name: h.expenseHeadName })),
   );
   return (
-    <div className="h-72 w-full">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
-          <XAxis dataKey="month" tickFormatter={shortMonth} fontSize={12} />
-          <YAxis tickFormatter={compactINR} fontSize={12} width={70} />
-          <Tooltip
-            {...tooltipProps}
-            formatter={moneyTooltip}
-            labelFormatter={(l) => shortMonth(String(l))}
-          />
-          <Legend formatter={legendTextFormatter} />
-          {report.rows.map((head) => (
-            <Line
-              key={head.expenseHeadId}
-              type="monotone"
-              dataKey={head.expenseHeadName}
-              stroke={headColor(colorMap, head.expenseHeadId)}
-              strokeWidth={2.5}
-              dot={false}
+    <div className="space-y-3">
+      <div className="h-72 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+            <XAxis dataKey="month" tickFormatter={shortMonth} fontSize={12} />
+            <YAxis tickFormatter={compactINR} fontSize={12} width={70} />
+            <Tooltip
+              {...tooltipProps}
+              formatter={moneyTooltip}
+              labelFormatter={(l) => shortMonth(String(l))}
             />
-          ))}
-        </LineChart>
-      </ResponsiveContainer>
+            {/* Recharts' own Legend is only rendered when the head names are NOT
+                clickable; the clickable variant is real buttons below the plot, which
+                the SVG legend can't give us (focus, hover, pointer cursor). */}
+            {!onHeadClick && <Legend formatter={legendTextFormatter} />}
+            {report.rows.map((head) => (
+              <Line
+                key={head.expenseHeadId}
+                type="monotone"
+                dataKey={head.expenseHeadName}
+                stroke={headColor(colorMap, head.expenseHeadId)}
+                strokeWidth={2.5}
+                dot={false}
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      {onHeadClick && (
+        <HeadJumpLegend
+          heads={report.rows.map((h) => ({ id: h.expenseHeadId, name: h.expenseHeadName }))}
+          colorOf={(id) => headColor(colorMap, id)}
+          onHeadClick={onHeadClick}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Legend whose entries jump to the matching G/L head in the table below — swatch +
+ * head name, laid out exactly like the static head legends elsewhere so the chart
+ * doesn't gain a second legend style. Real <button>s: they get a pointer cursor,
+ * hover/focus affordance and keyboard access, and being buttons (not links) says
+ * plainly that nothing navigates away and nothing is submitted.
+ */
+function HeadJumpLegend({
+  heads,
+  colorOf,
+  onHeadClick,
+}: {
+  heads: Array<{ id: string; name: string }>;
+  colorOf: (id: string) => string;
+  onHeadClick: (expenseHeadId: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+      {heads.map((head) => (
+        <button
+          key={head.id}
+          type="button"
+          onClick={() => onHeadClick(head.id)}
+          title={`Go to ${head.name} in the table below`}
+          className="flex cursor-pointer items-center gap-1.5 rounded text-xs hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          style={{ color: CHART_LEGEND_TEXT }}
+        >
+          <span className="size-2.5 rounded-[2px]" style={{ backgroundColor: colorOf(head.id) }} />
+          {head.name}
+        </button>
+      ))}
     </div>
   );
 }
@@ -466,10 +529,26 @@ export function ClinicTotalsChart({ data }: { data: ClinicTotalPoint[] }) {
   const grand = rows.reduce((s, r) => s + r.total, 0);
   const max = rows[0]?.total || 1;
   return (
-    <div className="space-y-2">
+    // Scrolled inside a fixed cap, because one row per clinic grows without limit —
+    // at 43 clinics this list was ~1200px tall and pushed the whole dashboard down.
+    //
+    // The cap is 24rem, NOT the h-72 (18rem) the donut beside it uses: that card is
+    // the donut PLUS its wrapped expense-head legend, so 18rem left this one visibly
+    // short of it. 24rem ≈ the 18rem donut + its 1rem gap + ~3 legend rows, which
+    // lines the two cards up. `max-h` rather than a fixed height so a SPOC with two
+    // clinics gets a two-row card instead of 24rem of whitespace. `pr-1` keeps the
+    // scrollbar off the bars.
+    <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
       {rows.map((r) => (
         <div key={r.name} className="flex items-center gap-3 text-sm">
-          <span className="w-36 shrink-0 truncate text-right text-muted-foreground">{r.name}</span>
+          {/* Fixed-width label column, so a long clinic name always clips — the
+              tooltip is the only way back to the full name. */}
+          <span
+            className="w-36 shrink-0 truncate text-right text-muted-foreground"
+            title={r.name}
+          >
+            {r.name}
+          </span>
           <div className="h-5 flex-1 overflow-hidden rounded bg-muted">
             <div
               className="h-full rounded"
@@ -684,10 +763,15 @@ function VarianceCategoryTick(props: {
   const x = Number(props.x);
   const y = Number(props.y);
   if (!Number.isFinite(x) || !Number.isFinite(y)) return <g />;
-  const lines = wrapCategory(String(props.payload?.value ?? ''));
+  const full = String(props.payload?.value ?? '');
+  const lines = wrapCategory(full);
   const startDy = lines.length > 1 ? -1 : 4;
   return (
     <text x={x} y={y} textAnchor="end" fontSize={12} fill={CHART_AXIS_LABEL}>
+      {/* wrapCategory caps at two lines, so a long head name loses its tail with no
+          ellipsis to hint at it. SVG's own <title> is the tooltip equivalent of the
+          `title` attribute used on the HTML labels elsewhere. */}
+      <title>{full}</title>
       {lines.map((ln, i) => (
         <tspan key={ln} x={x} dy={i === 0 ? startDy : 12}>
           {ln}

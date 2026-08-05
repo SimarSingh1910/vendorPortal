@@ -45,17 +45,22 @@ import { cn } from '@/lib/utils';
 import {
   blankLine,
   blankParticular,
+  collectFieldErrors,
   collectSpocEntries,
   headAmountMinor,
   incompleteHeadCount,
   lineAmountMinor,
+  lineFieldId,
   minorToAmountString,
+  particularFieldId,
   particularHasData,
   seedLines,
   type LineDraft,
   type LinesState,
   type ParticularDraft,
 } from '@/lib/provisionLines';
+import { FieldErrorText } from '@/components/FieldError';
+import { INVALID_FIELD_CLASS, fieldErrorTextId } from '@/lib/fieldErrors';
 import { ParticularsTable } from '@/components/ProvisionParticulars';
 import {
   ADD_ROW,
@@ -76,6 +81,14 @@ import {
   statusBadgeVariant,
   statusLabel,
 } from '@/lib/format';
+import {
+  HEAD_HIGHLIGHT_CELL,
+  HEAD_HIGHLIGHT_ROW,
+  HEAD_JUMP_BUTTON,
+  headAnchorId,
+  reportHeadAnchorId,
+  useHeadHighlight,
+} from '@/lib/headHighlight';
 
 /** Native styled select, matching the Input look (no shared Select component exists). */
 const selectClass =
@@ -93,10 +106,7 @@ const ROW_HOVER = 'hover:bg-[#dae9f8]';
 /** True when a draft line holds any data — drives the remove-confirm dialog. */
 function lineHasData(l: LineDraft): boolean {
   return (
-    l.particulars.some(particularHasData) ||
-    l.vendor.trim() !== '' ||
-    l.product.trim() !== '' ||
-    l.note.trim() !== ''
+    l.particulars.some(particularHasData) || l.vendor.trim() !== '' || l.product.trim() !== ''
   );
 }
 
@@ -125,10 +135,30 @@ export function SubmissionEntry() {
   const [removeTarget, setRemoveTarget] = useState<{ snapshotId: string; index: number } | null>(
     null,
   );
+  // Flipped by a BLOCKED submit, never by typing: the form stays unmarked while it
+  // is being filled in, then shows every gap at once. `focusNonce` re-fires the
+  // scroll-to-first when submit is pressed again without anything having changed.
+  const [showFieldErrors, setShowFieldErrors] = useState(false);
+  const [focusNonce, setFocusNonce] = useState(0);
+  // Chart → table jump: clicking a G/L head in the month-wise chart below scrolls to
+  // and briefly highlights that head's block above. Navigation only — no data change.
+  const { highlightedHeadId, highlightHead } = useHeadHighlight();
+  // The reverse jump: clicking this table's G/L number/name drops to that head's row
+  // in the trend report below, so a figure can be checked against its own history in
+  // one click. A separate instance so the two highlights never fight.
+  const {
+    highlightedHeadId: trendHeadId,
+    highlightNonce: trendNonce,
+    highlightHead: jumpToTrend,
+  } = useHeadHighlight(reportHeadAnchorId);
 
-  // Seed inputs whenever the detail (re)loads.
+  // Seed inputs whenever the detail (re)loads. A reload replaces the whole form, so
+  // any markers from a previous blocked submit no longer describe what's on screen.
   useEffect(() => {
-    if (detail) setLines(seedLines(detail));
+    if (detail) {
+      setLines(seedLines(detail));
+      setShowFieldErrors(false);
+    }
   }, [detail]);
 
   const invalidate = () => {
@@ -243,6 +273,50 @@ export function SubmissionEntry() {
     [detail, lines],
   );
 
+  // Recomputed from the CURRENT draft on every keystroke, so a field's marker
+  // disappears the moment it becomes valid and the banner's count ticks down as the
+  // SPOC works through the list — no per-field "touched" bookkeeping needed.
+  const fieldErrors = useMemo(
+    () => (detail ? collectFieldErrors(detail, lines) : []),
+    [detail, lines],
+  );
+  const errorByKey = useMemo(
+    () => new Map(fieldErrors.map((e) => [e.key, e.message])),
+    [fieldErrors],
+  );
+  /** A field's message, but only once a submit has actually been blocked. */
+  const errorFor = (key: string): string | undefined =>
+    showFieldErrors ? errorByKey.get(key) : undefined;
+
+  // Scroll to + focus the first offender. In an effect (not the click handler) so it
+  // runs after the markers have been committed, and keyed on the nonce so pressing
+  // Submit again with nothing fixed still takes the user back to the top of the list.
+  useEffect(() => {
+    if (!showFieldErrors || focusNonce === 0 || fieldErrors.length === 0) return;
+    const el = document.getElementById(fieldErrors[0].key);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // `preventScroll` so focus doesn't fight the smooth scroll with a jump.
+    (el as HTMLElement | null)?.focus?.({ preventScroll: true });
+    // fieldErrors is intentionally NOT a dependency: it changes on every keystroke,
+    // and re-running then would yank the cursor away mid-typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusNonce, showFieldErrors]);
+
+  /**
+   * Submit gate. Nothing is sent while a required field is empty — the click marks
+   * every gap instead. The server re-checks all of it regardless; this only saves
+   * the round-trip and points at the offenders.
+   */
+  const attemptSubmit = () => {
+    if (fieldErrors.length > 0) {
+      setShowFieldErrors(true);
+      setFocusNonce((n) => n + 1);
+      return;
+    }
+    setShowFieldErrors(false);
+    submitMutation.mutate();
+  };
+
   if (isLoading || !detail) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
@@ -337,7 +411,7 @@ export function SubmissionEntry() {
             <TableRow>
               <TableHead>G/L Account No.</TableHead>
               <TableHead>G/L Account Name</TableHead>
-              <TableHead>Vendor Name</TableHead>
+              <TableHead>Vendor Name *</TableHead>
               <TableHead>Product Code *</TableHead>
               <TableHead className="text-right">Amount (₹)</TableHead>
             </TableRow>
@@ -357,64 +431,112 @@ export function SubmissionEntry() {
                 // which is itself the roll-up of its particulars. Null (rendered
                 // "—") while anything underneath is still incomplete.
                 const headTotal = minorToAmountString(headAmountMinor(headLines));
+                // Highlighted by a click on this head in the chart below.
+                const lit = highlightedHeadId === head.expenseHeadId;
                 return (
                   <Fragment key={head.snapshotId}>
                     {headLines.map((line, li) => {
                       const lineAmount = minorToAmountString(lineAmountMinor(line));
                       const rowKey = line.entryId ?? `new-${li}`;
+                      // Ids are stable per (head, line, field) and double as the
+                      // scroll targets for the first-invalid jump.
+                      const vendorFieldId = lineFieldId(head.snapshotId, li, 'vendor');
+                      const productFieldId = lineFieldId(head.snapshotId, li, 'product');
+                      const vendorError = errorFor(vendorFieldId);
+                      const productError = errorFor(productFieldId);
                       return (
                       <Fragment key={rowKey}>
-                      <TableRow className={cn(ROW_HOVER, li === 0 ? HEAD_ROW : VENDOR_ROW)}>
-                        <TableCell className={cn('align-top', li === 0 ? HEAD_TEXT : 'text-muted-foreground')}>
-                          {li === 0 ? head.glAccountNo : ''}
+                      <TableRow className={cn(ROW_HOVER, li === 0 ? HEAD_ROW : VENDOR_ROW, lit && HEAD_HIGHLIGHT_ROW)}>
+                        <TableCell
+                          // The scroll target for this head, keyed by expense-head id
+                          // (the same id keying the chart palette). scroll-mt keeps
+                          // the row clear of anything sticky above the table.
+                          id={li === 0 ? headAnchorId(head.expenseHeadId) : undefined}
+                          className={cn(
+                            'scroll-mt-24 align-top',
+                            li === 0 ? HEAD_TEXT : 'text-muted-foreground',
+                            lit && HEAD_HIGHLIGHT_CELL,
+                          )}
+                        >
+                          {/* Both G/L cells jump DOWN to this head's row in the
+                              trend report — read-only navigation, nothing is
+                              selected or saved. Only on the head row (li === 0),
+                              which is the only one that names the G/L. */}
+                          {li === 0 && (
+                            <button
+                              type="button"
+                              className={HEAD_JUMP_BUTTON}
+                              title={`See ${head.glAccountName} in the month-wise report below`}
+                              onClick={() => jumpToTrend(head.expenseHeadId)}
+                            >
+                              {head.glAccountNo}
+                            </button>
+                          )}
                         </TableCell>
                         <TableCell className={cn('align-top', li === 0 ? HEAD_TEXT : 'font-medium')}>
                           {li === 0 ? (
-                            <div>{head.glAccountName}</div>
+                            <button
+                              type="button"
+                              className={HEAD_JUMP_BUTTON}
+                              title={`See ${head.glAccountName} in the month-wise report below`}
+                              onClick={() => jumpToTrend(head.expenseHeadId)}
+                            >
+                              {head.glAccountName}
+                            </button>
                           ) : (
                             <div className="pl-4 text-muted-foreground">↳</div>
-                          )}
-                          {canEdit ? (
-                            <Textarea
-                              rows={2}
-                              placeholder="Note for this line (optional) — e.g. why it changed this month."
-                              className={cn('mt-1.5 text-sm font-normal', li > 0 && 'ml-4')}
-                              value={line.note}
-                              onChange={(e) =>
-                                patchLine(head.snapshotId, li, { note: e.target.value })
-                              }
-                            />
-                          ) : (
-                            line.note && (
-                              <p className="mt-1 whitespace-pre-wrap text-xs font-normal text-muted-foreground">
-                                {line.note}
-                              </p>
-                            )
                           )}
                         </TableCell>
                         <TableCell className="align-top">
                           {canEdit ? (
-                            <Input
-                              type="text"
-                              placeholder="Vendor (optional)"
-                              className="w-48"
-                              value={line.vendor}
-                              onChange={(e) =>
-                                patchLine(head.snapshotId, li, { vendor: e.target.value })
-                              }
-                            />
+                            <>
+                              <Input
+                                id={vendorFieldId}
+                                type="text"
+                                placeholder="Vendor"
+                                // REQUIRED at submit, but still savable while blank —
+                                // a partial draft must remain parkable. Unfilled reads
+                                // as a soft amber hint while drafting and turns into a
+                                // hard error only once submit has been blocked.
+                                className={cn(
+                                  'w-48 scroll-mt-28',
+                                  !line.vendor && 'border-warning-foreground/40',
+                                  vendorError && INVALID_FIELD_CLASS,
+                                )}
+                                aria-invalid={vendorError ? true : undefined}
+                                aria-describedby={
+                                  vendorError ? fieldErrorTextId(vendorFieldId) : undefined
+                                }
+                                value={line.vendor}
+                                onChange={(e) =>
+                                  patchLine(head.snapshotId, li, { vendor: e.target.value })
+                                }
+                              />
+                              <FieldErrorText
+                                id={fieldErrorTextId(vendorFieldId)}
+                                message={vendorError}
+                              />
+                            </>
                           ) : (
                             <span className="text-sm text-muted-foreground">{line.vendor}</span>
                           )}
                         </TableCell>
                         <TableCell className="align-top">
                           {canEdit ? (
+                            <>
                             <select
+                              id={productFieldId}
                               className={cn(
                                 selectClass,
+                                'scroll-mt-28',
                                 // Unfilled required field — flagged, not blocked.
                                 !line.product && 'border-warning-foreground/40',
+                                productError && INVALID_FIELD_CLASS,
                               )}
+                              aria-invalid={productError ? true : undefined}
+                              aria-describedby={
+                                productError ? fieldErrorTextId(productFieldId) : undefined
+                              }
                               value={line.product}
                               onChange={(e) =>
                                 patchLine(head.snapshotId, li, { product: e.target.value })
@@ -432,6 +554,11 @@ export function SubmissionEntry() {
                                 </option>
                               ))}
                             </select>
+                            <FieldErrorText
+                              id={fieldErrorTextId(productFieldId)}
+                              message={productError}
+                            />
+                            </>
                           ) : (
                             <span className="text-sm text-muted-foreground">
                               {line.product ? productCodeLabel(line.product) : ''}
@@ -469,33 +596,36 @@ export function SubmissionEntry() {
                         </TableCell>
                       </TableRow>
                       {/*
-                        This vendor line's particulars, indented one level so the
-                        head → vendor line → particular nesting is obvious. Spans
-                        the remaining width rather than sitting inside the Amount
-                        column, so nothing else on the vendor row moves.
+                        This vendor line's particulars. Starts flush under the G/L
+                        Account Name column — the extra indent went with the
+                        head-level note textarea that used to sit in that cell — and
+                        runs to the right edge, which is the width the per-particular
+                        Remark input now uses. Spanning the remaining columns rather
+                        than sitting inside the Amount column keeps the vendor row
+                        above it exactly where it was.
                       */}
-                      <TableRow className={PARTICULARS_ROW}>
-                        <TableCell />
+                      <TableRow className={cn(PARTICULARS_ROW, lit && HEAD_HIGHLIGHT_ROW)}>
+                        <TableCell className={cn(lit && HEAD_HIGHLIGHT_CELL)} />
                         <TableCell colSpan={4} className="py-2 pr-4">
-                          <div className="pl-4">
-                            <ParticularsTable
-                              particulars={line.particulars}
-                              editable={canEdit}
-                              onPatch={(pi, patch) =>
-                                patchParticular(head.snapshotId, li, pi, patch)
-                              }
-                              onAdd={() => addParticular(head.snapshotId, li)}
-                              onRemove={(pi) => removeParticular(head.snapshotId, li, pi)}
-                            />
-                          </div>
+                          <ParticularsTable
+                            particulars={line.particulars}
+                            editable={canEdit}
+                            fieldMeta={(pi, kind) => {
+                              const id = particularFieldId(head.snapshotId, li, pi, kind);
+                              return { id, error: errorFor(id) };
+                            }}
+                            onPatch={(pi, patch) => patchParticular(head.snapshotId, li, pi, patch)}
+                            onAdd={() => addParticular(head.snapshotId, li)}
+                            onRemove={(pi) => removeParticular(head.snapshotId, li, pi)}
+                          />
                         </TableCell>
                       </TableRow>
                       </Fragment>
                       );
                     })}
                     {canEdit && multi && (
-                      <TableRow className={ADD_ROW}>
-                        <TableCell />
+                      <TableRow className={cn(ADD_ROW, lit && HEAD_HIGHLIGHT_ROW)}>
+                        <TableCell className={cn(lit && HEAD_HIGHLIGHT_CELL)} />
                         <TableCell colSpan={4} className="py-1">
                           <Button
                             type="button"
@@ -516,8 +646,8 @@ export function SubmissionEntry() {
                       above already IS the head amount, and repeating it is noise.
                     */}
                     {headLines.length > 1 && (
-                      <TableRow className={TOTAL_ROW}>
-                        <TableCell />
+                      <TableRow className={cn(TOTAL_ROW, lit && HEAD_HIGHLIGHT_ROW)}>
+                        <TableCell className={cn(lit && HEAD_HIGHLIGHT_CELL)} />
                         <TableCell colSpan={3} className="py-2 text-right text-sm font-semibold">
                           Total — {head.glAccountName}
                         </TableCell>
@@ -559,23 +689,40 @@ export function SubmissionEntry() {
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
+      {/* Summary of a blocked submit. The count is live — it falls as fields are
+          filled and the banner disappears on the last one. */}
+      {canEdit && showFieldErrors && fieldErrors.length > 0 && (
+        <div
+          role="alert"
+          className="rounded-md border border-destructive bg-error px-4 py-3 text-sm text-error-foreground"
+        >
+          <p className="font-medium">
+            {fieldErrors.length} field{fieldErrors.length === 1 ? '' : 's'} need
+            {fieldErrors.length === 1 ? 's' : ''} attention before you can submit.
+          </p>
+          <p className="mt-0.5 text-xs">
+            Each one is marked below. Zero is a valid rate or quantity; remove any row you
+            don&rsquo;t need.
+          </p>
+        </div>
+      )}
+
       {canEdit ? (
         <div className="flex flex-wrap items-center gap-3">
           <Button variant="outline" disabled={busy} onClick={() => saveMutation.mutate()}>
             {saveMutation.isPending ? 'Saving…' : 'Save draft'}
           </Button>
-          <Button
-            disabled={busy || detail.heads.length === 0 || missingCount > 0}
-            onClick={() => submitMutation.mutate()}
-          >
+          {/* Deliberately NOT disabled on an incomplete form: pressing Submit is what
+              reveals the gaps. It only blocks on a genuinely unusable form (no heads
+              mapped at all) or while a request is in flight. */}
+          <Button disabled={busy || detail.heads.length === 0} onClick={attemptSubmit}>
             {submitMutation.isPending ? 'Submitting…' : 'Submit for review'}
           </Button>
-          {missingCount > 0 && (
+          {missingCount > 0 && !showFieldErrors && (
             <span className="text-xs text-muted-foreground">
-              Every line needs a product code, and every particular a name, a rate and a
-              quantity, before submitting ({missingCount} incomplete{' '}
-              {missingCount === 1 ? 'head' : 'heads'}). Zero is a valid rate or quantity; remove
-              any row you don&rsquo;t need.
+              Every line needs a vendor name and a product code, and every particular a name,
+              a rate and a quantity, before submitting ({missingCount} incomplete{' '}
+              {missingCount === 1 ? 'head' : 'heads'}).
             </span>
           )}
         </div>
@@ -600,8 +747,8 @@ export function SubmissionEntry() {
           <DialogHeader>
             <DialogTitle>Remove this vendor line?</DialogTitle>
             <DialogDescription>
-              The line&rsquo;s vendor, note and all of its particulars will be discarded when you
-              next save. This cannot be undone.
+              The line&rsquo;s vendor and all of its particulars — including their remarks —
+              will be discarded when you next save. This cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -656,7 +803,12 @@ export function SubmissionEntry() {
         </DialogContent>
       </Dialog>
 
-      <MonthwiseReportPanel clinicId={detail.clinicId} />
+      <MonthwiseReportPanel
+        clinicId={detail.clinicId}
+        onHeadClick={highlightHead}
+        highlightedHeadId={trendHeadId}
+        highlightNonce={trendNonce}
+      />
     </div>
   );
 }

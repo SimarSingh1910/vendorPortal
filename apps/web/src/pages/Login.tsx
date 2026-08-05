@@ -8,7 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PortalTab } from '@portal/shared';
 import { cn } from '@/lib/utils';
+import { apiErrorMessage } from '@/lib/apiError';
 import { useAuthStore } from '@/store/auth.store';
 import { useAuthActions } from '@/auth/useAuthActions';
 import { roleHome } from '@/auth/roles';
@@ -22,22 +24,25 @@ const loginSchema = z.object({
 type LoginValues = z.infer<typeof loginSchema>;
 
 /**
- * Purely cosmetic portal tabs. Both render the same form and submit to the same
- * login endpoint — the active tab is local UI state and drives nothing else
- * (wiring them to real behaviour is a possible later step). Corporate is default.
+ * The portal tabs, now load-bearing: the active one is sent with the credentials
+ * and the API rejects an account that isn't entitled to it, so a clinic user
+ * cannot sign in on Corporate or vice versa. FINANCE_ADMIN belongs to both and
+ * passes on either — which tab they pick decides where they land.
+ *
+ * The tab is a HINT, not the security boundary: the server re-derives entitlement
+ * from the account's own role, so nothing is trusted from the client here.
  */
 const PORTAL_TABS = [
-  { key: 'corporate', label: 'Corporate' },
-  { key: 'clinic', label: 'Clinic' },
+  { key: PortalTab.CORPORATE, label: 'Corporate' },
+  { key: PortalTab.CLINIC, label: 'Clinic' },
 ] as const;
-type PortalTab = (typeof PORTAL_TABS)[number]['key'];
 
 export function Login() {
   const status = useAuthStore((s) => s.status);
   const user = useAuthStore((s) => s.user);
   const { login } = useAuthActions();
 
-  const [activeTab, setActiveTab] = useState<PortalTab>('corporate');
+  const [activeTab, setActiveTab] = useState<PortalTab>(PortalTab.CORPORATE);
   const [showPassword, setShowPassword] = useState(false);
 
   const {
@@ -54,7 +59,7 @@ export function Login() {
     return <Navigate to={roleHome(user.role)} replace />;
   }
 
-  const onSubmit = handleSubmit((values) => login.mutate(values));
+  const onSubmit = handleSubmit((values) => login.mutate({ ...values, portal: activeTab }));
 
   const fieldClass = (invalid: boolean) =>
     cn('h-11 bg-background pl-10', invalid && 'border-destructive');
@@ -62,7 +67,7 @@ export function Login() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-[400px] overflow-hidden rounded-2xl shadow-lg">
-        {/* (1) Cosmetic tab strip — changes only which tab looks active. */}
+        {/* (1) Portal tab strip — picks which portal the credentials are checked against. */}
         <div role="tablist" aria-label="Portal" className="flex border-b border-border">
           {PORTAL_TABS.map((tab) => {
             const active = tab.key === activeTab;
@@ -72,7 +77,13 @@ export function Login() {
                 type="button"
                 role="tab"
                 aria-selected={active}
-                onClick={() => setActiveTab(tab.key)}
+                onClick={() => {
+                  setActiveTab(tab.key);
+                  // Drop a stale "wrong portal" banner — switching tabs is exactly
+                  // the fix it asked for, so leaving it up would read as a failure
+                  // of the attempt they haven't made yet.
+                  login.reset();
+                }}
                 className={cn(
                   '-mb-px flex-1 border-b-2 px-4 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
                   active
@@ -108,7 +119,11 @@ export function Login() {
                 className="flex items-center gap-2 rounded-md bg-error px-3 py-3 text-sm text-error-foreground"
               >
                 <CircleAlert className="size-4 shrink-0" aria-hidden />
-                <span>Invalid email or password.</span>
+                {/* The API answers a wrong-portal sign-in with a specific reason
+                    (naming the tab to use); anything else stays the deliberately
+                    generic credentials message, which must not hint at whether
+                    the address exists. */}
+                <span>{apiErrorMessage(login.error, 'Invalid email or password.')}</span>
               </div>
             )}
 

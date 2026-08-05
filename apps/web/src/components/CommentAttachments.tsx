@@ -114,7 +114,9 @@ export function AttachPicker({ files, onChange, disabled }: AttachPickerProps) {
               key={`${file.name}-${file.size}-${i}`}
               className="flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-2.5 py-1.5 text-sm"
             >
-              <span className="min-w-0 flex-1 truncate">{file.name}</span>
+              <span className="min-w-0 flex-1 truncate" title={file.name}>
+                {file.name}
+              </span>
               <span className="shrink-0 text-xs text-muted-foreground">
                 {formatFileSize(file.size)}
               </span>

@@ -519,10 +519,10 @@ export class WorkflowService {
    * quantity. 0 is a valid rate/quantity; blank is not. A submission with no mapped
    * heads has nothing to provision and cannot be submitted.
    *
-   * The product code is REQUIRED (it was optional until this rule changed), and is
-   * enforced HERE rather than at save time — a SPOC must still be able to park a
-   * half-filled draft, exactly as with rate and quantity. The DTO therefore keeps
-   * it nullable; submit is the gate.
+   * The product code AND the vendor name are REQUIRED (both were optional until
+   * that rule changed), and are enforced HERE rather than at save time — a SPOC must
+   * still be able to park a half-filled draft, exactly as with rate and quantity.
+   * The DTO therefore keeps them nullable; submit is the gate.
    *
    * Amounts are DERIVED, so they can never be "missing" independently — a head is
    * incomplete precisely when one of its particulars is. The error therefore names
@@ -537,6 +537,7 @@ export class WorkflowService {
           orderBy: { lineOrder: 'asc' },
           select: {
             productCode: true,
+            vendorName: true,
             particulars: {
               orderBy: { lineOrder: 'asc' },
               select: { particularName: true, rate: true, quantity: true },
@@ -564,9 +565,12 @@ export class WorkflowService {
       snap.entries.forEach((entry, li) => {
         const where = `“${name}”${multiLine ? ` line ${li + 1}` : ''}`;
         // Per-line, not per-head: on a multi-vendor head every vendor line needs
-        // its own product code.
+        // its own product code and its own vendor name.
         if (!entry.productCode?.trim()) {
           problems.push(`${where} needs a product code`);
+        }
+        if (!entry.vendorName?.trim()) {
+          problems.push(`${where} needs a vendor name`);
         }
         if (entry.particulars.length === 0) {
           problems.push(`${where} has no particulars`);

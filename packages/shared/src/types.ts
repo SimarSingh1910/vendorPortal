@@ -233,6 +233,13 @@ export interface ProvisionParticular {
   quantity: string | null;
   /** DERIVED rate × quantity as a DECIMAL(14,2) string; null when either input is blank. */
   value: string | null;
+  /**
+   * Optional SPOC remark on THIS particular (e.g. why its rate moved this month);
+   * null when none. Replaced the old per-vendor-line `note`: the explanation now
+   * sits at the level the figure is actually typed at, and the finance export's
+   * Description column reads from here (one export row per particular).
+   */
+  remark: string | null;
   /** 0-based position of this particular within its vendor line, for stable ordering. */
   lineOrder: number;
 }
@@ -247,6 +254,12 @@ export interface ProvisionParticularInput {
   rate: number | null;
   /** Null for a started-but-blank row (0 is a valid quantity, blank is not). */
   quantity: number | null;
+  /**
+   * Optional SPOC remark for this particular; blank/whitespace is stored as null
+   * (never a placeholder). SPOC-owned — a manager/finance value override leaves it
+   * untouched, exactly like the line's vendor name and product code.
+   */
+  remark?: string;
 }
 
 /**
@@ -261,9 +274,10 @@ export interface ProvisionLine {
   amount: string | null;
   /** This line's particulars, in `lineOrder`; always at least one. */
   particulars: ProvisionParticular[];
-  /** Optional SPOC line-item note (e.g. why it spiked/dropped); null when none. */
-  note: string | null;
-  /** Optional free-text vendor name entered against this line; null when none. */
+  /**
+   * Free-text vendor name entered against this line. REQUIRED at submit, but null
+   * while the SPOC is still drafting — the gate is submit, not save.
+   */
   vendorName: string | null;
   /** Optional Product Code from the fixed PRODUCT_CODES set; null when none. */
   productCode: string | null;
@@ -274,7 +288,7 @@ export interface ProvisionLine {
 /**
  * One snapshot expense head as a row-group in the provision form. Single-vendor
  * heads hold exactly one line; heads flagged `allowsMultipleVendors` may hold
- * several (same G/L, independent vendor/amount/product/note per line). There is
+ * several (same G/L, independent vendor/amount/product per line). There is
  * always at least one line — a blank head is one line with a null amount.
  */
 export interface ProvisionHeadRow {
@@ -327,9 +341,10 @@ export interface ProvisionLineInput {
    * `particularId` (as lines are within a head). At least one is required.
    */
   particulars: ProvisionParticularInput[];
-  /** Optional SPOC note for this line; blank/whitespace is stored as null. */
-  note?: string;
-  /** Optional free-text vendor name for this line; blank/whitespace is stored as null. */
+  /**
+   * Free-text vendor name for this line; blank/whitespace is stored as null. Optional
+   * on THIS payload (a partial draft must still save) but required to submit.
+   */
   vendorName?: string;
   /** Optional Product Code from the fixed PRODUCT_CODES set; blank is stored as null. */
   productCode?: string;

@@ -46,21 +46,34 @@ export function ViewToggle({
 /**
  * Wraps a visualization with the toggle. Both `chart` and `table` render the
  * already-fetched data passed by the parent, so flipping the view only swaps the
- * rendered subtree — it never refetches. Toggle state is local (per instance).
+ * rendered subtree — it never refetches.
+ *
+ * Toggle state is local per instance by DEFAULT. Pass `view` + `onViewChange` to
+ * drive it from the parent instead, for the cases where something outside the
+ * toggle has to decide which half is showing (e.g. a jump-to-row that only makes
+ * sense against the table). The two modes are mutually exclusive: supplying `view`
+ * makes this component fully controlled.
  */
 export function ChartTableView({
   defaultView = 'chart',
+  view: controlledView,
+  onViewChange,
   controls,
   chart,
   table,
 }: {
   defaultView?: ChartTableViewMode;
+  /** Controlled view. When given, `onViewChange` must be too. */
+  view?: ChartTableViewMode;
+  onViewChange?: (v: ChartTableViewMode) => void;
   /** Optional extra controls (e.g. a filter dropdown) shown to the left of the toggle. */
   controls?: ReactNode;
   chart: ReactNode;
   table: ReactNode;
 }) {
-  const [view, setView] = useState<ChartTableViewMode>(defaultView);
+  const [uncontrolledView, setUncontrolledView] = useState<ChartTableViewMode>(defaultView);
+  const view = controlledView ?? uncontrolledView;
+  const setView = onViewChange ?? setUncontrolledView;
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-end gap-2">

@@ -19,6 +19,8 @@ export {
   ROLE_LABELS,
   TAB_LABELS,
   SUBMISSION_STATUS_LABELS,
+  SUBMISSION_STATUS_FILTER_OPTIONS,
+  statusesSharingLabel,
 } from './enums';
 
 export {

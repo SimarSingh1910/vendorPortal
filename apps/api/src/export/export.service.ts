@@ -14,9 +14,11 @@ import type { RequestUser } from '../auth/request-user';
  * vendor line's amount is now just the sum of its particulars, exporting at the
  * line grain would hide the rate/quantity detail finance needs to check a figure.
  * `amount` is therefore the PARTICULAR's value, and the head/line/clinic/month
- * context (G/L, vendor, product, description, clinic codes) repeats down the
- * particulars of a line — so summing the Amount column still yields exactly the
- * same grand total as before, just over more rows.
+ * context (G/L, vendor, product, clinic codes) repeats down the particulars of a
+ * line — so summing the Amount column still yields exactly the same grand total as
+ * before, just over more rows. The two per-particular fields are the exceptions,
+ * varying row by row: `particularName` (the sheet's Description) and `remark` (the
+ * sheet's trailing Remarks).
  */
 export interface ExportRow {
   clinicId: string;
@@ -31,12 +33,14 @@ export interface ExportRow {
   glAccountNo: string;
   vendorName: string | null;
   productCode: string | null;
-  // Description = the per-line SPOC note (optional); blank on the sheet when null.
-  note: string | null;
+  // THIS PARTICULAR's optional SPOC remark — the sheet's trailing `Remarks` column;
+  // blank when null. Free-text commentary, kept clear of the figures rather than
+  // sitting in Description (which names the particular).
+  remark: string | null;
   // This PARTICULAR's derived value (rate × quantity), DECIMAL(14,2) as string.
   amount: string;
-  // The particular itself — the three columns appended at the END of the finance
-  // layout (positions 11-13), leaving the original 10 in their exact order.
+  // The particular's own name — the sheet's `Description`, immediately followed by
+  // the Rate and Quantity that derive the Amount beside it.
   particularName: string | null;
   rate: string; // DECIMAL(14,4) as string
   quantity: string; // DECIMAL(14,3) as string
@@ -74,12 +78,16 @@ export class ExportService {
   /** Granular provisioned rows for the given filters, scoped to the caller. */
   async detailRows(user: RequestUser, filters: ExportFilters): Promise<ExportRow[]> {
     const accessible = await this.scope.accessibleClinicIds(user);
-    const clinicIds =
-      filters.clinicId && accessible.includes(filters.clinicId)
-        ? [filters.clinicId]
-        : filters.clinicId
-          ? []
-          : accessible;
+    // A clinic filter may only ever NARROW the caller's own scope. Asking for a
+    // clinic outside it is a scope violation, not an empty result set — answering
+    // 200 + [] would let a SPOC probe which clinic ids exist by watching which
+    // ones come back empty vs. populated. Deny it outright (`clinicMonth` below
+    // does the same), so SPOC/cluster-manager exports cannot be widened by a
+    // hand-crafted query string.
+    if (filters.clinicId && !accessible.includes(filters.clinicId)) {
+      throw new ForbiddenException('Clinic not in your accessible scope');
+    }
+    const clinicIds = filters.clinicId ? [filters.clinicId] : accessible;
     if (clinicIds.length === 0) return [];
 
     const conds: Prisma.Sql[] = [Prisma.sql`m.clinicId IN (${Prisma.join(clinicIds)})`];
@@ -105,7 +113,7 @@ export class ExportService {
              s.expenseHeadGlNoAtSnapshot AS glAccountNo,
              p.vendorName AS vendorName,
              p.productCode AS productCode,
-             p.note AS note,
+             ep.remark AS remark,
              CAST(ep.value AS CHAR) AS amount,
              ep.particularName AS particularName,
              CAST(ep.rate AS CHAR) AS rate,

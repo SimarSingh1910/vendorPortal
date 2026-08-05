@@ -131,6 +131,8 @@ export function makeFixtures(ctx: FixtureCtx) {
       particulars?: Array<{ name?: string; rate: number; quantity: number }>;
       /** Explicit null models a line the SPOC hasn't given a product code yet. */
       productCode?: string | null;
+      /** Explicit null models a line the SPOC hasn't given a vendor name yet. */
+      vendorName?: string | null;
     } = {},
   ): Promise<void> {
     const amount = opts.amount ?? 100;
@@ -160,9 +162,11 @@ export function makeFixtures(ctx: FixtureCtx) {
           submissionId,
           snapshotId: snap.id,
           amount: lineAmount,
-          // Product code is REQUIRED at submit, so the submit-ready fixture sets
-          // one; specs that exercise the missing-code path clear it explicitly.
+          // Product code and vendor name are BOTH required at submit, so the
+          // submit-ready fixture sets both; specs exercising a missing-field path
+          // clear the one they care about explicitly.
           productCode: opts.productCode ?? 'P20',
+          vendorName: opts.vendorName ?? 'Acme Services',
           enteredById,
           lastModifiedById: enteredById,
           particulars: {

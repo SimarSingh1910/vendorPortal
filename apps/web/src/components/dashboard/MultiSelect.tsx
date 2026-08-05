@@ -121,7 +121,11 @@ export function MultiSelect<T extends string>({
           fullWidth ? 'h-9 w-full' : 'h-8 min-w-[10rem]',
         )}
       >
-        <span className="truncate">{label}</span>
+        {/* The trigger is narrow and the label may be a long list of chosen names,
+            so carry the full text as a tooltip rather than losing it to the ellipsis. */}
+        <span className="truncate" title={label}>
+          {label}
+        </span>
         <ChevronDown className="size-4 shrink-0 opacity-60" />
       </button>
       {open && (
@@ -155,7 +159,11 @@ export function MultiSelect<T extends string>({
                 checked={isChecked(i.id)}
                 onChange={() => toggle(i.id)}
               />
-              <span className="truncate">{i.name}</span>
+              {/* Clinic names in particular run long ("Bengaluru - Marathahalli,
+                  City Clinic,1"), and the option list is narrower than the names. */}
+              <span className="truncate" title={i.name}>
+                {i.name}
+              </span>
             </label>
           ))}
         </div>

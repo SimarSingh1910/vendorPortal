@@ -77,14 +77,15 @@ describe('Export (Phase 12, FR-10)', () => {
       amount: number;
       productCode?: string;
       vendorName?: string;
-      note?: string;
-      particulars?: Array<{ name: string; rate: number; quantity: number }>;
+      /** Seeded on the line's FIRST particular — the remark lives there now. */
+      remark?: string;
+      particulars?: Array<{ name: string; rate: number; quantity: number; remark?: string }>;
     }>,
     status: SubmissionStatus = SubmissionStatus.SUBMITTED,
   ) {
     const { submission } = await cycle.openClinicCycle(clinicId, month);
     await prisma.monthlySubmission.update({ where: { id: submission.id }, data: { status } });
-    for (const { id, amount, productCode, vendorName, note, particulars } of lines) {
+    for (const { id, amount, productCode, vendorName, remark, particulars } of lines) {
       const snap = await prisma.submissionExpenseHeadSnapshot.findFirstOrThrow({
         where: { submissionId: submission.id, expenseHeadId: id },
       });
@@ -97,7 +98,6 @@ describe('Export (Phase 12, FR-10)', () => {
           amount: minorToDecimalString(values.reduce((a, b) => a + b, 0n)),
           productCode: productCode ?? null,
           vendorName: vendorName ?? null,
-          note: note ?? null,
           enteredById: spocId,
           lastModifiedById: spocId,
           particulars: {
@@ -107,6 +107,10 @@ describe('Export (Phase 12, FR-10)', () => {
               rate: String(p.rate),
               quantity: String(p.quantity),
               value: minorToDecimalString(values[i]),
+              // A per-particular remark wins; `remark` on the line is shorthand for
+              // "put it on the first particular", matching how the SPOC form and the
+              // 20260730120000_particular_remark backfill behave.
+              remark: p.remark ?? (i === 0 ? remark ?? null : null),
             })),
           },
         },
@@ -114,26 +118,24 @@ describe('Export (Phase 12, FR-10)', () => {
     }
   }
 
-  // The finance manager's unified layout — EXACT order + headers. The original ten
-  // keep their positions; Particular/Rate/Quantity are appended at 11-13 for the
-  // per-particular grain.
+  // The finance manager's unified layout — EXACT order + headers. Description NAMES
+  // the particular and is followed straight away by the Rate × Quantity that derive
+  // its Amount; the SPOC's free text is the trailing `Remarks`.
   const EXPECTED_HEADERS = [
     'G/L Account No.',
     'G/L Account Name',
     'Month',
     'Description',
+    'Rate',
+    'Quantity',
     'Amount (LCY)',
     'Vendor Name',
     'Clinic Name',
     'Acc. Location Code',
     'Customer Code',
     'Product Code',
-    'Particular',
-    'Rate',
-    'Quantity',
+    'Remarks',
   ];
-  /** The ten columns that predate particulars — these must never move or rename. */
-  const LEGACY_HEADERS = EXPECTED_HEADERS.slice(0, 10);
   const col = (h: string) => EXPECTED_HEADERS.indexOf(h) + 1; // 1-based cell index
 
   /** Load a produced .xlsx back and expose row 1 headers + the data rows by column. */
@@ -167,9 +169,11 @@ describe('Export (Phase 12, FR-10)', () => {
       expect(buffer.subarray(0, 2).toString('ascii')).toBe('PK'); // valid xlsx (ZIP)
       const { sheet, headers } = await loadSheet(buffer);
       expect(headers).toEqual(EXPECTED_HEADERS);
-      // The pre-existing finance columns keep their EXACT names and positions —
-      // the particulars work appended, it did not reorder.
-      expect(headers.slice(0, 10)).toEqual(LEGACY_HEADERS);
+      // Description → Rate → Quantity → Amount are CONTIGUOUS and in that order:
+      // the row reads as the arithmetic behind the figure it reports.
+      expect(headers.slice(3, 7)).toEqual(['Description', 'Rate', 'Quantity', 'Amount (LCY)']);
+      // Remarks is last — free text never sits among the figures.
+      expect(headers[headers.length - 1]).toBe('Remarks');
       // No 14th column bleeds in beyond the fixed layout.
       expect(sheet.getRow(1).getCell(EXPECTED_HEADERS.length + 1).value ?? null).toBeNull();
     }
@@ -206,14 +210,14 @@ describe('Export (Phase 12, FR-10)', () => {
     expect(byKey.get('Mumbai|2026-06')!['Customer Code']).toBe('CUST-MUM');
   });
 
-  it('per-line values vary and per-clinic values repeat; Description = the per-line SPOC note', async () => {
+  it('per-line values vary and per-clinic values repeat; Description = the particular NAME, Remarks = its remark', async () => {
     const clinic = await fx.makeClinic({ name: 'Pune', accLocationCode: 'LOC-PUN', customerCode: 'CUST-PUN' });
     const rent = await fx.makeExpenseHead({ glAccountName: 'Rent', glAccountNo: '400100' });
     const power = await fx.makeExpenseHead({ glAccountName: 'Power', glAccountNo: '400200' });
     await fx.mapHeads(clinic.id, [rent.id, power.id]);
     await enter(clinic.id, '2026-06', [
-      { id: rent.id, amount: 1000, vendorName: 'Landlord LLP', productCode: 'P10', note: 'lease renewed' },
-      { id: power.id, amount: 250 }, // no vendor / product / note
+      { id: rent.id, amount: 1000, vendorName: 'Landlord LLP', productCode: 'P10', remark: 'lease renewed' },
+      { id: power.id, amount: 250 }, // no vendor / product / remark
     ]);
 
     const buffer = await excel.clinicMonth(await exportService.clinicMonth(finance, clinic.id, '2026-06'));
@@ -226,7 +230,9 @@ describe('Export (Phase 12, FR-10)', () => {
     expect(rentRow['Amount (LCY)']).toBe(1000);
     expect(rentRow['Vendor Name']).toBe('Landlord LLP');
     expect(rentRow['Product Code']).toBe('P10');
-    expect(rentRow['Description']).toBe('lease renewed'); // Description = per-line SPOC note
+    // Description NAMES the particular; the SPOC's free text is the trailing Remarks.
+    expect(rentRow['Description']).toBe('Amount');
+    expect(rentRow['Remarks']).toBe('lease renewed');
 
     // Per-clinic fields repeat identically across the clinic's lines.
     expect(rentRow['Clinic Name']).toBe('Pune');
@@ -236,8 +242,8 @@ describe('Export (Phase 12, FR-10)', () => {
     expect(rentRow['Customer Code']).toBe('CUST-PUN');
     expect(powerRow['Customer Code']).toBe('CUST-PUN');
 
-    // A null vendor / product / description renders BLANK (never "0"/"null").
-    for (const field of ['Vendor Name', 'Product Code', 'Description']) {
+    // A null vendor / product / remark renders BLANK (never "0"/"null").
+    for (const field of ['Vendor Name', 'Product Code', 'Remarks']) {
       const v = powerRow[field];
       expect(v == null || v === '').toBe(true);
       expect(v).not.toBe(0);
@@ -331,10 +337,12 @@ describe('Export (Phase 12, FR-10)', () => {
         amount: 0, // ignored — particulars drive the figures
         vendorName: 'Acme',
         productCode: 'P20',
-        note: 'monthly consumables',
         particulars: [
-          { name: 'Gloves (M)', rate: 400, quantity: 30 }, // 12,000.00
-          { name: 'Masks', rate: 15, quantity: 300 }, //  4,500.00
+          // Each particular carries its OWN name and remark now — both the
+          // Description and the Remarks column are per-row, not the vendor line's
+          // text repeated down the line's particulars.
+          { name: 'Gloves (M)', rate: 400, quantity: 30, remark: 'switched supplier' }, // 12,000.00
+          { name: 'Masks', rate: 15, quantity: 300 }, //  4,500.00 — no remark
         ],
       },
     ]);
@@ -348,8 +356,10 @@ describe('Export (Phase 12, FR-10)', () => {
     expect(rows.map((r) => r.glAccountNo)).toEqual(['500100', '500100']);
     expect(rows.map((r) => r.vendorName)).toEqual(['Acme', 'Acme']);
     expect(rows.map((r) => r.productCode)).toEqual(['P20', 'P20']);
-    expect(rows.map((r) => r.note)).toEqual(['monthly consumables', 'monthly consumables']);
     expect(rows.map((r) => r.clinicName)).toEqual(['Pune', 'Pune']);
+    // ...but the remark does NOT: it belongs to the particular, so it varies row by
+    // row and a particular with none stays blank (never the neighbour's text).
+    expect(rows.map((r) => r.remark)).toEqual(['switched supplier', null]);
 
     // The Amount column still sums to the vendor line's stored amount — the grain
     // changed, the grand total did not.
@@ -360,12 +370,15 @@ describe('Export (Phase 12, FR-10)', () => {
     expect(sheetTotal).toBe(Number(stored.amount));
     expect(sheetTotal).toBe(16500);
 
-    // Rate and Quantity land in the appended columns, as real numbers.
+    // On the sheet: Description names the particular, Rate × Quantity sit beside the
+    // Amount they derive (all real numbers), and Remarks trails at the end — blank,
+    // not the neighbour's text, where the SPOC wrote none.
     const { dataRows } = await loadSheet(await excel.consolidated(rows));
-    expect(dataRows.map((r) => r['Particular'])).toEqual(['Gloves (M)', 'Masks']);
+    expect(dataRows.map((r) => r['Description'])).toEqual(['Gloves (M)', 'Masks']);
     expect(dataRows.map((r) => r['Rate'])).toEqual([400, 15]);
     expect(dataRows.map((r) => r['Quantity'])).toEqual([30, 300]);
     expect(dataRows.map((r) => r['Amount (LCY)'])).toEqual([12000, 4500]);
+    expect(dataRows.map((r) => r['Remarks'] ?? '')).toEqual(['switched supplier', '']);
   });
 
   it('month-end is one row per line for ACTIVE clinics only (no matrix, no dead clinics)', async () => {
@@ -411,5 +424,55 @@ describe('Export (Phase 12, FR-10)', () => {
 
     // Single-clinic export of a clinic outside scope is forbidden (403).
     await expectStatus(exportService.clinicMonth(spoc, other.id, '2026-06'), 403);
+
+    // ...and so is the CONSOLIDATED export (the button the SPOC/cluster-manager
+    // dashboard now carries) when its clinic filter names someone else's clinic.
+    // Denied, not silently emptied — an empty 200 would let a clinic role probe
+    // which clinic ids exist by watching which come back populated.
+    await expectStatus(exportService.detailRows(spoc, { clinicId: other.id }), 403);
+
+    // The in-scope clinic filter still works, and a no-filter export stays
+    // implicitly narrowed to their own clinic — never widened by omission.
+    const mineOnly = await exportService.detailRows(spoc, { clinicId: mine.id });
+    expect(mineOnly.map((r) => r.clinicName)).toEqual(['Mine']);
+
+    // Month-end (the same engine, all in-scope active clinics) is scoped too.
+    const monthEnd = await exportService.monthEnd(spoc, '2026-06');
+    expect([...new Set(monthEnd.map((r) => r.clinicName))]).toEqual(['Mine']);
+  });
+
+  it('scopes a cluster manager to their own clinics across reads and exports', async () => {
+    const a = await fx.makeClinic({ name: 'Cluster A' });
+    const b = await fx.makeClinic({ name: 'Cluster B' });
+    const outside = await fx.makeClinic({ name: 'Outside' });
+    const head = await fx.makeExpenseHead();
+    for (const c of [a, b, outside]) await fx.mapHeads(c.id, [head.id]);
+    await enter(a.id, '2026-06', [{ id: head.id, amount: 100 }]);
+    await enter(b.id, '2026-06', [{ id: head.id, amount: 200 }]);
+    await enter(outside.id, '2026-06', [{ id: head.id, amount: 900 }]);
+
+    // A cluster manager covering TWO clinics — the multi-clinic case the shared
+    // filter bar exists for.
+    const manager = (await fx.makeUser(UserRole.CLINIC_MANAGER, [a.id, b.id])).user;
+
+    const all = await exportService.detailRows(manager, {});
+    expect([...new Set(all.map((r) => r.clinicName))].sort()).toEqual(['Cluster A', 'Cluster B']);
+
+    // Narrowing WITHIN their cluster is allowed; reaching outside it is a 403.
+    const justA = await exportService.detailRows(manager, { clinicId: a.id });
+    expect([...new Set(justA.map((r) => r.clinicName))]).toEqual(['Cluster A']);
+    await expectStatus(exportService.detailRows(manager, { clinicId: outside.id }), 403);
+    await expectStatus(exportService.clinicMonth(manager, outside.id, '2026-06'), 403);
+
+    // MONTH-END (Step 11.4 gives this button to SPOC/cluster manager too). It
+    // takes NO clinic parameter at all — "all active clinics" is resolved from the
+    // caller's own scope — so the cluster manager gets their two and never the
+    // third, with nothing on the wire that could widen it.
+    const monthEnd = await exportService.monthEnd(manager, '2026-06');
+    expect([...new Set(monthEnd.map((r) => r.clinicName))].sort()).toEqual([
+      'Cluster A',
+      'Cluster B',
+    ]);
+    expect(monthEnd.some((r) => r.clinicName === 'Outside')).toBe(false);
   });
 });
