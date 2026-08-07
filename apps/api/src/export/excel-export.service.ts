@@ -47,6 +47,10 @@ const COLUMNS: Array<{ key: string; header: string; width: number }> = [
   { key: 'clinic', header: 'Clinic Name', width: 26 },
   { key: 'accLocation', header: 'Acc. Location Code', width: 18 },
   { key: 'customer', header: 'Customer Code', width: 18 },
+  // The readable customer, immediately after its code — several clinics share a
+  // location name across different customers, so the code alone is not enough to
+  // tell whose spend a row is.
+  { key: 'customerName', header: 'Customer Name', width: 26 },
   { key: 'product', header: 'Product Code', width: 14 },
   // ── Free text last: it annotates the row, it isn't part of its arithmetic. ──
   { key: 'remarks', header: 'Remarks', width: 34 },
@@ -142,6 +146,7 @@ function writeLineSheet(sheet: Worksheet, rows: ExportRow[]): void {
       clinic: r.clinicName,
       accLocation: r.accLocationCode,
       customer: r.customerCode,
+      customerName: r.customerName,
       product: r.productCode ?? '',
       remarks: r.remark ?? '',
     });

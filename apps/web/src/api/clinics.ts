@@ -5,6 +5,7 @@ export interface ClinicInput {
   name: string;
   accLocationCode: string;
   customerCode: string;
+  customerName: string;
 }
 
 export async function listClinics(status: ActiveFilter): Promise<Clinic[]> {

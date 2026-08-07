@@ -148,7 +148,9 @@ export class SubmissionsService {
     const submission = await this.prisma.monthlySubmission.findUnique({
       where: { id: submissionId },
       include: {
-        clinic: { select: { name: true, accLocationCode: true, customerCode: true } },
+        clinic: {
+          select: { name: true, accLocationCode: true, customerCode: true, customerName: true },
+        },
         reviewStartedBy: { select: { name: true } },
         snapshots: {
           include: {
@@ -179,6 +181,7 @@ export class SubmissionsService {
       clinicName: submission.clinic.name,
       clinicAccLocationCode: submission.clinic.accLocationCode,
       clinicCustomerCode: submission.clinic.customerCode,
+      clinicCustomerName: submission.clinic.customerName,
       month: submission.month,
       status,
       locked: isLocked(status),

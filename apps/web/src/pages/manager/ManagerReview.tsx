@@ -204,6 +204,9 @@ export function ManagerReview() {
             {' · '}
             Customer Code:{' '}
             <span className="font-medium text-foreground">{detail.clinicCustomerCode}</span>
+            {' · '}
+            Customer:{' '}
+            <span className="font-medium text-foreground">{detail.clinicCustomerName}</span>
           </p>
         </div>
         <div className="flex flex-col items-end gap-1">

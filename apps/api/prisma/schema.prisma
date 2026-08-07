@@ -96,6 +96,12 @@ model Clinic {
   // migration — replace via the admin UI. Not unique (per-clinic identifiers).
   accLocationCode String
   customerCode    String
+  // The customer this clinic bills to, in words — the readable partner to
+  // `customerCode`. Master data set by the Finance Admin, same rules as the codes
+  // above. Many clinics share one customer, and several share a location NAME across
+  // different customers, so this is what tells them apart in the admin list and on
+  // exports. Backfilled with `PENDING-<id>` for pre-existing rows.
+  customerName    String
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

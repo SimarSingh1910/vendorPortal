@@ -23,4 +23,10 @@ export class UpdateClinicDto {
   @MinLength(1)
   @MaxLength(191)
   customerCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(191)
+  customerName?: string;
 }

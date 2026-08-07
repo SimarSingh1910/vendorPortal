@@ -43,6 +43,7 @@ const clinicSchema = z.object({
   name: z.string().min(1, 'Required').max(191),
   accLocationCode: z.string().min(1, 'Required').max(191),
   customerCode: z.string().min(1, 'Required').max(191),
+  customerName: z.string().min(1, 'Required').max(191),
 });
 type ClinicFormValues = z.infer<typeof clinicSchema>;
 
@@ -117,6 +118,7 @@ export function ClinicsAdmin() {
               <TableHead>Name</TableHead>
               <TableHead>Acc. Location Code</TableHead>
               <TableHead>Customer Code</TableHead>
+              <TableHead>Customer Name</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -124,13 +126,13 @@ export function ClinicsAdmin() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground">
+                <TableCell colSpan={6} className="text-center text-muted-foreground">
                   Loading…
                 </TableCell>
               </TableRow>
             ) : clinics.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground">
+                <TableCell colSpan={6} className="text-center text-muted-foreground">
                   No clinics.
                 </TableCell>
               </TableRow>
@@ -140,6 +142,7 @@ export function ClinicsAdmin() {
                   <TableCell className="font-medium">{clinic.name}</TableCell>
                   <TableCell>{clinic.accLocationCode}</TableCell>
                   <TableCell>{clinic.customerCode}</TableCell>
+                  <TableCell>{clinic.customerName}</TableCell>
                   <TableCell>
                     <Badge variant={clinic.isActive ? 'success' : 'muted'}>
                       {clinic.isActive ? 'Active' : 'Inactive'}
@@ -212,6 +215,7 @@ function ClinicFormDialog({
       name: '',
       accLocationCode: '',
       customerCode: '',
+      customerName: '',
     },
   });
 
@@ -224,8 +228,9 @@ function ClinicFormDialog({
               name: editing.name,
               accLocationCode: editing.accLocationCode,
               customerCode: editing.customerCode,
+              customerName: editing.customerName,
             }
-          : { name: '', accLocationCode: '', customerCode: '' },
+          : { name: '', accLocationCode: '', customerCode: '', customerName: '' },
       );
     }
   }, [open, editing, reset]);
@@ -257,6 +262,13 @@ function ClinicFormDialog({
             <Input id="customerCode" {...register('customerCode')} />
             {errors.customerCode && (
               <p className="text-xs text-destructive">{errors.customerCode.message}</p>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="customerName">Customer Name</Label>
+            <Input id="customerName" {...register('customerName')} />
+            {errors.customerName && (
+              <p className="text-xs text-destructive">{errors.customerName.message}</p>
             )}
           </div>
           {isError && <p className="text-sm text-destructive">Could not save. Please try again.</p>}

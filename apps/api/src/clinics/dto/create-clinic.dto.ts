@@ -17,4 +17,10 @@ export class CreateClinicDto {
   @MinLength(1)
   @MaxLength(191)
   customerCode!: string;
+
+  // The readable customer this clinic bills to — same master-data rules as the codes.
+  @IsString()
+  @MinLength(1)
+  @MaxLength(191)
+  customerName!: string;
 }

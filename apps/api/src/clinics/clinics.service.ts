@@ -51,6 +51,7 @@ export class ClinicsService {
         name: before.name,
         accLocationCode: before.accLocationCode,
         customerCode: before.customerCode,
+        customerName: before.customerName,
       },
       newValue: dto,
     });

@@ -92,6 +92,8 @@ export interface Clinic {
   accLocationCode: string;
   /** Customer Code — fixed finance identifier, admin-set per clinic (required). */
   customerCode: string;
+  /** Customer Name — the readable customer behind the code, admin-set (required). */
+  customerName: string;
   isActive: boolean;
   createdAt: string; // ISO-8601
   updatedAt: string; // ISO-8601
@@ -310,6 +312,8 @@ export interface SubmissionDetail {
   clinicAccLocationCode: string;
   /** Clinic's fixed Customer Code — read-only context for the entry/review panel. */
   clinicCustomerCode: string;
+  /** Clinic's Customer Name — the readable partner to the code, same panel. */
+  clinicCustomerName: string;
   month: string; // YYYY-MM
   status: SubmissionStatus;
   locked: boolean;

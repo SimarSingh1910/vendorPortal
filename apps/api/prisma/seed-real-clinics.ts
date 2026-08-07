@@ -3,13 +3,27 @@
  * managers from a spreadsheet, replacing the invented demo clinics.
  *
  * Run from apps/api:
- *   pnpm prisma:seed:real                              # reads prisma/data/clinics.xlsx
+ *   pnpm prisma:seed:real                              # reads every workbook in prisma/data
  *   pnpm prisma:seed:real -- --file=../../Book2.xlsx   # or an explicit path
+ *   pnpm prisma:seed:real -- --file=a.xlsx --file=b.xlsx   # repeatable
  *   pnpm prisma:seed:real -- --dry-run                 # parse + report, write nothing
  *
- * SOURCE COLUMNS (row 1 is the header):
- *   1 Customer Code · 2 Acc. location Code · 3 Customer Name · 4 Location Name
- *   5 Clinic SPOC (provision entry provider) · 6 Approver — Cluster Manager
+ * SOURCE COLUMNS (row 1 is the header), located BY HEADER TEXT, not by position:
+ *   Customer Code · Acc. location Code · Customer Name · Location Name
+ *   Clinic SPOC (provision entry provider) · Approver — Cluster Manager
+ *
+ * The workbooks do not agree on column order — `clinics.xlsx` leads with Customer
+ * Code, `additional-clinics.xlsx` with Acc. location Code — and both codes are
+ * non-empty strings, so reading by position would silently swap the two identifiers
+ * on one of them. Hence the header lookup, and a hard error naming any file whose
+ * header is missing a column rather than a half-read row.
+ *
+ * ALL SOURCES ARE IMPORTED IN ONE PASS. This is load-bearing, not a convenience:
+ * duplicate location names are disambiguated by appending the customer name, and
+ * that comparison can only see the rows in front of it. Four locations (Greater
+ * Noida Knowledge Park, Bengaluru Marathahalli, Mumbai, Noida Sec 24) appear in BOTH
+ * workbooks under different customers — importing the files in separate runs would
+ * leave each pair rendering identically on the dashboard, tiles and exports.
  *
  * WHAT IT REPLACES. The demo clinics and the demo clinic-role logins are deleted;
  * deleting a clinic cascades its submissions, entries and particulars, which is why
@@ -118,47 +132,113 @@ interface SheetRow {
   manager: string;
 }
 
-function sourceFile(): string {
-  const arg = process.argv.find((a) => a.startsWith('--file='))?.slice('--file='.length);
-  const fallback = join(__dirname, '..', '..', 'prisma', 'data', 'clinics.xlsx');
-  const candidates = [
-    ...(arg ? [isAbsolute(arg) ? arg : resolve(process.cwd(), arg)] : []),
-    join(process.cwd(), 'prisma', 'data', 'clinics.xlsx'),
-    fallback,
-  ];
-  const found = candidates.find((p) => existsSync(p));
-  if (!found) {
+/** The workbooks that make up the master list, in a stable order. */
+const DEFAULT_SOURCES = ['clinics.xlsx', 'additional-clinics.xlsx'];
+
+function sourceFiles(): string[] {
+  const args = process.argv
+    .filter((a) => a.startsWith('--file='))
+    .map((a) => a.slice('--file='.length))
+    .map((a) => (isAbsolute(a) ? a : resolve(process.cwd(), a)));
+  if (args.length > 0) {
+    const missing = args.filter((p) => !existsSync(p));
+    if (missing.length > 0) {
+      throw new Error(`Source workbook not found:\n  ${missing.join('\n  ')}`);
+    }
+    return args;
+  }
+
+  // Default: every known workbook that is actually present. `~$…` files are Excel's
+  // lock files for an open workbook, never data.
+  const dirs = [join(process.cwd(), 'prisma', 'data'), join(__dirname, '..', '..', 'prisma', 'data')];
+  const dir = dirs.find((d) => existsSync(d));
+  const found = dir
+    ? DEFAULT_SOURCES.map((f) => join(dir, f)).filter(
+        (p) => existsSync(p) && !/[\\/]~\$/.test(p),
+      )
+    : [];
+  if (found.length === 0) {
     throw new Error(
-      `Source workbook not found. Looked in:\n  ${candidates.join('\n  ')}\nPass --file=<path>.`,
+      `No source workbook found. Looked for ${DEFAULT_SOURCES.join(', ')} in:\n  ${dirs.join('\n  ')}\nPass --file=<path>.`,
     );
   }
   return found;
+}
+
+/**
+ * Column positions, resolved from the header row. Matched most-specific first:
+ * "Acc. location Code" contains both "location" and "code", and "Customer Code"
+ * and "Customer Name" share a word, so a looser order would mis-assign them.
+ */
+function headerColumns(ws: ExcelJS.Worksheet, file: string): Record<keyof SheetRow, number> {
+  const found: Partial<Record<keyof SheetRow, number>> = {};
+  const header = ws.getRow(1);
+  for (let c = 1; c <= ws.columnCount; c += 1) {
+    const h = norm(header.getCell(c).value)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+    if (!h) continue;
+    let key: keyof SheetRow | undefined;
+    if (h.includes('acc') && h.includes('location')) key = 'accLocationCode';
+    else if (h.includes('customer') && h.includes('code')) key = 'customerCode';
+    else if (h.includes('customer') && h.includes('name')) key = 'customerName';
+    else if (h.includes('location') && h.includes('name')) key = 'locationName';
+    else if (h.includes('spoc')) key = 'spoc';
+    else if (h.includes('approver') || h.includes('cluster')) key = 'manager';
+    if (key && found[key] === undefined) found[key] = c;
+  }
+  const required: (keyof SheetRow)[] = [
+    'customerCode',
+    'accLocationCode',
+    'customerName',
+    'locationName',
+    'spoc',
+    'manager',
+  ];
+  const missing = required.filter((k) => found[k] === undefined);
+  if (missing.length > 0) {
+    throw new Error(`${file}: header row is missing column(s): ${missing.join(', ')}`);
+  }
+  return found as Record<keyof SheetRow, number>;
 }
 
 async function readRows(file: string): Promise<SheetRow[]> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(file);
   const ws = wb.worksheets[0];
+  const col = headerColumns(ws, file);
   const rows: SheetRow[] = [];
   ws.eachRow({ includeEmpty: false }, (row, n) => {
     if (n === 1) return; // header
     const r: SheetRow = {
-      customerCode: norm(row.getCell(1).value),
-      accLocationCode: norm(row.getCell(2).value),
-      customerName: norm(row.getCell(3).value),
-      locationName: norm(row.getCell(4).value),
-      spoc: norm(row.getCell(5).value),
-      manager: norm(row.getCell(6).value),
+      customerCode: norm(row.getCell(col.customerCode).value),
+      accLocationCode: norm(row.getCell(col.accLocationCode).value),
+      customerName: norm(row.getCell(col.customerName).value),
+      locationName: norm(row.getCell(col.locationName).value),
+      spoc: norm(row.getCell(col.spoc).value),
+      manager: norm(row.getCell(col.manager).value),
     };
     // A row missing any of these can't produce a usable clinic, so skip loudly
     // rather than importing a half-clinic.
     if (!r.customerCode || !r.accLocationCode || !r.locationName || !r.spoc || !r.manager) {
-      console.warn(`  ! row ${n} skipped — missing required column(s)`);
+      console.warn(`  ! ${file} row ${n} skipped — missing required column(s)`);
       return;
     }
     rows.push(r);
   });
   return rows;
+}
+
+/** Every source, concatenated — see the note on one-pass importing up top. */
+async function readAllRows(files: string[]): Promise<SheetRow[]> {
+  const all: SheetRow[] = [];
+  for (const file of files) {
+    const rows = await readRows(file);
+    console.log(`  ${file} → ${rows.length} row(s)`);
+    all.push(...rows);
+  }
+  return all;
 }
 
 /**
@@ -177,11 +257,11 @@ function clinicNames(rows: SheetRow[]): string[] {
 }
 
 async function main(): Promise<void> {
-  const file = sourceFile();
+  const files = sourceFiles();
   const dryRun = process.argv.includes('--dry-run');
-  console.log(`Reading ${file}${dryRun ? '  (DRY RUN — nothing will be written)' : ''}`);
+  console.log(`Reading ${files.length} workbook(s)${dryRun ? '  (DRY RUN — nothing will be written)' : ''}`);
 
-  const rows = await readRows(file);
+  const rows = await readAllRows(files);
   const names = clinicNames(rows);
 
   // ── People. A SPOC or manager covers MANY clinics, so collect their clinic sets
@@ -264,6 +344,7 @@ async function main(): Promise<void> {
         name: names[i],
         accLocationCode: rows[i].accLocationCode,
         customerCode: rows[i].customerCode,
+        customerName: rows[i].customerName,
       });
       clinicIds.push(clinic.id);
     }

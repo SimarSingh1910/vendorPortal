@@ -26,6 +26,7 @@ export interface ExportRow {
   // Clinic's fixed finance identifiers — repeated on every line of that clinic (read live).
   accLocationCode: string;
   customerCode: string;
+  customerName: string;
   month: string;
   status: SubmissionStatus;
   expenseHeadId: string;
@@ -107,6 +108,7 @@ export class ExportService {
     const rows = await this.prisma.$queryRaw<ExportRow[]>(Prisma.sql`
       SELECT c.id AS clinicId, c.name AS clinicName,
              c.accLocationCode AS accLocationCode, c.customerCode AS customerCode,
+             c.customerName AS customerName,
              m.month AS month, m.status AS status,
              s.expenseHeadId AS expenseHeadId,
              s.expenseHeadGlNameAtSnapshot AS glAccountName,

@@ -37,6 +37,7 @@ export function makeFixtures(ctx: FixtureCtx) {
       name?: string;
       accLocationCode?: string;
       customerCode?: string;
+      customerName?: string;
     } = {},
   ): Promise<Clinic> {
     const n = next();
@@ -45,6 +46,7 @@ export function makeFixtures(ctx: FixtureCtx) {
         name: opts.name ?? `Clinic ${n}`,
         accLocationCode: opts.accLocationCode ?? `ACC-${n}`,
         customerCode: opts.customerCode ?? `CUST-${n}`,
+        customerName: opts.customerName ?? `Customer ${n}`,
         isActive: opts.active ?? true,
       },
     });

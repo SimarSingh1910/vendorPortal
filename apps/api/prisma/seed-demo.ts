@@ -79,16 +79,17 @@ interface ClinicDef {
   location: string;
   accLocationCode: string;
   customerCode: string;
+  customerName: string;
   factor: number;
   active: boolean;
 }
 const CLINICS: ClinicDef[] = [
-  { code: 'PUN', name: 'Pune Tech Park Clinic', location: 'Pune', accLocationCode: 'PUN-HIN-01', customerCode: 'CUST-100231', factor: 1.0, active: true },
-  { code: 'MUM', name: 'Mumbai BKC Clinic', location: 'Mumbai', accLocationCode: 'MUM-BKC-02', customerCode: 'CUST-100232', factor: 1.2, active: true },
-  { code: 'BLR', name: 'Bengaluru Whitefield Clinic', location: 'Bengaluru', accLocationCode: 'BLR-WF-03', customerCode: 'CUST-100233', factor: 0.9, active: true },
-  { code: 'HYD', name: 'Hyderabad Gachibowli Clinic', location: 'Hyderabad', accLocationCode: 'HYD-GAC-04', customerCode: 'CUST-100234', factor: 1.05, active: true },
-  { code: 'CHE', name: 'Chennai OMR Clinic', location: 'Chennai', accLocationCode: 'CHE-OMR-05', customerCode: 'CUST-100235', factor: 0.95, active: true },
-  { code: 'GUR', name: 'Gurugram Cyber City Clinic (closed)', location: 'Gurugram', accLocationCode: 'GUR-CYB-06', customerCode: 'CUST-100236', factor: 0.8, active: false },
+  { code: 'PUN', name: 'Pune Tech Park Clinic', location: 'Pune', accLocationCode: 'PUN-HIN-01', customerCode: 'CUST-100231', customerName: 'Demo Customer — Pune', factor: 1.0, active: true },
+  { code: 'MUM', name: 'Mumbai BKC Clinic', location: 'Mumbai', accLocationCode: 'MUM-BKC-02', customerCode: 'CUST-100232', customerName: 'Demo Customer — Mumbai', factor: 1.2, active: true },
+  { code: 'BLR', name: 'Bengaluru Whitefield Clinic', location: 'Bengaluru', accLocationCode: 'BLR-WF-03', customerCode: 'CUST-100233', customerName: 'Demo Customer — Bengaluru', factor: 0.9, active: true },
+  { code: 'HYD', name: 'Hyderabad Gachibowli Clinic', location: 'Hyderabad', accLocationCode: 'HYD-GAC-04', customerCode: 'CUST-100234', customerName: 'Demo Customer — Hyderabad', factor: 1.05, active: true },
+  { code: 'CHE', name: 'Chennai OMR Clinic', location: 'Chennai', accLocationCode: 'CHE-OMR-05', customerCode: 'CUST-100235', customerName: 'Demo Customer — Chennai', factor: 0.95, active: true },
+  { code: 'GUR', name: 'Gurugram Cyber City Clinic (closed)', location: 'Gurugram', accLocationCode: 'GUR-CYB-06', customerCode: 'CUST-100236', customerName: 'Demo Customer — Gurugram', factor: 0.8, active: false },
 ];
 
 // Expense heads carry realistic G/L account numbers (6xxxxx series) and an
@@ -300,6 +301,7 @@ async function main(): Promise<void> {
         name: c.name,
         accLocationCode: c.accLocationCode,
         customerCode: c.customerCode,
+        customerName: c.customerName,
         isActive: c.active,
       },
     });
