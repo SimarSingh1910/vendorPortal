@@ -216,6 +216,9 @@ export function FinanceReview() {
             Acc. Location Code:{' '}
             <span className="font-medium text-foreground">{detail.clinicAccLocationCode}</span>
             {' · '}
+            Location Name:{' '}
+            <span className="font-medium text-foreground">{detail.clinicName}</span>
+            {' · '}
             Customer Code:{' '}
             <span className="font-medium text-foreground">{detail.clinicCustomerCode}</span>
             {' · '}
