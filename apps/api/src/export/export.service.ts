@@ -120,11 +120,11 @@ export class ExportService {
              ep.particularName AS particularName,
              CAST(ep.rate AS CHAR) AS rate,
              CAST(ep.quantity AS CHAR) AS quantity
-      FROM provisionentry p
-      JOIN entryparticular ep ON ep.entryId = p.id
-      JOIN submissionexpenseheadsnapshot s ON s.id = p.snapshotId
-      JOIN monthlysubmission m ON m.id = p.submissionId
-      JOIN clinic c ON c.id = m.clinicId
+      FROM ProvisionEntry p
+      JOIN EntryParticular ep ON ep.entryId = p.id
+      JOIN SubmissionExpenseHeadSnapshot s ON s.id = p.snapshotId
+      JOIN MonthlySubmission m ON m.id = p.submissionId
+      JOIN Clinic c ON c.id = m.clinicId
       WHERE ${Prisma.join(conds, ' AND ')}
       ORDER BY c.name ASC, m.month ASC, s.expenseHeadGlNoAtSnapshot ASC, s.expenseHeadGlNameAtSnapshot ASC, p.lineOrder ASC, ep.lineOrder ASC
     `);

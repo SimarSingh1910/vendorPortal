@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   QUANTITY_DECIMALS,
   RATE_DECIMALS,
@@ -13,6 +13,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ClinicScopeService } from '../common/clinic-scope.service';
 import type { RequestUser } from '../auth/request-user';
 import { canSpocRecall, isSpocEditable } from './workflow.service';
+import { CycleService } from './cycle.service';
 
 const isLocked = (status: SubmissionStatus): boolean => status === SubmissionStatus.FINANCE_APPROVED;
 
@@ -37,9 +38,12 @@ const BLANK_PARTICULAR: ProvisionParticular = {
  */
 @Injectable()
 export class SubmissionsService {
+  private readonly logger = new Logger(SubmissionsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly scope: ClinicScopeService,
+    private readonly cycle: CycleService,
   ) {}
 
   /**
@@ -145,7 +149,32 @@ export class SubmissionsService {
 
   /** The provision form / read-only detail: snapshot heads + any entered values. */
   async getDetail(submissionId: string, user: RequestUser): Promise<SubmissionDetail> {
-    const submission = await this.prisma.monthlySubmission.findUnique({
+    let submission = await this.loadDetail(submissionId);
+    if (!submission) {
+      throw new NotFoundException('Submission not found');
+    }
+    if (!this.scope.canAccessClinic(user, submission.clinicId)) {
+      throw new ForbiddenException('Clinic not in your accessible scope');
+    }
+    // A cycle with nothing entered yet follows the clinic's current mapping (see
+    // CycleService.resyncUntouched). Best-effort: a failed resync must never stop
+    // the form loading — the next load simply tries again.
+    const status = submission.status as SubmissionStatus;
+    const hasEntries = submission.snapshots.some((s) => s.entries.length > 0);
+    if ((status === SubmissionStatus.NOT_STARTED || status === SubmissionStatus.DRAFT) && !hasEntries) {
+      let changed = false;
+      try {
+        changed = await this.cycle.resyncUntouched(submissionId);
+      } catch (err) {
+        this.logger.warn(`head resync failed for ${submissionId}: ${(err as Error).message}`);
+      }
+      if (changed) submission = (await this.loadDetail(submissionId)) ?? submission;
+    }
+    return this.toDetail(submission, user);
+  }
+
+  private loadDetail(submissionId: string) {
+    return this.prisma.monthlySubmission.findUnique({
       where: { id: submissionId },
       include: {
         clinic: {
@@ -163,13 +192,12 @@ export class SubmissionsService {
         },
       },
     });
-    if (!submission) {
-      throw new NotFoundException('Submission not found');
-    }
-    if (!this.scope.canAccessClinic(user, submission.clinicId)) {
-      throw new ForbiddenException('Clinic not in your accessible scope');
-    }
+  }
 
+  private toDetail(
+    submission: NonNullable<Awaited<ReturnType<SubmissionsService['loadDetail']>>>,
+    user: RequestUser,
+  ): SubmissionDetail {
     const status = submission.status as SubmissionStatus;
     const isSpoc = user.role === UserRole.CLINIC_SPOC;
     const canEdit = isSpoc && isSpocEditable(status);

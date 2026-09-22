@@ -28,8 +28,8 @@ UI lists exactly the snapshotted heads using the `*AtSnapshot` labels.
   recategorizing, or deactivating an expense head (or changing a
   `ClinicExpenseHead` mapping) changes only what gets snapshotted into *future*
   cycles. Submissions that are already open or already closed keep the exact set
-  of heads — and the exact names/categories — they were opened with. There is no
-  code path where a live master edit reshapes an existing month's form.
+  of heads — and the exact names/categories — they were opened with, once anything
+  has been entered into them. The single exception is below.
 
 - **BR-02 — deactivation never alters history.** Deactivating a head sets
   `ExpenseHead.isActive = false`; it does **not** delete the row and does **not**
@@ -40,6 +40,19 @@ UI lists exactly the snapshotted heads using the `*AtSnapshot` labels.
 An open submission therefore keeps its snapshot even if a head is deactivated the
 day after the cycle opened. The deactivation is only visible from the *next*
 cycle, which simply won't snapshot that head.
+
+### The exception: a cycle nothing has been entered into
+
+A cycle in `NOT_STARTED`, or `DRAFT` with no `ProvisionEntry` rows, has no figures
+to protect. Freezing it only strands the SPOC with a stale form — in production,
+a month opened before any heads were mapped showed an empty form for the whole
+month. So `CycleService.resyncUntouched` (run when the form is loaded) re-syncs
+such a cycle's snapshot rows to the clinic's current mapping: newly mapped heads
+are added, unmapped ones dropped, changed names / G/L numbers / multi-vendor flags
+refreshed; unchanged heads keep their snapshot id. It holds a row lock on the
+`MonthlySubmission` shared with `ProvisionEntryService.saveEntries`, so the first
+save and a resync never interleave. From the first entry on, the snapshot is
+frozen exactly as described above.
 
 ## How the schema encodes this
 
@@ -56,4 +69,6 @@ cycle, which simply won't snapshot that head.
 
 If you ever find code building the form from `ClinicExpenseHead` or `ExpenseHead`
 for a given submission, that is a bug: it reintroduces the manual-process problem
-this design exists to prevent.
+this design exists to prevent. (The resync above does not build the form from the
+masters; it rewrites the snapshot rows of an untouched cycle, and the form still
+reads only the snapshot.)

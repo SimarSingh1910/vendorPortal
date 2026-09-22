@@ -155,7 +155,12 @@ export class DashboardService {
     clinicIds: string[],
     opts: { from?: string; to?: string; month?: string; expenseHeadIds?: string[]; statuses?: SubmissionStatus[] },
   ): Prisma.Sql {
-    const conds: Prisma.Sql[] = [Prisma.sql`m.clinicId IN (${Prisma.join(clinicIds)})`];
+    // A line with no amount (a half-filled row) is not a figure: leaving it out keeps
+    // a head with nothing valued absent ("not provided") instead of a NULL total.
+    const conds: Prisma.Sql[] = [
+      Prisma.sql`m.clinicId IN (${Prisma.join(clinicIds)})`,
+      Prisma.sql`p.amount IS NOT NULL`,
+    ];
     if (opts.month) conds.push(Prisma.sql`m.month = ${opts.month}`);
     if (opts.from) conds.push(Prisma.sql`m.month >= ${opts.from}`);
     if (opts.to) conds.push(Prisma.sql`m.month <= ${opts.to}`);
@@ -179,9 +184,9 @@ export class DashboardService {
     >(Prisma.sql`
       SELECT c.id AS clinicId, c.name AS clinicName, m.id AS submissionId,
              m.status AS status, CAST(SUM(p.amount) AS CHAR) AS total
-      FROM clinic c
-      LEFT JOIN monthlysubmission m ON m.clinicId = c.id AND m.month = ${m}
-      LEFT JOIN provisionentry p ON p.submissionId = m.id
+      FROM Clinic c
+      LEFT JOIN MonthlySubmission m ON m.clinicId = c.id AND m.month = ${m}
+      LEFT JOIN ProvisionEntry p ON p.submissionId = m.id
       WHERE c.isActive = 1 AND c.id IN (${Prisma.join(clinicIds)})
       GROUP BY c.id, c.name, m.id, m.status
       ORDER BY c.name ASC
@@ -244,9 +249,9 @@ export class DashboardService {
 
     const rows = await this.prisma.$queryRaw<Array<{ month: string; total: string }>>(Prisma.sql`
       SELECT m.month AS month, CAST(SUM(p.amount) AS CHAR) AS total
-      FROM provisionentry p
-      JOIN submissionexpenseheadsnapshot s ON s.id = p.snapshotId
-      JOIN monthlysubmission m ON m.id = p.submissionId
+      FROM ProvisionEntry p
+      JOIN SubmissionExpenseHeadSnapshot s ON s.id = p.snapshotId
+      JOIN MonthlySubmission m ON m.id = p.submissionId
       ${this.entryWhere(clinicIds, { from, to, expenseHeadIds: DashboardService.ids(filters.expenseHeadId, filters.expenseHeadIds), statuses: filters.status })}
       GROUP BY m.month
       ORDER BY m.month ASC
@@ -269,10 +274,10 @@ export class DashboardService {
     >(Prisma.sql`
       SELECT m.month AS month, s.expenseHeadId AS expenseHeadId,
              MAX(e.glAccountName) AS expenseHeadName, CAST(SUM(p.amount) AS CHAR) AS total
-      FROM provisionentry p
-      JOIN submissionexpenseheadsnapshot s ON s.id = p.snapshotId
-      JOIN monthlysubmission m ON m.id = p.submissionId
-      JOIN expensehead e ON e.id = s.expenseHeadId
+      FROM ProvisionEntry p
+      JOIN SubmissionExpenseHeadSnapshot s ON s.id = p.snapshotId
+      JOIN MonthlySubmission m ON m.id = p.submissionId
+      JOIN ExpenseHead e ON e.id = s.expenseHeadId
       ${this.entryWhere(clinicIds, { from, to, expenseHeadIds: DashboardService.ids(filters.expenseHeadId, filters.expenseHeadIds), statuses: filters.status })}
       GROUP BY m.month, s.expenseHeadId
       ORDER BY m.month ASC, expenseHeadName ASC
@@ -314,10 +319,10 @@ export class DashboardService {
       SELECT m.month AS month, s.expenseHeadId AS expenseHeadId,
              MAX(e.glAccountName) AS expenseHeadName, MAX(e.glAccountNo) AS glAccountNo,
              p.vendorName AS vendorName, CAST(SUM(p.amount) AS CHAR) AS total
-      FROM provisionentry p
-      JOIN submissionexpenseheadsnapshot s ON s.id = p.snapshotId
-      JOIN monthlysubmission m ON m.id = p.submissionId
-      JOIN expensehead e ON e.id = s.expenseHeadId
+      FROM ProvisionEntry p
+      JOIN SubmissionExpenseHeadSnapshot s ON s.id = p.snapshotId
+      JOIN MonthlySubmission m ON m.id = p.submissionId
+      JOIN ExpenseHead e ON e.id = s.expenseHeadId
       ${this.entryWhere(clinicIds, { from, to, expenseHeadIds: DashboardService.ids(filters.expenseHeadId, filters.expenseHeadIds), statuses: filters.status })}
         AND p.amount IS NOT NULL
       GROUP BY m.month, s.expenseHeadId, p.vendorName
@@ -347,10 +352,10 @@ export class DashboardService {
       Array<{ clinicId: string; clinicName: string; total: string }>
     >(Prisma.sql`
       SELECT m.clinicId AS clinicId, MAX(c.name) AS clinicName, CAST(SUM(p.amount) AS CHAR) AS total
-      FROM provisionentry p
-      JOIN submissionexpenseheadsnapshot s ON s.id = p.snapshotId
-      JOIN monthlysubmission m ON m.id = p.submissionId
-      JOIN clinic c ON c.id = m.clinicId
+      FROM ProvisionEntry p
+      JOIN SubmissionExpenseHeadSnapshot s ON s.id = p.snapshotId
+      JOIN MonthlySubmission m ON m.id = p.submissionId
+      JOIN Clinic c ON c.id = m.clinicId
       ${this.entryWhere(clinicIds, { from, to, expenseHeadIds: DashboardService.ids(filters.expenseHeadId, filters.expenseHeadIds), statuses: filters.status })}
       GROUP BY m.clinicId
       ORDER BY SUM(p.amount) DESC
@@ -448,11 +453,11 @@ export class DashboardService {
     >(Prisma.sql`
       SELECT s.expenseHeadId AS expenseHeadId, MAX(e.glAccountName) AS expenseHeadName,
              CAST(SUM(p.amount) AS CHAR) AS total
-      FROM provisionentry p
-      JOIN submissionexpenseheadsnapshot s ON s.id = p.snapshotId
-      JOIN monthlysubmission m ON m.id = p.submissionId
-      JOIN expensehead e ON e.id = s.expenseHeadId
-      WHERE m.clinicId IN (${Prisma.join(clinicIds)}) AND m.month = ${month}
+      FROM ProvisionEntry p
+      JOIN SubmissionExpenseHeadSnapshot s ON s.id = p.snapshotId
+      JOIN MonthlySubmission m ON m.id = p.submissionId
+      JOIN ExpenseHead e ON e.id = s.expenseHeadId
+      WHERE m.clinicId IN (${Prisma.join(clinicIds)}) AND m.month = ${month} AND p.amount IS NOT NULL
       GROUP BY s.expenseHeadId
     `);
     return new Map(rows.map((r) => [r.expenseHeadId, { name: r.expenseHeadName, total: String(r.total) }]));
@@ -471,10 +476,10 @@ export class DashboardService {
   ): Promise<Map<string, string>> {
     const rows = await this.prisma.$queryRaw<Array<{ expenseHeadId: string; total: string }>>(Prisma.sql`
       SELECT s.expenseHeadId AS expenseHeadId, CAST(SUM(p.amount) AS CHAR) AS total
-      FROM provisionentry p
-      JOIN submissionexpenseheadsnapshot s ON s.id = p.snapshotId
-      JOIN monthlysubmission m ON m.id = p.submissionId
-      WHERE m.clinicId IN (${Prisma.join(clinicIds)}) AND m.month >= ${from} AND m.month <= ${to}
+      FROM ProvisionEntry p
+      JOIN SubmissionExpenseHeadSnapshot s ON s.id = p.snapshotId
+      JOIN MonthlySubmission m ON m.id = p.submissionId
+      WHERE m.clinicId IN (${Prisma.join(clinicIds)}) AND m.month >= ${from} AND m.month <= ${to} AND p.amount IS NOT NULL
       GROUP BY s.expenseHeadId
     `);
     return new Map(rows.map((r) => [r.expenseHeadId, String(r.total)]));
@@ -518,10 +523,10 @@ export class DashboardService {
     >(Prisma.sql`
       SELECT m.month AS month, s.expenseHeadId AS expenseHeadId,
              MAX(e.glAccountName) AS expenseHeadName, CAST(SUM(p.amount) AS CHAR) AS total
-      FROM provisionentry p
-      JOIN submissionexpenseheadsnapshot s ON s.id = p.snapshotId
-      JOIN monthlysubmission m ON m.id = p.submissionId
-      JOIN expensehead e ON e.id = s.expenseHeadId
+      FROM ProvisionEntry p
+      JOIN SubmissionExpenseHeadSnapshot s ON s.id = p.snapshotId
+      JOIN MonthlySubmission m ON m.id = p.submissionId
+      JOIN ExpenseHead e ON e.id = s.expenseHeadId
       ${this.entryWhere([clinicId], { from, to: current })}
       GROUP BY m.month, s.expenseHeadId
     `);

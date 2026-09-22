@@ -106,4 +106,56 @@ describe('SubmissionsService queue/detail (Step 7.1 — manager review surface)'
     expect(detail.clinicAccLocationCode).toBe('LOC-PUN');
     expect(detail.clinicCustomerCode).toBe('CUST-PUN');
   });
+
+  it('an untouched NOT_STARTED cycle follows the current mapping; once entered, it stays frozen (BR-05)', async () => {
+    // Cycle opened before any head was mapped — the production September case.
+    const clinic = await fx.makeClinic();
+    const { submission } = await cycle.openClinicCycle(clinic.id, MONTH);
+    const spoc = (await fx.makeUser(UserRole.CLINIC_SPOC, [clinic.id])).user;
+    expect((await submissions.getDetail(submission.id, spoc)).heads).toHaveLength(0);
+
+    const [h1, h2] = [await fx.makeExpenseHead(), await fx.makeExpenseHead()];
+    await fx.mapHeads(clinic.id, [h1.id, h2.id]);
+    const first = await submissions.getDetail(submission.id, spoc);
+    expect(first.heads.map((h) => h.expenseHeadId).sort()).toEqual([h1.id, h2.id].sort());
+
+    // Loading again changes nothing: snapshot ids are stable for an open form.
+    const again = await submissions.getDetail(submission.id, spoc);
+    expect(again.heads.map((h) => h.snapshotId).sort()).toEqual(first.heads.map((h) => h.snapshotId).sort());
+
+    // Unmapping drops the head while the cycle is still untouched.
+    await prisma.clinicExpenseHead.updateMany({ where: { clinicId: clinic.id, expenseHeadId: h2.id }, data: { isActive: false } });
+    expect((await submissions.getDetail(submission.id, spoc)).heads.map((h) => h.expenseHeadId)).toEqual([h1.id]);
+
+    // Once a figure is entered the snapshot is frozen again.
+    await fx.valueAllHeads(submission.id, { enteredById: spoc.id });
+    await prisma.clinicExpenseHead.updateMany({ where: { clinicId: clinic.id, expenseHeadId: h2.id }, data: { isActive: true } });
+    expect((await submissions.getDetail(submission.id, spoc)).heads.map((h) => h.expenseHeadId)).toEqual([h1.id]);
+  });
+
+  it('a DRAFT with nothing entered (an empty save) still follows the mapping', async () => {
+    const clinic = await fx.makeClinic();
+    const { submission } = await cycle.openClinicCycle(clinic.id, MONTH);
+    await prisma.monthlySubmission.update({ where: { id: submission.id }, data: { status: SubmissionStatus.DRAFT } });
+    const spoc = (await fx.makeUser(UserRole.CLINIC_SPOC, [clinic.id])).user;
+
+    const head = await fx.makeExpenseHead();
+    await fx.mapHeads(clinic.id, [head.id]);
+    expect((await submissions.getDetail(submission.id, spoc)).heads.map((h) => h.expenseHeadId)).toEqual([head.id]);
+  });
+
+  it('parallel loads right after a remap all succeed and leave exactly one snapshot per head', async () => {
+    const clinic = await fx.makeClinic();
+    const { submission } = await cycle.openClinicCycle(clinic.id, MONTH);
+    const spoc = (await fx.makeUser(UserRole.CLINIC_SPOC, [clinic.id])).user;
+    const heads = [];
+    for (let i = 0; i < 6; i += 1) heads.push(await fx.makeExpenseHead());
+    await fx.mapHeads(clinic.id, heads.map((h) => h.id));
+
+    const loads = await Promise.all(Array.from({ length: 12 }, () => submissions.getDetail(submission.id, spoc)));
+    // Every racing load returns the synced list, not the one it read before the winner's resync.
+    expect(loads.map((d) => d.heads.length)).toEqual(Array(12).fill(6));
+    expect(await prisma.submissionExpenseHeadSnapshot.count({ where: { submissionId: submission.id } })).toBe(6);
+    expect((await submissions.getDetail(submission.id, spoc)).heads).toHaveLength(6);
+  });
 });

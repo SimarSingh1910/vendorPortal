@@ -13,6 +13,34 @@ import { AuditService } from '../audit/audit.service';
 import { NotificationDispatchService } from '../notifications/notification-dispatch.service';
 import { AuditAction } from '@portal/shared';
 
+/** Statuses in which a cycle with no entries may still follow the mapping. */
+const RESYNC_STATUSES = ['NOT_STARTED', 'DRAFT'] as const;
+type ResyncStatus = (typeof RESYNC_STATUSES)[number];
+
+type MappedHead =Awaited<ReturnType<ClinicExpenseHeadsService['listMapped']>>[number];
+
+/** What it takes to bring a snapshot set in line with the current mapping. */
+function snapshotDiff(snapshots: SubmissionExpenseHeadSnapshot[], heads: MappedHead[]) {
+  const wanted = new Set(heads.map((h) => h.expenseHeadId));
+  const have = new Map(snapshots.map((s) => [s.expenseHeadId, s]));
+  return {
+    drop: snapshots.filter((s) => !wanted.has(s.expenseHeadId)).map((s) => s.id),
+    add: heads.filter((h) => !have.has(h.expenseHeadId)),
+    refresh: heads.filter((h) => {
+      const s = have.get(h.expenseHeadId);
+      return (
+        !!s &&
+        (s.expenseHeadGlNameAtSnapshot !== h.glAccountName ||
+          s.expenseHeadGlNoAtSnapshot !== h.glAccountNo ||
+          s.expenseHeadAllowsMultipleVendorsAtSnapshot !== h.allowsMultipleVendors)
+      );
+    }),
+  };
+}
+
+const isEmptyDiff = (d: ReturnType<typeof snapshotDiff>): boolean =>
+  d.drop.length === 0 && d.add.length === 0 && d.refresh.length === 0;
+
 /** A submission with its frozen head list, as returned by the open routine. */
 export type OpenedSubmission = MonthlySubmission & {
   snapshots: SubmissionExpenseHeadSnapshot[];
@@ -179,6 +207,85 @@ export class CycleService {
     }
 
     return { month, activeClinics: clinics.length, created, alreadyOpen };
+  }
+
+  /**
+   * Bring an UNTOUCHED cycle's heads in line with the clinic's current mapping.
+   *
+   * BR-05 freezes the head set at cycle-open so figures already entered never
+   * shift under anyone. A cycle the SPOC has not entered anything into yet —
+   * NOT_STARTED, or DRAFT with no entries (an empty save, or everything cleared) —
+   * has nothing to protect, though; freezing it only strands the SPOC with a stale
+   * (often empty) form when Finance maps heads after the month opened. So until
+   * the first entry lands, the snapshot follows the mapping; from then on it is
+   * frozen exactly as before.
+   *
+   * Only the difference is applied: heads unmapped since open are dropped, newly
+   * mapped ones added, changed name/G/L no/multi-vendor refreshed. Unchanged
+   * heads keep their snapshot ids, so a form already open in a browser stays
+   * valid. Not audited: it records no user decision, only derives from the
+   * mapping changes that are themselves audited.
+   *
+   * Returns false only when the caller's view is known to be current; true means
+   * "reload" — this call changed the snapshot, or a concurrent resync/save did
+   * while it waited for the lock.
+   */
+  async resyncUntouched(submissionId: string): Promise<boolean> {
+    // Cheap unlocked pre-check so an up-to-date form costs no transaction.
+    const sub = await this.prisma.monthlySubmission.findFirst({
+      where: { id: submissionId, status: { in: [...RESYNC_STATUSES] }, entries: { none: {} } },
+      select: { clinicId: true, snapshots: true },
+    });
+    if (!sub) return false;
+    const heads = await this.clinicExpenseHeads.listMapped(sub.clinicId);
+    if (isEmptyDiff(snapshotDiff(sub.snapshots, heads))) return false;
+
+    return this.prisma.$transaction(async (tx) => {
+      // Row lock shared with ProvisionEntryService.saveEntries: concurrent resyncs
+      // run one after another (no insert deadlocks), and a first save either
+      // commits before this point — so the re-check below sees its entries and
+      // backs off — or waits until the snapshot change is done. The locking read
+      // comes first so the reads after it see everything committed before it.
+      const locked = await tx.$queryRaw<Array<{ status: string }>>`
+        SELECT status FROM MonthlySubmission WHERE id = ${submissionId} FOR UPDATE`;
+      // Past this point the caller's copy may be stale even if nothing is written
+      // here (a concurrent resync or save got in first), so every exit returns true.
+      if (!RESYNC_STATUSES.includes(locked[0]?.status as ResyncStatus)) return true;
+      if ((await tx.provisionEntry.count({ where: { submissionId } })) > 0) return true;
+
+      // Recompute under the lock: another resync may already have applied it.
+      const current = await tx.submissionExpenseHeadSnapshot.findMany({ where: { submissionId } });
+      const diff = snapshotDiff(current, heads);
+      if (isEmptyDiff(diff)) return true;
+      const { drop, add, refresh } = diff;
+      const have = new Map(current.map((s) => [s.expenseHeadId, s]));
+
+      if (drop.length > 0) {
+        await tx.submissionExpenseHeadSnapshot.deleteMany({ where: { id: { in: drop } } });
+      }
+      if (add.length > 0) {
+        await tx.submissionExpenseHeadSnapshot.createMany({
+          data: add.map((h) => ({
+            submissionId,
+            expenseHeadId: h.expenseHeadId,
+            expenseHeadGlNameAtSnapshot: h.glAccountName,
+            expenseHeadGlNoAtSnapshot: h.glAccountNo,
+            expenseHeadAllowsMultipleVendorsAtSnapshot: h.allowsMultipleVendors,
+          })),
+        });
+      }
+      for (const h of refresh) {
+        await tx.submissionExpenseHeadSnapshot.update({
+          where: { id: have.get(h.expenseHeadId)!.id },
+          data: {
+            expenseHeadGlNameAtSnapshot: h.glAccountName,
+            expenseHeadGlNoAtSnapshot: h.glAccountNo,
+            expenseHeadAllowsMultipleVendorsAtSnapshot: h.allowsMultipleVendors,
+          },
+        });
+      }
+      return true;
+    });
   }
 
   private findOpened(clinicId: string, month: string): Promise<OpenedSubmission | null> {

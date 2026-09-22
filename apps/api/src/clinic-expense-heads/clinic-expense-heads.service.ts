@@ -45,8 +45,9 @@ export class ClinicExpenseHeadsService {
    * Replace the active mapping set with exactly `expenseHeadIds`. Heads removed
    * from the set are DEACTIVATED (isActive=false), never deleted — preserving
    * history. This only ever touches ClinicExpenseHead rows; it never reads or
-   * writes SubmissionExpenseHeadSnapshot, so existing submissions' snapshots are
-   * unaffected by a mapping change.
+   * writes SubmissionExpenseHeadSnapshot. Submissions with figures entered keep
+   * their snapshot; one with nothing entered yet picks the change up on its next
+   * load (CycleService.resyncUntouched).
    */
   async setMappings(clinicId: string, expenseHeadIds: string[]): Promise<MappedExpenseHead[]> {
     await this.assertClinic(clinicId);

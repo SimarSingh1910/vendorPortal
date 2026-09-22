@@ -256,19 +256,25 @@ export function isLineComplete(line: LineDraft): boolean {
 }
 
 /**
- * Heads that block submit: a head is incomplete when it has no lines, or when any
- * of its lines is missing a vendor name or a product code, has no particulars, or
- * holds a particular missing a name, a rate or a quantity (0 is valid; blank is
- * not). Amounts are
- * derived so they're never independently "missing" — a head is incomplete exactly
- * when one of its lines is. Mirrors the server's submit rule so the button
- * disables before the request rather than after a 422.
+ * True once the SPOC has typed anything into a head. An untouched head is simply
+ * not provided this month — skipped at submit, never an error, never ₹0.
+ */
+function headStarted(lines: LineDraft[]): boolean {
+  return lines.some(hasData);
+}
+
+/**
+ * Heads that block submit: a head the SPOC has STARTED but not finished — any of
+ * its lines missing a vendor name or a product code, having no particulars, or
+ * holding a particular missing a name, a rate or a quantity (0 is valid; blank is
+ * not). Untouched heads don't count. Amounts are derived so they're never
+ * independently "missing" — a head is incomplete exactly when one of its lines
+ * is. Mirrors the server's submit rule.
  */
 export function incompleteHeadCount(detail: SubmissionDetail, state: LinesState): number {
   return detail.heads.filter((head: ProvisionHeadRow) => {
     const lines = state[head.snapshotId] ?? [];
-    if (lines.length === 0) return true;
-    return !lines.every(isLineComplete);
+    return headStarted(lines) && !lines.every(isLineComplete);
   }).length;
 }
 
@@ -331,6 +337,7 @@ export function collectFieldErrors(detail: SubmissionDetail, state: LinesState):
   const errors: FieldError[] = [];
   for (const head of detail.heads as ProvisionHeadRow[]) {
     const lines = state[head.snapshotId] ?? [];
+    if (!headStarted(lines)) continue;
     lines.forEach((line, li) => {
       const at = (kind: FieldErrorKind, message: string) =>
         errors.push({

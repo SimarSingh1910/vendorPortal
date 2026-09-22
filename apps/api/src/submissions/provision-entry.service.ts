@@ -17,6 +17,7 @@ import {
   sumMinor,
   toMinorUnits,
   type ProvisionEntryInput,
+  type ProvisionLineInput,
   type ProvisionParticularInput,
   type SubmissionDetail,
 } from '@portal/shared';
@@ -29,6 +30,22 @@ import { WorkflowService, isSpocEditable } from './workflow.service';
 import { SubmissionsService } from './submissions.service';
 
 const isLocked = (status: SubmissionStatus): boolean => status === SubmissionStatus.FINANCE_APPROVED;
+
+/** The heads changed under an open form (an untouched cycle re-synced to a new mapping). */
+const STALE_FORM_MESSAGE =
+  'The expense heads for this month changed after you opened the form. Reload the page and enter your figures again.';
+
+/** A vendor line with nothing typed into it at all. */
+const isBlankLine = (line: ProvisionLineInput): boolean =>
+  !line.vendorName?.trim() &&
+  !line.productCode?.trim() &&
+  line.particulars.every(
+    (p) =>
+      !p.particularName?.trim() &&
+      (p.rate === null || p.rate === undefined) &&
+      (p.quantity === null || p.quantity === undefined) &&
+      !p.remark?.trim(),
+  );
 
 /**
  * One particular resolved to storage form: text normalised, rate/quantity scaled to
@@ -204,91 +221,6 @@ export class ProvisionEntryService {
     kind: WriteKind,
     clinicId: string,
   ): Promise<void> {
-    // Load the referenced snapshots WITH their current lines AND particulars — the
-    // reconciliation keys are the entry id and the particular id, so we must know
-    // each head's existing lines and each line's existing particulars.
-    const snaps = await this.prisma.submissionExpenseHeadSnapshot.findMany({
-      where: { submissionId },
-      select: {
-        id: true,
-        expenseHeadAllowsMultipleVendorsAtSnapshot: true,
-        entries: {
-          orderBy: { lineOrder: 'asc' },
-          select: {
-            id: true,
-            amount: true,
-            vendorName: true,
-            productCode: true,
-            particulars: {
-              orderBy: { lineOrder: 'asc' },
-              select: {
-                id: true,
-                particularName: true,
-                rate: true,
-                quantity: true,
-                value: true,
-                // Needed by the override path, which must PRESERVE the SPOC's
-                // remark while rewriting the row's rate/quantity/value.
-                remark: true,
-              },
-            },
-          },
-        },
-      },
-    });
-    const snapById = new Map(snaps.map((s) => [s.id, s]));
-    for (const item of items) {
-      const snap = snapById.get(item.snapshotId);
-      if (!snap) {
-        throw new BadRequestException('Unknown snapshot head for this submission');
-      }
-      // Only a multi-vendor head may carry more than one line — a non-flagged head
-      // is capped at a single line (data-driven from the snapshot flag).
-      if (item.lines.length > 1 && !snap.expenseHeadAllowsMultipleVendorsAtSnapshot) {
-        throw new BadRequestException('This expense head does not allow multiple vendor lines');
-      }
-      // Every provided entryId must be an existing line of THAT head (never another),
-      // and every particularId an existing particular of THAT line (never another's).
-      const entryById = new Map(snap.entries.map((e) => [e.id, e]));
-      for (const line of item.lines) {
-        if (line.entryId && !entryById.has(line.entryId)) {
-          throw new BadRequestException('Unknown line for this head');
-        }
-        const ownParticularIds = new Set(
-          line.entryId ? entryById.get(line.entryId)!.particulars.map((p) => p.id) : [],
-        );
-        for (const p of line.particulars) {
-          if (p.particularId && !ownParticularIds.has(p.particularId)) {
-            throw new BadRequestException('Unknown particular for this vendor line');
-          }
-        }
-      }
-    }
-
-    // Before-image (per existing line, with its particulars) so the audit captures
-    // the change with full line AND particular identity — a particular added,
-    // edited or removed is visible in the old→new diff. Covers every line of the
-    // referenced heads.
-    const before = items.flatMap((item) =>
-      snapById.get(item.snapshotId)!.entries.map((e) => ({
-        entryId: e.id,
-        snapshotId: item.snapshotId,
-        amount: e.amount === null ? null : e.amount.toFixed(2),
-        vendorName: e.vendorName,
-        productCode: e.productCode,
-        particulars: e.particulars.map((p) => ({
-          particularId: p.id,
-          particularName: p.particularName,
-          rate: p.rate === null ? null : p.rate.toFixed(RATE_DECIMALS),
-          quantity: p.quantity === null ? null : p.quantity.toFixed(QUANTITY_DECIMALS),
-          value: p.value === null ? null : p.value.toFixed(2),
-          // The per-particular remark rides the existing PROVISION_SAVE audit row:
-          // it is part of the before-image, so an edited remark shows in old→new.
-          remark: p.remark,
-        })),
-      })),
-    );
-
     // Only the SPOC owns the per-particular remark and the line's vendor name and
     // product code; manager/finance value overrides leave all three untouched. Blank
     // or whitespace-only text is stored as null (never empty strings). The product
@@ -296,10 +228,116 @@ export class ProvisionEntryService {
     const writesSpocFields = kind === 'spoc';
     const trimOrNull = (v?: string): string | null => v?.trim() || null;
 
-    await this.prisma.$transaction(async (tx) => {
+    const before = await this.prisma.$transaction(async (tx) => {
+      // One save at a time per submission, and serialised with
+      // CycleService.resyncUntouched, which takes the same row lock. Everything
+      // below reads AFTER the lock, so two saves (a double-click, two tabs) never
+      // reconcile against the same stale line set, an override never edits a line
+      // a concurrent SPOC save removed, and a head a resync dropped is reported as
+      // a stale form instead of the first save being cascaded away.
+      await tx.$queryRaw`SELECT id FROM MonthlySubmission WHERE id = ${submissionId} FOR UPDATE`;
+
+      // Load the referenced snapshots WITH their current lines AND particulars — the
+      // reconciliation keys are the entry id and the particular id, so we must know
+      // each head's existing lines and each line's existing particulars.
+      const snaps = await tx.submissionExpenseHeadSnapshot.findMany({
+        where: { submissionId },
+        select: {
+          id: true,
+          expenseHeadAllowsMultipleVendorsAtSnapshot: true,
+          entries: {
+            orderBy: { lineOrder: 'asc' },
+            select: {
+              id: true,
+              amount: true,
+              vendorName: true,
+              productCode: true,
+              particulars: {
+                orderBy: { lineOrder: 'asc' },
+                select: {
+                  id: true,
+                  particularName: true,
+                  rate: true,
+                  quantity: true,
+                  value: true,
+                  // Needed by the override path, which must PRESERVE the SPOC's
+                  // remark while rewriting the row's rate/quantity/value.
+                  remark: true,
+                },
+              },
+            },
+          },
+        },
+      });
+      const snapById = new Map(snaps.map((s) => [s.id, s]));
+      for (const item of items) {
+        const snap = snapById.get(item.snapshotId);
+        if (!snap) {
+          throw new BadRequestException(STALE_FORM_MESSAGE);
+        }
+        // Only a multi-vendor head may carry more than one line — a non-flagged head
+        // is capped at a single line (data-driven from the snapshot flag).
+        if (item.lines.length > 1 && !snap.expenseHeadAllowsMultipleVendorsAtSnapshot) {
+          throw new BadRequestException('This expense head does not allow multiple vendor lines');
+        }
+        // Every provided entryId must be an existing line of THAT head (never another),
+        // and every particularId an existing particular of THAT line (never another's).
+        const entryById = new Map(snap.entries.map((e) => [e.id, e]));
+        for (const line of item.lines) {
+          if (line.entryId && !entryById.has(line.entryId)) {
+            throw new BadRequestException(
+              'This vendor line no longer exists — it was changed by someone else. Reload the page and try again.',
+            );
+          }
+          const ownParticularIds = new Set(
+            line.entryId ? entryById.get(line.entryId)!.particulars.map((p) => p.id) : [],
+          );
+          for (const p of line.particulars) {
+            if (p.particularId && !ownParticularIds.has(p.particularId)) {
+              throw new BadRequestException(
+                'This particular no longer exists — it was changed by someone else. Reload the page and try again.',
+              );
+            }
+          }
+        }
+      }
+
+      // Before-image (per existing line, with its particulars) so the audit captures
+      // the change with full line AND particular identity — a particular added,
+      // edited or removed is visible in the old→new diff. Covers every line of the
+      // referenced heads.
+      const before = items.flatMap((item) =>
+        snapById.get(item.snapshotId)!.entries.map((e) => ({
+          entryId: e.id,
+          snapshotId: item.snapshotId,
+          amount: e.amount === null ? null : e.amount.toFixed(2),
+          vendorName: e.vendorName,
+          productCode: e.productCode,
+          particulars: e.particulars.map((p) => ({
+            particularId: p.id,
+            particularName: p.particularName,
+            rate: p.rate === null ? null : p.rate.toFixed(RATE_DECIMALS),
+            quantity: p.quantity === null ? null : p.quantity.toFixed(QUANTITY_DECIMALS),
+            value: p.value === null ? null : p.value.toFixed(2),
+            // The per-particular remark rides the existing PROVISION_SAVE audit row:
+            // it is part of the before-image, so an edited remark shows in old→new.
+            remark: p.remark,
+          })),
+        })),
+      );
+
       for (const item of items) {
         const existing = snapById.get(item.snapshotId)!.entries;
         const existingById = new Map(existing.map((e) => [e.id, e]));
+
+        if (writesSpocFields && item.lines.every(isBlankLine)) {
+          // A head cleared back to nothing is "not provided" again: store no rows
+          // for it, so blank lines never reach reviewers, dashboards or exports.
+          if (existing.length > 0) {
+            await tx.provisionEntry.deleteMany({ where: { id: { in: existing.map((e) => e.id) } } });
+          }
+          continue;
+        }
 
         if (writesSpocFields) {
           // SPOC full reconcile: update lines with an id, create those without one,
@@ -415,6 +453,7 @@ export class ProvisionEntryService {
           }
         }
       }
+      return before;
     });
 
     // One audit row per save. A SPOC's normal save is PROVISION_SAVE (the

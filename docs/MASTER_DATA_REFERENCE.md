@@ -107,7 +107,9 @@ e.g. `"Locum" line 2 needs a product code`.
 **Why the snapshot matters.** When a month's cycle opens, each mapped head's number, name and
 multi-vendor flag are frozen onto that submission (`SubmissionExpenseHeadSnapshot`). Renaming a head
 later does **not** rewrite history — an approved month keeps showing, and exporting, the name it was
-actually provisioned under.
+actually provisioned under. Until the SPOC enters the first figure, though, the month still follows
+the clinic's current mapping (see `DATA_MODEL_NOTES.md`), so heads mapped after the month opened
+still appear on its form.
 
 **Product codes have no such protection.** Only the code (`P27`) is stored per line; its description is
 resolved from the constant at render time. If the *meaning* of a code ever changes, historical months

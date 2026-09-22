@@ -197,15 +197,14 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
     expect(row.amount!.toFixed(2)).toBe('20.00');
   });
 
-  it('BR-03/BR-07: submit blocked while a head is blank, allowed once all (incl 0) are filled', async () => {
+  it('BR-03/BR-07: submit blocked while nothing is filled, allowed with one head (explicit 0) and the rest blank', async () => {
     const { submission, spoc, snapshotIds } = await setup(2);
 
-    // Only one head valued → submit blocked.
-    await entries.saveEntries(submission.id, spoc, one(snapshotIds[0], 0));
+    // Nothing valued → submit blocked.
     await expectStatus(workflow.submit(submission.id, spoc), 422);
 
-    // Fill the rest (explicit 0 is valid) → submit succeeds.
-    await entries.saveEntries(submission.id, spoc, one(snapshotIds[1], 0));
+    // One head valued (explicit 0 is valid), the other left blank → submit succeeds.
+    await entries.saveEntries(submission.id, spoc, one(snapshotIds[0], 0));
     await workflow.submit(submission.id, spoc);
     expect((await submissions.getDetail(submission.id, spoc)).status).toBe(SubmissionStatus.SUBMITTED);
   });
@@ -971,5 +970,71 @@ describe('ProvisionEntryService (Step 6.1 — SPOC data entry)', () => {
     ]);
     const err = await workflow.submit(submission.id, spoc).catch((e: Error) => e);
     expect((err as Error).message).toContain('line 2 needs a product code');
+  });
+
+  it('clearing a head back to blank removes its rows, so it is untouched again', async () => {
+    const { submission, spoc, snapshotIds } = await setup(2);
+    await entries.saveEntries(submission.id, spoc, one(snapshotIds[0], 100));
+    const { entryId, particularId } = await firstIds(submission.id, spoc, snapshotIds[0]);
+
+    await entries.saveEntries(submission.id, spoc, [
+      {
+        snapshotId: snapshotIds[0],
+        lines: [{ entryId, vendorName: '', productCode: '', particulars: [{ particularId, rate: null, quantity: null }] }],
+      },
+    ]);
+    expect(await prisma.provisionEntry.count({ where: { snapshotId: snapshotIds[0] } })).toBe(0);
+    const head = (await submissions.getDetail(submission.id, spoc)).heads.find((h) => h.snapshotId === snapshotIds[0])!;
+    expect(head.lines[0].entryId).toBeNull();
+  });
+
+  it('a save naming a head the resync dropped is refused with a reload message and writes nothing', async () => {
+    const { clinic, submission, spoc, snapshotIds } = await setup(2);
+    const dropped = await prisma.submissionExpenseHeadSnapshot.findUniqueOrThrow({ where: { id: snapshotIds[1] } });
+    await prisma.clinicExpenseHead.updateMany({
+      where: { clinicId: clinic.id, expenseHeadId: dropped.expenseHeadId },
+      data: { isActive: false },
+    });
+    await submissions.getDetail(submission.id, spoc); // someone loads → resync drops it
+
+    const err = await entries.saveEntries(submission.id, spoc, one(snapshotIds[1], 100)).catch((e) => e);
+    expect((err as { getStatus(): number }).getStatus()).toBe(400);
+    expect((err as Error).message).toContain('Reload the page');
+    expect(await prisma.provisionEntry.count({ where: { submissionId: submission.id } })).toBe(0);
+  });
+
+  it('two SPOC saves racing on a single-vendor head (double-click, two tabs) leave exactly one line', async () => {
+    const { submission, spoc, snapshotIds } = await setup(1);
+    await Promise.all([
+      entries.saveEntries(submission.id, spoc, one(snapshotIds[0], 100)),
+      entries.saveEntries(submission.id, spoc, one(snapshotIds[0], 200)),
+      entries.saveEntries(submission.id, spoc, one(snapshotIds[0], 300)),
+    ]);
+    expect(await prisma.provisionEntry.count({ where: { snapshotId: snapshotIds[0] } })).toBe(1);
+  });
+
+  it('a first save racing a resync never reports success and then loses the entry', async () => {
+    for (let round = 0; round < 8; round += 1) {
+      await resetDb(prisma);
+      const { clinic, submission, spoc, snapshotIds } = await setup(2);
+      const target = await prisma.submissionExpenseHeadSnapshot.findUniqueOrThrow({ where: { id: snapshotIds[1] } });
+      await prisma.clinicExpenseHead.updateMany({
+        where: { clinicId: clinic.id, expenseHeadId: target.expenseHeadId },
+        data: { isActive: false },
+      });
+
+      const [save] = await Promise.allSettled([
+        entries.saveEntries(submission.id, spoc, one(snapshotIds[1], 100)),
+        submissions.getDetail(submission.id, spoc),
+        submissions.getDetail(submission.id, spoc),
+      ]);
+      const stored = await prisma.provisionEntry.count({ where: { snapshotId: snapshotIds[1] } });
+      if (save.status === 'fulfilled') {
+        expect(stored).toBe(1); // the save won: its entry and its head are both kept
+      } else {
+        expect(stored).toBe(0); // the resync won: the save was refused, not silently dropped
+        expect([400, 409]).toContain((save.reason as { getStatus(): number }).getStatus());
+      }
+    }
   });
 });

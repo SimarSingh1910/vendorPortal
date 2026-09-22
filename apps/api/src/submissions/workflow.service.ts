@@ -513,11 +513,13 @@ export class WorkflowService {
   }
 
   /**
-   * BR-03 (particulars): a submission may be SUBMITTED only when every snapshot
-   * head has at least one vendor line, every vendor line carries a PRODUCT CODE
-   * and at least one particular, and every particular carries a name, a rate AND a
-   * quantity. 0 is a valid rate/quantity; blank is not. A submission with no mapped
-   * heads has nothing to provision and cannot be submitted.
+   * BR-03 (particulars): a SPOC fills only the heads that apply this month. A head
+   * with nothing entered (no line, or only blank lines) is skipped and stays "not
+   * provided" — NULL, never ₹0. A head that HAS been started must be complete: every
+   * vendor line carries a PRODUCT CODE and at least one particular, and every
+   * particular carries a name, a rate AND a quantity. 0 is a valid rate/quantity;
+   * blank is not. At least one head must be filled — an all-blank form, or one with
+   * no mapped heads, has nothing to submit.
    *
    * The product code AND the vendor name are REQUIRED (both were optional until
    * that rule changed), and are enforced HERE rather than at save time — a SPOC must
@@ -536,11 +538,12 @@ export class WorkflowService {
         entries: {
           orderBy: { lineOrder: 'asc' },
           select: {
+            id: true,
             productCode: true,
             vendorName: true,
             particulars: {
               orderBy: { lineOrder: 'asc' },
-              select: { particularName: true, rate: true, quantity: true },
+              select: { particularName: true, rate: true, quantity: true, remark: true },
             },
           },
         },
@@ -553,12 +556,28 @@ export class WorkflowService {
       );
     }
     const problems: string[] = [];
+    let filledHeads = 0;
+    // Blank rows kept by an untouched head (saved before blank heads were pruned
+    // on save). Removed on a passing submit so a skipped head reaches reviewers,
+    // dashboards and exports with no rows at all — nothing to override.
+    const blankRows: string[] = [];
     for (const snap of snapshots) {
       const name = snap.expenseHeadGlNameAtSnapshot;
-      if (snap.entries.length === 0) {
-        problems.push(`“${name}” has no value entered`);
+      // Untouched head: skipped, not an error. A multi-vendor head can persist
+      // blank lines, so "no entries" alone is not the test.
+      const started = snap.entries.some(
+        (e) =>
+          !!e.productCode?.trim() ||
+          !!e.vendorName?.trim() ||
+          e.particulars.some(
+            (p) => !!p.particularName?.trim() || p.rate !== null || p.quantity !== null || !!p.remark?.trim(),
+          ),
+      );
+      if (!started) {
+        blankRows.push(...snap.entries.map((e) => e.id));
         continue;
       }
+      filledHeads += 1;
       // Only name the vendor line when there is more than one, so a single-vendor
       // head reads "“Head” particular 2 …" rather than a redundant "line 1".
       const multiLine = snap.entries.length > 1;
@@ -590,8 +609,14 @@ export class WorkflowService {
         });
       });
     }
+    if (filledHeads === 0) {
+      throw new UnprocessableEntityException('Cannot submit: fill in at least one expense head');
+    }
     if (problems.length > 0) {
       throw new UnprocessableEntityException(`Cannot submit: ${problems.join('; ')}`);
+    }
+    if (blankRows.length > 0) {
+      await this.prisma.provisionEntry.deleteMany({ where: { id: { in: blankRows } } });
     }
   }
 }

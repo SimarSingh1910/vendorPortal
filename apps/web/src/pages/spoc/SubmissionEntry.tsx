@@ -308,6 +308,8 @@ export function SubmissionEntry() {
    * the round-trip and points at the offenders.
    */
   const attemptSubmit = () => {
+    // A server message from an earlier attempt is stale once the SPOC tries again.
+    setError(null);
     if (fieldErrors.length > 0) {
       setShowFieldErrors(true);
       setFocusNonce((n) => n + 1);
@@ -382,8 +384,8 @@ export function SubmissionEntry() {
         >
           <CircleAlert className="size-4 shrink-0 text-[#4579B3]" aria-hidden />
           <span>
-            Action needed — enter this month&rsquo;s figures for every expense head and submit for
-            review.
+            Action needed — enter this month&rsquo;s figures for the expense heads that apply and
+            submit for review.
           </span>
         </div>
       )}
@@ -726,8 +728,8 @@ export function SubmissionEntry() {
           </Button>
           {missingCount > 0 && !showFieldErrors && (
             <span className="text-xs text-muted-foreground">
-              Every line needs a vendor name and a product code, and every particular a name,
-              a rate and a quantity, before submitting ({missingCount} incomplete{' '}
+              Fill only the heads that apply. A head you start needs a vendor name, a product
+              code, and a name, rate and quantity on each particular ({missingCount} incomplete{' '}
               {missingCount === 1 ? 'head' : 'heads'}).
             </span>
           )}

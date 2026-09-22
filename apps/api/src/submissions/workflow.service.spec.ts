@@ -159,13 +159,48 @@ describe('WorkflowService (Step 5.2 — state machine + transition guards)', () 
     expect(await prisma.submissionComment.count({ where: { submissionId: submission.id } })).toBe(0);
   });
 
-  it('BR-03: submit fails (422) with an unvalued head; BR-07: succeeds when every head valued including 0', async () => {
-    // BR-03 negative — one head left blank.
+  it('BR-03: untouched heads are skipped, a started head must be complete, at least one head needed; BR-07: 0 is a value', async () => {
+    // An untouched head does not block submit — it stays "not provided".
     const a = await openWithHeads(3);
     const spocA = (await fx.makeUser(UserRole.CLINIC_SPOC, [a.clinic.id])).user;
-    await fx.valueAllHeads(a.submission.id, { enteredById: spocA.id, leaveUnvalued: 1 });
-    await expectStatus(workflow.submit(a.submission.id, spocA), 422);
-    expect((await reload(a.submission.id)).status).toBe(SubmissionStatus.NOT_STARTED);
+    await fx.valueAllHeads(a.submission.id, { enteredById: spocA.id, leaveUnvalued: 2 });
+    await workflow.submit(a.submission.id, spocA);
+    expect((await reload(a.submission.id)).status).toBe(SubmissionStatus.SUBMITTED);
+
+    // Nothing filled at all → 422.
+    const c = await openWithHeads(2);
+    const spocC = (await fx.makeUser(UserRole.CLINIC_SPOC, [c.clinic.id])).user;
+    await expectStatus(workflow.submit(c.submission.id, spocC), 422);
+    expect((await reload(c.submission.id)).status).toBe(SubmissionStatus.NOT_STARTED);
+
+    // A started head that is half-filled (no vendor name) still blocks submit.
+    const d = await openWithHeads(2);
+    const spocD = (await fx.makeUser(UserRole.CLINIC_SPOC, [d.clinic.id])).user;
+    await fx.valueAllHeads(d.submission.id, { enteredById: spocD.id, leaveUnvalued: 1 });
+    await prisma.provisionEntry.updateMany({ where: { submissionId: d.submission.id }, data: { vendorName: null } });
+    await expectStatus(workflow.submit(d.submission.id, spocD), 422);
+
+    // Blank rows left on a skipped head (saved before blank heads were pruned)
+    // are removed by a passing submit, so reviewers have nothing to fill in.
+    const e = await openWithHeads(2);
+    const spocE = (await fx.makeUser(UserRole.CLINIC_SPOC, [e.clinic.id])).user;
+    await fx.valueAllHeads(e.submission.id, { enteredById: spocE.id, leaveUnvalued: 1 });
+    const valued = await prisma.provisionEntry.findMany({ where: { submissionId: e.submission.id } });
+    const skipped = await prisma.submissionExpenseHeadSnapshot.findFirstOrThrow({
+      where: { submissionId: e.submission.id, id: { notIn: valued.map((v) => v.snapshotId) } },
+    });
+    await prisma.provisionEntry.create({
+      data: {
+        submissionId: e.submission.id,
+        snapshotId: skipped.id,
+        enteredById: spocE.id,
+        lastModifiedById: spocE.id,
+        particulars: { create: [{ lineOrder: 0 }] },
+      },
+    });
+    await workflow.submit(e.submission.id, spocE);
+    expect(await prisma.provisionEntry.count({ where: { snapshotId: skipped.id } })).toBe(0);
+    expect(await prisma.provisionEntry.count({ where: { submissionId: e.submission.id } })).toBe(valued.length);
 
     // BR-07 — all heads valued, one of them explicitly 0.
     const b = await openWithHeads(2);

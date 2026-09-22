@@ -157,8 +157,9 @@ variance chart has something to flag.
 
 **NULL ≠ 0 is respected.** A clinic with no usable template, or with no active SPOC
 and clinic manager, is left completely untouched at "No entry yet" — never
-zero-filled. A clinic where some head had no line to model on stops at `DRAFT`
-rather than being pushed through a submit it would fail (BR-03).
+zero-filled. A clinic where some head had no line to model on stops at `DRAFT`.
+(Written when every head had to be valued to submit; a SPOC may now submit with
+only the heads that apply, but the seed still leaves such a clinic in `DRAFT`.)
 
 ### Status plan
 
