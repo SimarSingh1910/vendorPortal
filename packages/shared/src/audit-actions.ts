@@ -26,6 +26,14 @@ export const AuditAction = {
   CLINIC_UPDATE: 'CLINIC_UPDATE',
   CLINIC_SET_ACTIVE: 'CLINIC_SET_ACTIVE',
   CLINIC_MAPPINGS_SET: 'CLINIC_MAPPINGS_SET',
+  /**
+   * Safe delete: a clinic is hard-deleted ONLY when it carries no history (no
+   * monthly submissions, no user whose sole assignment it is) — otherwise the
+   * API refuses with 409 and the admin deactivates instead. The row is gone, so
+   * this audit entry is the only remaining record of it: it carries the deleted
+   * clinic's fields as oldValue.
+   */
+  CLINIC_DELETE: 'CLINIC_DELETE',
 
   EXPENSE_HEAD_CREATE: 'EXPENSE_HEAD_CREATE',
   EXPENSE_HEAD_UPDATE: 'EXPENSE_HEAD_UPDATE',
@@ -73,6 +81,15 @@ export const AuditAction = {
   USER_CREATE: 'USER_CREATE',
   USER_UPDATE: 'USER_UPDATE',
   USER_SET_ACTIVE: 'USER_SET_ACTIVE',
+  /**
+   * Safe delete: a user is hard-deleted ONLY when they appear nowhere in history
+   * (no provision entries, comments, attachments, reviews, Sec 24 settings or
+   * audit rows) — otherwise the API refuses with 409 and the admin deactivates
+   * instead. In practice almost any account that has ever acted owns audit rows
+   * and is therefore undeletable; this action mostly records mistyped accounts
+   * being removed. oldValue carries the deleted user's fields.
+   */
+  USER_DELETE: 'USER_DELETE',
 
   NOTIFICATION_CONFIG_CREATE: 'NOTIFICATION_CONFIG_CREATE',
   NOTIFICATION_CONFIG_UPDATE: 'NOTIFICATION_CONFIG_UPDATE',

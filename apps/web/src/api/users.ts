@@ -15,6 +15,7 @@ export interface UpdateUserInput {
   role: UserRole;
   clinicIds: string[];
   departmentIds: string[];
+  email?: string; // changing it ends the user's sessions
   password?: string; // omitted = keep current password
 }
 
@@ -40,4 +41,9 @@ export async function setUserActive(id: string, isActive: boolean): Promise<Admi
     `/users/${id}/${isActive ? 'activate' : 'deactivate'}`,
   );
   return data;
+}
+
+/** Hard-delete a user with no history. 409 if referenced anywhere, 400 for self / last admin. */
+export async function deleteUser(id: string): Promise<void> {
+  await apiClient.delete(`/users/${id}`);
 }

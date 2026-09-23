@@ -3,7 +3,8 @@ import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 /**
  * Editable clinic fields. `isActive` is intentionally NOT here — activation is
  * an explicit lifecycle action (deactivate/activate endpoints), never a silent
- * field edit, and we never delete data.
+ * field edit. Removal is likewise its own action (DELETE /clinics/:id) and only
+ * succeeds for a clinic with no history; anything else is deactivated, not lost.
  */
 export class UpdateClinicDto {
   @IsOptional()

@@ -52,6 +52,7 @@ describe('NotificationDispatchService (Step 10.3 triggers)', () => {
         name,
         accLocationCode: 'ACC-1',
         customerCode: 'CUST-1',
+        customerName: 'Customer 1',
         isActive: true,
       },
     });

@@ -133,6 +133,7 @@ describe('Export (Phase 12, FR-10)', () => {
     'Clinic Name',
     'Acc. Location Code',
     'Customer Code',
+    'Customer Name',
     'Product Code',
     'Remarks',
   ];

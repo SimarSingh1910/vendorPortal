@@ -1,12 +1,13 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
-import { AuditAction } from '@portal/shared';
+import { AuditAction, UserRole } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ClinicsService } from './clinics.service';
 import { CreateClinicDto } from './dto/create-clinic.dto';
 import { resetDb } from '../../test/reset';
+import { expectStatus } from '../../test/fixtures';
 
 /** Clinic master: fixed admin-set Acc. Location Code + Customer Code. */
 describe('ClinicsService (Acc. Location Code + Customer Code)', () => {
@@ -35,7 +36,20 @@ describe('ClinicsService (Acc. Location Code + Customer Code)', () => {
     name: 'Pune Tech Park Clinic',
     accLocationCode: 'LOC-PUN',
     customerCode: 'CUST-PUN',
+    customerName: 'Pune Customer',
   };
+
+  /** A clinic-scoped user covering `clinicIds` (raw insert — UsersService isn't wired here). */
+  const makeSpoc = (mail: string, clinicIds: string[]) =>
+    prisma.user.create({
+      data: {
+        name: 'SPOC',
+        email: mail,
+        passwordHash: 'x'.repeat(60),
+        role: UserRole.CLINIC_SPOC,
+        assignments: { create: clinicIds.map((clinicId) => ({ clinicId })) },
+      },
+    });
 
   it('create persists both codes; get/list return them', async () => {
     const clinic = await service.create(validInput);
@@ -80,5 +94,76 @@ describe('ClinicsService (Acc. Location Code + Customer Code)', () => {
       accLocationCode: 'LOC-PUN-2',
       customerCode: 'CUST-PUN-2',
     });
+  });
+
+  // ── safe delete ────────────────────────────────────────────────────────────
+  // A clinic is hard-deleted ONLY when it carries no history; anything else is a
+  // 409 telling the admin to deactivate instead.
+
+  it('remove deletes a clinic with no history, cascades its assignments and audits CLINIC_DELETE', async () => {
+    const clinic = await service.create(validInput);
+    const other = await service.create({
+      ...validInput,
+      name: 'Other Clinic',
+      accLocationCode: 'LOC-OTH',
+      customerCode: 'CUST-OTH',
+    });
+    // Covers BOTH clinics, so the delete still leaves it with one — not a blocker.
+    const spoc = await makeSpoc('spoc@test.local', [clinic.id, other.id]);
+
+    const removed = await service.remove(clinic.id);
+    expect(removed.id).toBe(clinic.id);
+    expect(await prisma.clinic.findUnique({ where: { id: clinic.id } })).toBeNull();
+
+    // The user survives; only the assignment to the deleted clinic cascaded away.
+    const assignments = await prisma.userClinicAssignment.findMany({ where: { userId: spoc.id } });
+    expect(assignments.map((a) => a.clinicId)).toEqual([other.id]);
+
+    // The cascade IS an assignment change, so their live access tokens (which
+    // carry clinicIds as a claim) must be invalidated with it.
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: spoc.id } });
+    expect(after.tokenVersion).toBe(spoc.tokenVersion + 1);
+
+    const rows = await prisma.auditLog.findMany({
+      where: { action: AuditAction.CLINIC_DELETE, entityId: clinic.id },
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].clinicId).toBe(clinic.id);
+    // The row is gone — the audit oldValue is the only surviving record of it.
+    expect(rows[0].oldValue).toMatchObject({
+      name: 'Pune Tech Park Clinic',
+      accLocationCode: 'LOC-PUN',
+      customerCode: 'CUST-PUN',
+    });
+  });
+
+  it('remove refuses (409) a clinic with submissions, naming the count', async () => {
+    const clinic = await service.create(validInput);
+    await prisma.monthlySubmission.createMany({
+      data: [
+        { clinicId: clinic.id, month: '2026-01' },
+        { clinicId: clinic.id, month: '2026-02' },
+      ],
+    });
+
+    await expectStatus(service.remove(clinic.id), 409);
+    await expect(service.remove(clinic.id)).rejects.toThrow(
+      'This clinic has 2 monthly submissions and cannot be deleted. Deactivate it instead.',
+    );
+    // MonthlySubmission.clinicId is ON DELETE CASCADE — this 409 is the only thing
+    // standing between the admin's click and the clinic's whole history.
+    expect(await prisma.clinic.findUnique({ where: { id: clinic.id } })).not.toBeNull();
+    expect(await prisma.monthlySubmission.count({ where: { clinicId: clinic.id } })).toBe(2);
+  });
+
+  it('remove refuses (409) when it is a user’s only clinic', async () => {
+    const clinic = await service.create(validInput);
+    await makeSpoc('only@test.local', [clinic.id]);
+
+    await expectStatus(service.remove(clinic.id), 409);
+    await expect(service.remove(clinic.id)).rejects.toThrow(
+      'This clinic is the only clinic assigned to 1 user and cannot be deleted.',
+    );
+    expect(await prisma.clinic.findUnique({ where: { id: clinic.id } })).not.toBeNull();
   });
 });

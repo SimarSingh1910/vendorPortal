@@ -165,6 +165,7 @@ describe('Audit logging (Step 9.1 — append-only, unified write path)', () => {
       name: 'Alpha',
       accLocationCode: 'LOC-ALPHA',
       customerCode: 'CUST-ALPHA',
+      customerName: 'Customer Alpha',
     });
     await asUser(admin.id, () => clinics.update(clinic.id, { name: 'Alpha 2' }));
     const clinicRows = await rowsFor('CLINIC_UPDATE', clinic.id);

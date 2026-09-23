@@ -14,3 +14,8 @@ process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = url;
 // Not used by `migrate deploy`, but set so nothing accidentally points at dev.
 process.env.SHADOW_DATABASE_URL = url;
+// @prisma/client loads apps/api/.env on construction, which in a dev checkout
+// carries SCHEDULER_ENABLED=false — that kill-switch would make every
+// runDailyJobs() test silently do nothing. Set it first: dotenv never overrides
+// a variable that is already present.
+process.env.SCHEDULER_ENABLED = 'true';

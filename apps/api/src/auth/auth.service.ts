@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService, type JwtSignOptions } from '@nestjs/jwt';
 import { createHash, randomUUID } from 'node:crypto';
 import * as bcrypt from 'bcrypt';
-import type { User } from '@prisma/client';
+import type { Prisma, User } from '@prisma/client';
 import { PortalTab, roleCanAccessTab } from '@portal/shared';
 import type { AuthUser, JwtClaims, UserRole } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -191,20 +191,28 @@ export class AuthService {
    *     version check on their very next request (no 15-min TTL wait);
    *  2. revoke all live refresh tokens — they can no longer be rotated.
    *
-   * Call this on ANY change to a user's role, isActive, or clinic assignments.
-   * Centralized here so Phase 4 (user management) reuses a single code path.
+   * Call this on ANY change to a user's email, role, isActive, clinic or
+   * department assignments, or password — anything that moves their identity or
+   * access. `tx` runs the two writes inside the caller's interactive transaction
+   * so they commit with the change that triggered them (UsersService.update does
+   * this); omit it and they get a transaction of their own.
+   *
+   * One deliberate copy lives outside this method: ClinicsService.remove() does
+   * the same two writes inline for EVERY user whose assignment the clinic delete
+   * cascades away, since that is a set of users rather than one.
    */
-  async invalidateUserSessions(userId: string): Promise<void> {
-    await this.prisma.$transaction([
-      this.prisma.user.update({
+  async invalidateUserSessions(userId: string, tx?: Prisma.TransactionClient): Promise<void> {
+    const run = async (client: Prisma.TransactionClient) => {
+      await client.user.update({
         where: { id: userId },
         data: { tokenVersion: { increment: 1 } },
-      }),
-      this.prisma.refreshToken.updateMany({
+      });
+      await client.refreshToken.updateMany({
         where: { userId, revokedAt: null },
         data: { revokedAt: new Date() },
-      }),
-    ]);
+      });
+    };
+    await (tx ? run(tx) : this.prisma.$transaction(run));
   }
 
   // ── Internals ────────────────────────────────────────────────────────────────

@@ -36,11 +36,14 @@ import { listClinics } from '@/api/clinics';
 import { listDepartments } from '@/api/departments';
 import {
   createUser,
+  deleteUser,
   listUsers,
   setUserActive,
   updateUser,
   type CreateUserInput,
 } from '@/api/users';
+import { apiErrorMessage } from '@/lib/apiError';
+import { useAuthStore } from '@/store/auth.store';
 
 const FILTERS: { value: ActiveFilter; label: string }[] = [
   { value: 'active', label: 'Active' },
@@ -71,24 +74,38 @@ export function UsersAdmin({ defaultPortal = PortalTab.CLINIC }: { defaultPortal
   const [filter, setFilter] = useState<ActiveFilter>('all');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<AdminUser | null>(null);
+  // Delete confirmation target; its error lives here because the row has no dialog of its own.
+  const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const meId = useAuthStore((s) => s.user?.id);
   const qc = useQueryClient();
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['users', filter, portal],
     queryFn: () => listUsers(filter, portal),
   });
+  // ALL clinics, not just active ones: a clinic is normally deactivated before
+  // it is deleted, and DELETE /clinics/:id refuses while any user holds it as
+  // their only clinic. Loading active-only hid exactly those assignments, so the
+  // reassignment that 409 asks for could not be done here.
   const { data: clinics = [] } = useQuery({
-    queryKey: ['clinics', 'active'],
-    queryFn: () => listClinics('active'),
+    queryKey: ['clinics', 'all'],
+    queryFn: () => listClinics('all'),
   });
   const { data: departments = [] } = useQuery({
     queryKey: ['departments', 'active'],
     queryFn: () => listDepartments('active'),
   });
 
-  const clinicName = useMemo(
-    () => new Map(clinics.map((c) => [c.id, c.name])),
+  // Inactive clinics stay selectable (see above) but are labelled, so an admin
+  // reassigning users off one can tell which is which.
+  const clinicOptions = useMemo(
+    () => clinics.map((c) => ({ id: c.id, name: c.isActive ? c.name : `${c.name} (inactive)` })),
     [clinics],
+  );
+  const clinicName = useMemo(
+    () => new Map(clinicOptions.map((c) => [c.id, c.name])),
+    [clinicOptions],
   );
   const departmentName = useMemo(
     () => new Map(departments.map((d) => [d.id, d.name])),
@@ -96,9 +113,30 @@ export function UsersAdmin({ defaultPortal = PortalTab.CLINIC }: { defaultPortal
   );
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['users'] });
+  // Row actions have no dialog of their own, so their failures surface here —
+  // deactivating your own account is refused with a 400 that must be readable.
+  const [rowError, setRowError] = useState<string | null>(null);
   const activeMutation = useMutation({
     mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => setUserActive(id, isActive),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      setRowError(null);
+      invalidate();
+    },
+    onError: (e) => setRowError(apiErrorMessage(e, 'Could not change status.')),
+  });
+
+  // A user referenced by any history is refused server-side (409) with a message
+  // naming what blocks it; it is shown verbatim in the confirm dialog.
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteUser(id),
+    onSuccess: () => {
+      setRowError(null);
+      setDeleteTarget(null);
+    },
+    onError: (e) => setDeleteError(apiErrorMessage(e, 'Could not delete user.')),
+    // Refetch on failure too: a 404 means someone else already removed the row,
+    // and nothing else would clear the ghost (staleTime 30s, no focus refetch).
+    onSettled: () => invalidate(),
   });
 
   function openAdd() {
@@ -108,6 +146,10 @@ export function UsersAdmin({ defaultPortal = PortalTab.CLINIC }: { defaultPortal
   function openEdit(user: AdminUser) {
     setEditing(user);
     setDialogOpen(true);
+  }
+  function openDelete(user: AdminUser) {
+    setDeleteError(null);
+    setDeleteTarget(user);
   }
 
   return (
@@ -154,6 +196,12 @@ export function UsersAdmin({ defaultPortal = PortalTab.CLINIC }: { defaultPortal
           </Button>
         ))}
       </div>
+
+      {rowError && (
+        <p role="alert" className="text-sm text-destructive">
+          {rowError}
+        </p>
+      )}
 
       <div className="rounded-lg border">
         <Table>
@@ -219,6 +267,16 @@ export function UsersAdmin({ defaultPortal = PortalTab.CLINIC }: { defaultPortal
                       >
                         {user.isActive ? 'Deactivate' : 'Activate'}
                       </Button>
+                      {/* No self-delete — mirrors the API's self-account guard. */}
+                      {user.id !== meId && (
+                        <Button
+                          variant="ghostDestructive"
+                          size="sm"
+                          onClick={() => openDelete(user)}
+                        >
+                          Delete
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -235,8 +293,9 @@ export function UsersAdmin({ defaultPortal = PortalTab.CLINIC }: { defaultPortal
           if (!open) setEditing(null);
         }}
         editing={editing}
+        isSelf={editing?.id === meId}
         portal={portal}
-        clinics={clinics}
+        clinics={clinicOptions}
         departments={departments}
         onSaved={() => {
           invalidate();
@@ -244,6 +303,48 @@ export function UsersAdmin({ defaultPortal = PortalTab.CLINIC }: { defaultPortal
           setEditing(null);
         }}
       />
+
+      {/* Delete confirmation — a user with any history is refused server-side (409). */}
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && !deleteMutation.isPending && setDeleteTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {deleteTarget?.name}?</DialogTitle>
+            <DialogDescription>
+              This permanently removes {deleteTarget?.email} and their clinic / department
+              assignments. It is only possible while the account has no history — otherwise
+              deactivate it instead. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteError && (
+            <p role="alert" className="text-sm text-destructive">
+              {deleteError}
+            </p>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={deleteMutation.isPending}
+              onClick={() => setDeleteTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={() => {
+                if (!deleteTarget) return;
+                setDeleteError(null);
+                deleteMutation.mutate(deleteTarget.id);
+              }}
+            >
+              {deleteMutation.isPending ? 'Deleting…' : 'Delete user'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -252,6 +353,8 @@ interface UserFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editing: AdminUser | null;
+  /** Editing your OWN account — an email change signs you out on the spot. */
+  isSelf: boolean;
   /** Which portal's view opened this dialog — drives the role options offered. */
   portal: PortalTab;
   clinics: { id: string; name: string }[];
@@ -263,6 +366,7 @@ function UserFormDialog({
   open,
   onOpenChange,
   editing,
+  isSelf,
   portal,
   clinics,
   departments,
@@ -317,6 +421,10 @@ function UserFormDialog({
       if (editing) {
         return updateUser(editing.id, {
           name,
+          // Only when actually edited: this form is seeded from a cached list, so
+          // always sending it would write a stale address back over another
+          // admin's change — and that one ends the user's session.
+          ...(email !== editing.email ? { email } : {}),
           role,
           clinicIds: clinics,
           departmentIds: depts,
@@ -346,7 +454,7 @@ function UserFormDialog({
     e.preventDefault();
     setError(null);
     if (!name.trim()) return setError('Name is required.');
-    if (!editing && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return setError('Valid email required.');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return setError('Valid email required.');
     if (!editing && password.length < 8) return setError('Password must be at least 8 characters.');
     if (editing && password && password.length < 8)
       return setError('Password must be at least 8 characters.');
@@ -363,9 +471,11 @@ function UserFormDialog({
         <DialogHeader>
           <DialogTitle>{editing ? 'Edit user' : 'Add user'}</DialogTitle>
           <DialogDescription>
-            {editing
-              ? 'Update the user. Role / clinic / password changes take effect immediately and end the user’s current session.'
-              : 'Create a new user with exactly one role.'}
+            {!editing
+              ? 'Create a new user with exactly one role.'
+              : isSelf
+                ? 'Update your own account. An email or password change takes effect immediately and signs you out.'
+                : 'Update the user. Email / role / clinic / password changes take effect immediately and end the user’s current session.'}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4" noValidate>
@@ -379,10 +489,15 @@ function UserFormDialog({
               id="u-email"
               type="email"
               value={email}
-              disabled={!!editing}
               onChange={(e) => setEmail(e.target.value)}
             />
-            {editing && <p className="text-xs text-muted-foreground">Email can’t be changed.</p>}
+            {editing && (
+              <p className={isSelf ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
+                {isSelf
+                  ? 'This is your own account — changing the email signs you out immediately. Sign back in with the new address.'
+                  : 'Changing the email ends the user’s current session — they sign in with the new address.'}
+              </p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="u-password">
@@ -417,7 +532,7 @@ function UserFormDialog({
             <div className="space-y-1.5">
               <Label>Assigned clinics</Label>
               {clinics.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No active clinics to assign.</p>
+                <p className="text-xs text-muted-foreground">No clinics to assign.</p>
               ) : (
                 <>
                   <div
@@ -485,7 +600,11 @@ function UserFormDialog({
             </p>
           )}
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

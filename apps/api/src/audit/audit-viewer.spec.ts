@@ -24,6 +24,7 @@ describe('Audit viewer + export (Step 9.2)', () => {
         name: `Clinic ${seq}`,
         accLocationCode: `ACC-${seq}`,
         customerCode: `CUST-${seq}`,
+        customerName: `Customer ${seq}`,
       },
     });
   };

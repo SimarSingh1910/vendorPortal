@@ -58,6 +58,7 @@ describe('SchedulerService (Step 10.4)', () => {
         name: opts.name ?? 'Clinic',
         accLocationCode: 'ACC-1',
         customerCode: 'CUST-1',
+        customerName: 'Customer 1',
         isActive: opts.active ?? true,
       },
     });

@@ -27,11 +27,13 @@ import {
 } from '@/components/ui/table';
 import {
   createClinic,
+  deleteClinic,
   listClinics,
   setClinicActive,
   updateClinic,
   type ClinicInput,
 } from '@/api/clinics';
+import { apiErrorMessage } from '@/lib/apiError';
 
 const FILTERS: { value: ActiveFilter; label: string }[] = [
   { value: 'active', label: 'Active' },
@@ -51,6 +53,9 @@ export function ClinicsAdmin() {
   const [filter, setFilter] = useState<ActiveFilter>('all');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Clinic | null>(null);
+  // Delete confirmation target; its error lives here because the row has no dialog of its own.
+  const [deleteTarget, setDeleteTarget] = useState<Clinic | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const qc = useQueryClient();
 
   const { data: clinics = [], isLoading } = useQuery({
@@ -60,6 +65,7 @@ export function ClinicsAdmin() {
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['clinics'] });
 
+  const [saveError, setSaveError] = useState<string | null>(null);
   const saveMutation = useMutation({
     mutationFn: (values: ClinicInput) =>
       editing ? updateClinic(editing.id, values) : createClinic(values),
@@ -68,21 +74,52 @@ export function ClinicsAdmin() {
       setDialogOpen(false);
       setEditing(null);
     },
+    onError: (e) => setSaveError(apiErrorMessage(e, 'Could not save. Please try again.')),
   });
 
+  // Row actions have no dialog of their own, so their failures surface here.
+  const [rowError, setRowError] = useState<string | null>(null);
   const activeMutation = useMutation({
     mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
       setClinicActive(id, isActive),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      setRowError(null);
+      invalidate();
+    },
+    onError: (e) => setRowError(apiErrorMessage(e, 'Could not change status.')),
+  });
+
+  // A clinic with any history is refused with 409 — the server message tells the
+  // admin to deactivate instead, so it is shown verbatim in the confirm dialog.
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteClinic(id),
+    onSuccess: () => {
+      setRowError(null);
+      setDeleteTarget(null);
+    },
+    onError: (e) => setDeleteError(apiErrorMessage(e, 'Could not delete clinic.')),
+    // Refetch on failure too: a 404 means someone else already removed the row,
+    // and nothing else would clear the ghost (staleTime 30s, no focus refetch).
+    // Assignments cascade away server-side, so cached user rows are stale too.
+    onSettled: () => {
+      invalidate();
+      qc.invalidateQueries({ queryKey: ['users'] });
+    },
   });
 
   function openAdd() {
     setEditing(null);
+    setSaveError(null);
     setDialogOpen(true);
   }
   function openEdit(clinic: Clinic) {
     setEditing(clinic);
+    setSaveError(null);
     setDialogOpen(true);
+  }
+  function openDelete(clinic: Clinic) {
+    setDeleteError(null);
+    setDeleteTarget(clinic);
   }
 
   return (
@@ -110,6 +147,12 @@ export function ClinicsAdmin() {
           </Button>
         ))}
       </div>
+
+      {rowError && (
+        <p role="alert" className="text-sm text-destructive">
+          {rowError}
+        </p>
+      )}
 
       <div className="rounded-lg border">
         <Table>
@@ -163,6 +206,13 @@ export function ClinicsAdmin() {
                       >
                         {clinic.isActive ? 'Deactivate' : 'Activate'}
                       </Button>
+                      <Button
+                        variant="ghostDestructive"
+                        size="sm"
+                        onClick={() => openDelete(clinic)}
+                      >
+                        Delete
+                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -180,9 +230,54 @@ export function ClinicsAdmin() {
         }}
         editing={editing}
         pending={saveMutation.isPending}
-        isError={saveMutation.isError}
-        onSubmit={(values) => saveMutation.mutate(values)}
+        error={saveError}
+        onSubmit={(values) => {
+          setSaveError(null);
+          saveMutation.mutate(values);
+        }}
       />
+
+      {/* Delete confirmation — a clinic with history is refused server-side (409). */}
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && !deleteMutation.isPending && setDeleteTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {deleteTarget?.name}?</DialogTitle>
+            <DialogDescription>
+              This permanently removes the clinic, its expense-head mappings, and its assignment
+              from any user who also covers another clinic. It is only possible while the clinic has
+              no submission history — otherwise deactivate it instead. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteError && (
+            <p role="alert" className="text-sm text-destructive">
+              {deleteError}
+            </p>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={deleteMutation.isPending}
+              onClick={() => setDeleteTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={() => {
+                if (!deleteTarget) return;
+                setDeleteError(null);
+                deleteMutation.mutate(deleteTarget.id);
+              }}
+            >
+              {deleteMutation.isPending ? 'Deleting…' : 'Delete clinic'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -192,7 +287,8 @@ interface ClinicFormDialogProps {
   onOpenChange: (open: boolean) => void;
   editing: Clinic | null;
   pending: boolean;
-  isError: boolean;
+  /** Server-side failure message, shown verbatim (409s explain themselves). */
+  error: string | null;
   onSubmit: (values: ClinicFormValues) => void;
 }
 
@@ -201,7 +297,7 @@ function ClinicFormDialog({
   onOpenChange,
   editing,
   pending,
-  isError,
+  error,
   onSubmit,
 }: ClinicFormDialogProps) {
   const {
@@ -271,7 +367,11 @@ function ClinicFormDialog({
               <p className="text-xs text-destructive">{errors.customerName.message}</p>
             )}
           </div>
-          {isError && <p className="text-sm text-destructive">Could not save. Please try again.</p>}
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel

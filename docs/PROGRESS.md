@@ -44,12 +44,17 @@ a reviewer opens an item (reviewStartedAt / reviewStartedById).
 - Master changes (clinic/expense-head add/deactivate) take effect NEXT month cycle
   only; deactivation never deletes history. Enforced by SNAPSHOTTING the active
   expense-head set onto the submission when its cycle opens.
+- Deleting is a SAFE DELETE and exists only for clinics and users: the row is hard-
+  deleted only when it carries no history at all, otherwise the API refuses with 409
+  naming the blocker and telling the admin to deactivate instead. Expense heads,
+  mappings, corporate departments and budget codes cannot be deleted at any time.
 - A head appears for a clinic only if mapped (ClinicExpenseHead, active). No mapping
   = empty form.
 - Month cycles open AUTOMATICALLY via a scheduled job (admin re-run fallback exists).
 - Audit log is APPEND-ONLY (target: enforced at MySQL level via triggers).
-- Access changes (role/clinic/deactivation) take effect immediately; sessions
-  invalidated on role change/deactivation. Auto-logout after 30 min inactivity.
+- Access changes (role/clinic/email/deactivation) take effect immediately; sessions
+  invalidated on role change, email change and deactivation. Auto-logout after 30 min
+  inactivity.
 
 ## NFRs
 Pages < 3s; 200 concurrent users / 100 clinics / 50 expense heads; HTTPS TLS 1.2+;

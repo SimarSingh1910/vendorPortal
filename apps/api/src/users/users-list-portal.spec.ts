@@ -54,6 +54,7 @@ describe('UsersService — clinic/corporate role-group filter', () => {
         name: 'C',
         accLocationCode: 'ACC-C',
         customerCode: 'CUST-C',
+        customerName: 'Customer C',
         isActive: true,
       },
     });

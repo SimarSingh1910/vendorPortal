@@ -2,9 +2,16 @@ import type { PrismaService } from '../src/prisma/prisma.service';
 import { TEST_DB_NAME } from './env';
 
 /**
- * Truncate every data table between tests so each starts from a clean slate.
+ * Empty every data table between tests so each starts from a clean slate.
  * Refuses to run unless DATABASE_URL points at the isolated test DB — a hard
  * guard against ever wiping the dev schema.
+ *
+ * DELETE, not TRUNCATE: TRUNCATE is DDL for InnoDB, which invalidates the
+ * prepared statements Prisma caches on the single pinned connection
+ * (connection_limit=1) and makes arbitrary later queries fail with MySQL 1412
+ * "Table definition has changed". The test tables are tiny, so DML is free.
+ * `auditlog` is the exception and must stay TRUNCATE: its append-only
+ * BEFORE DELETE trigger aborts a DELETE, and TRUNCATE does not fire triggers.
  */
 export async function resetDb(prisma: PrismaService): Promise<void> {
   const url = process.env.DATABASE_URL ?? '';
@@ -23,7 +30,9 @@ export async function resetDb(prisma: PrismaService): Promise<void> {
 
   await prisma.$executeRawUnsafe('SET FOREIGN_KEY_CHECKS = 0');
   for (const { name } of rows) {
-    await prisma.$executeRawUnsafe(`TRUNCATE TABLE \`${name}\``);
+    await prisma.$executeRawUnsafe(
+      name.toLowerCase() === 'auditlog' ? `TRUNCATE TABLE \`${name}\`` : `DELETE FROM \`${name}\``,
+    );
   }
   await prisma.$executeRawUnsafe('SET FOREIGN_KEY_CHECKS = 1');
 }

@@ -473,8 +473,9 @@ model AuditLog {
   performedAt   DateTime @default(now())
   ipAddress     String?  @db.VarChar(45)
   /// Denormalized clinic for FR-09 clinic-scoped audit search — set when the
-  /// action concerns a clinic or a clinic-scoped submission. No FK (append-only
-  /// search field; clinics are deactivated, never deleted).
+  /// action concerns a clinic or a clinic-scoped submission. Deliberately NO FK:
+  /// a clinic can be hard-deleted (only when it has no submissions — see
+  /// ClinicsService.remove), and its audit rows must survive that untouched.
   clinicId      String?
 
   performedBy User? @relation(fields: [performedById], references: [id])

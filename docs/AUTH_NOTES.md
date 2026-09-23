@@ -54,11 +54,26 @@ switch. Atomically it:
    version check on their very next request (no waiting for the 15-min TTL); and
 2. revokes all live **refresh** tokens → they can no longer be rotated.
 
-It must be called on **any** change to a user's `role`, `isActive`, or clinic
-assignments. Current call sites: the seed/admin tooling
-(`prisma/seed-admin.ts`, when re-provisioning an existing user). Phase 4 user
-management will reuse the same method for role changes, deactivation, and
-assignment edits.
+It must be called on **any** change to a user's `role`, `email`, `isActive`, or
+clinic assignments — and on a password reset. `email` is on that list because it is
+the login identity: changing it is as security-relevant as changing a role, so the
+user's current session ends and they must log in again with the new address. The
+admin UI warns about this in the edit dialog.
+
+Call sites: `UsersService` (update/deactivate — role, email, clinic and
+department assignment changes, password resets) and the seed/admin tooling
+(`prisma/seed-admin.ts`, when re-provisioning an existing user). It takes an
+optional transaction client: `UsersService.update()` passes its own, so the
+session kill commits with the change that triggered it — a retry of the same
+PATCH is a no-op and could not repair it afterwards.
+
+`ClinicsService.remove()` performs the same two writes **inline, inside its delete
+transaction**, for every user still assigned to the clinic: the assignment cascade
+is an assignment change, and those users' access tokens carry the deleted clinic in
+their `clinicIds` claim. It is done inline rather than through `AuthService` so it
+commits or rolls back with the delete itself. Deleting a *user* needs no call — the
+row is gone, so the guard's existence check rejects immediately and the refresh
+tokens cascade away.
 
 This gives **immediate** revocation across both token types — the basis for
 "deactivate a user / change their role and they're locked out right away."

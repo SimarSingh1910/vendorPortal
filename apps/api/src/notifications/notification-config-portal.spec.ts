@@ -121,6 +121,7 @@ describe('NotificationConfig — per-portal split', () => {
         name: 'C',
         accLocationCode: 'ACC-1',
         customerCode: 'CUST-1',
+        customerName: 'Customer 1',
         isActive: true,
       },
     });

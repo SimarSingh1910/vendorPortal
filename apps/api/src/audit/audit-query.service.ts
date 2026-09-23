@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import {
+  AuditAction,
   CORP_AUDIT_ACTION_PREFIX,
   PortalTab,
   type AuditLogPage,
@@ -101,6 +102,21 @@ export class AuditQueryService {
       ? await this.prisma.clinic.findMany({ where: { id: { in: clinicIds } }, select: { id: true, name: true } })
       : [];
     const nameByClinic = new Map(clinics.map((c) => [c.id, c.name]));
+
+    // A deleted clinic's audit rows survive it (clinicId carries no FK), so they
+    // would otherwise show a blank Clinic column. Recover the name from the
+    // CLINIC_DELETE row that recorded it — the only place it still exists.
+    const missing = clinicIds.filter((id) => !nameByClinic.has(id));
+    if (missing.length > 0) {
+      const deletions = await this.prisma.auditLog.findMany({
+        where: { action: AuditAction.CLINIC_DELETE, entityId: { in: missing } },
+        select: { entityId: true, oldValue: true },
+      });
+      for (const row of deletions) {
+        const name = (row.oldValue as { name?: string } | null)?.name;
+        if (name) nameByClinic.set(row.entityId, `${name} (deleted)`);
+      }
+    }
 
     return rows.map((r) => ({
       id: r.id,

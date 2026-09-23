@@ -29,3 +29,8 @@ export async function setClinicActive(id: string, isActive: boolean): Promise<Cl
   );
   return data;
 }
+
+/** Hard-delete a clinic with no history. 409 if it has submissions or sole-clinic users. */
+export async function deleteClinic(id: string): Promise<void> {
+  await apiClient.delete(`/clinics/${id}`);
+}

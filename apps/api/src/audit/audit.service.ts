@@ -32,9 +32,14 @@ function toJson(value: unknown): Prisma.InputJsonValue | typeof Prisma.JsonNull 
 export class AuditService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async record(entry: AuditRecord): Promise<void> {
+  /**
+   * `client` lets a caller write the row inside its own interactive transaction
+   * — needed by the safe-delete paths, where the audit row is the only surviving
+   * record of the deleted row and must commit or roll back with it.
+   */
+  async record(entry: AuditRecord, client: Prisma.TransactionClient = this.prisma): Promise<void> {
     const { userId, ipAddress } = currentActor();
-    await this.prisma.auditLog.create({
+    await client.auditLog.create({
       data: {
         entityType: entry.entityType,
         entityId: entry.entityId,

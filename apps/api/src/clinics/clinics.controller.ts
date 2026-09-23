@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { PortalTab, UserRole } from '@portal/shared';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RequireTab } from '../auth/decorators/require-tab.decorator';
@@ -10,7 +10,7 @@ import { UpdateClinicDto } from './dto/update-clinic.dto';
 /**
  * Clinic master data (FR-01). READS (list/get) are open to Finance Admin or
  * Manager (other finance screens, e.g. the audit clinic filter, depend on them);
- * WRITES (create/update/activate/deactivate) are FINANCE_ADMIN-only — the
+ * WRITES (create/update/activate/deactivate/delete) are FINANCE_ADMIN-only — the
  * method-level @Roles overrides the class-level one via RolesGuard's
  * getAllAndOverride. Enforced by the global RolesGuard behind JwtAccessGuard.
  */
@@ -52,5 +52,12 @@ export class ClinicsController {
   @Roles(UserRole.FINANCE_ADMIN)
   activate(@Param('id') id: string) {
     return this.clinics.setActive(id, true);
+  }
+
+  /** Safe delete — 409 (with the reason) if the clinic carries any history. */
+  @Delete(':id')
+  @Roles(UserRole.FINANCE_ADMIN)
+  remove(@Param('id') id: string) {
+    return this.clinics.remove(id);
   }
 }
