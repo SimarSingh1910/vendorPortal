@@ -35,6 +35,15 @@ export function exportClinicMonth(clinicId: string, month: string): Promise<void
   return download('/export/excel/clinic-month', clean({ clinicId, month }), `clinic-${month}.xlsx`);
 }
 
+/** Finance dashboard status table for one month (.xlsx). */
+export function exportStatusTracker(month: string, spocUserIds?: string[]): Promise<void> {
+  return download(
+    '/export/excel/status',
+    clean({ month, spocUserIds }),
+    `clinic-status-${month}.xlsx`,
+  );
+}
+
 /** Consolidated all-clinic data for the filtered range (.xlsx). */
 export function exportConsolidated(filter: DashboardFilter): Promise<void> {
   return download('/export/excel/consolidated', clean(filter), 'consolidated.xlsx');

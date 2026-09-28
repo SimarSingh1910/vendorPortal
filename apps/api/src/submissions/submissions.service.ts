@@ -170,7 +170,47 @@ export class SubmissionsService {
       }
       if (changed) submission = (await this.loadDetail(submissionId)) ?? submission;
     }
-    return this.toDetail(submission, user);
+    return this.toDetail(submission, user, await this.loadActors(submissionId));
+  }
+
+  /**
+   * Latest actor per workflow step, read from the audit trail (every transition is
+   * audited, comment or not). Callers only show a name while its step's stamp is
+   * set, so a recall — which clears the stamps — hides stale names. Where the
+   * audit row has no actor (seeded/imported history), fall back to the author of
+   * that step's timeline comment, if one was left.
+   */
+  private async loadActors(submissionId: string): Promise<Record<string, string | null>> {
+    const rows = await this.prisma.auditLog.findMany({
+      where: {
+        entityType: 'MonthlySubmission',
+        entityId: submissionId,
+        action: { in: ['SUBMISSION_SUBMIT', 'SUBMISSION_MANAGER_APPROVE', 'SUBMISSION_FINANCE_APPROVE'] },
+      },
+      orderBy: { performedAt: 'desc' },
+      select: { action: true, performedBy: { select: { name: true } } },
+    });
+    const actors: Record<string, string | null> = {};
+    for (const r of rows) {
+      if (!(r.action in actors)) actors[r.action] = r.performedBy?.name ?? null;
+    }
+    if (Object.keys(actors).length === 3 && Object.values(actors).every(Boolean)) return actors;
+
+    const comments = await this.prisma.submissionComment.findMany({
+      where: { submissionId, action: { in: ['SUBMITTED', 'APPROVED'] } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { action: true, roleAtTime: true, commentedBy: { select: { name: true } } },
+    });
+    for (const c of comments) {
+      const step =
+        c.action === 'SUBMITTED'
+          ? 'SUBMISSION_SUBMIT'
+          : c.roleAtTime === UserRole.CLINIC_MANAGER
+            ? 'SUBMISSION_MANAGER_APPROVE'
+            : 'SUBMISSION_FINANCE_APPROVE';
+      actors[step] ??= c.commentedBy.name;
+    }
+    return actors;
   }
 
   private loadDetail(submissionId: string) {
@@ -197,6 +237,7 @@ export class SubmissionsService {
   private toDetail(
     submission: NonNullable<Awaited<ReturnType<SubmissionsService['loadDetail']>>>,
     user: RequestUser,
+    actors: Record<string, string | null>,
   ): SubmissionDetail {
     const status = submission.status as SubmissionStatus;
     const isSpoc = user.role === UserRole.CLINIC_SPOC;
@@ -218,6 +259,15 @@ export class SubmissionsService {
       submittedAt: submission.submittedAt?.toISOString() ?? null,
       reviewStartedAt: submission.reviewStartedAt?.toISOString() ?? null,
       reviewStartedByName: submission.reviewStartedBy?.name ?? null,
+      submittedByName: submission.submittedAt ? (actors.SUBMISSION_SUBMIT ?? null) : null,
+      approvedByManagerAt: submission.approvedByManagerAt?.toISOString() ?? null,
+      approvedByManagerName: submission.approvedByManagerAt
+        ? (actors.SUBMISSION_MANAGER_APPROVE ?? null)
+        : null,
+      approvedByFinanceAt: submission.approvedByFinanceAt?.toISOString() ?? null,
+      approvedByFinanceName: submission.approvedByFinanceAt
+        ? (actors.SUBMISSION_FINANCE_APPROVE ?? null)
+        : null,
       unlockedReason: submission.unlockedReason ?? null,
       heads: submission.snapshots.map((snap) => ({
         snapshotId: snap.id,

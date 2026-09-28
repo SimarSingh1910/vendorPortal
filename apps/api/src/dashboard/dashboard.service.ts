@@ -127,16 +127,29 @@ export class DashboardService {
   }
 
   /**
-   * The union of clinics the given ACTIVE clinic SPOCs are assigned to (empty for
-   * anyone else). Deduped, since a SPOC may cover several clinics.
+   * Clinics covered by the given ACTIVE people. The list carries both the Clinic
+   * SPOC and the Cluster manager filter picks (the web merges them): UNION within
+   * a role (any selected SPOC), INTERSECT across roles (SPOC AND manager). Ids of
+   * any other role match nothing. Deduped, since one person may cover several.
    */
-  private async spocClinicIds(spocUserIds: string[]): Promise<string[]> {
-    if (spocUserIds.length === 0) return [];
+  private async spocClinicIds(userIds: string[]): Promise<string[]> {
+    if (userIds.length === 0) return [];
     const assignments = await this.prisma.userClinicAssignment.findMany({
-      where: { userId: { in: spocUserIds }, user: { role: UserRole.CLINIC_SPOC, isActive: true } },
-      select: { clinicId: true },
+      where: {
+        userId: { in: userIds },
+        user: { role: { in: [UserRole.CLINIC_SPOC, UserRole.CLINIC_MANAGER] }, isActive: true },
+      },
+      select: { clinicId: true, user: { select: { role: true } } },
     });
-    return [...new Set(assignments.map((a) => a.clinicId))];
+    if (assignments.length === 0) return [];
+    const byRole = new Map<string, Set<string>>();
+    for (const a of assignments) {
+      const set = byRole.get(a.user.role) ?? new Set<string>();
+      set.add(a.clinicId);
+      byRole.set(a.user.role, set);
+    }
+    const [first, ...rest] = [...byRole.values()];
+    return [...first].filter((id) => rest.every((s) => s.has(id)));
   }
 
   /** Resolve the trend range, defaulting to the last DEFAULT_RANGE_MONTHS months. */
@@ -180,23 +193,25 @@ export class DashboardService {
     if (clinicIds.length === 0) return [];
 
     const rows = await this.prisma.$queryRaw<
-      Array<{ clinicId: string; clinicName: string; submissionId: string | null; status: string | null; total: string | null }>
+      Array<{ clinicId: string; clinicName: string; customerName: string; submissionId: string | null; status: string | null; total: string | null }>
     >(Prisma.sql`
-      SELECT c.id AS clinicId, c.name AS clinicName, m.id AS submissionId,
+      SELECT c.id AS clinicId, c.name AS clinicName, c.customerName AS customerName, m.id AS submissionId,
              m.status AS status, CAST(SUM(p.amount) AS CHAR) AS total
       FROM Clinic c
       LEFT JOIN MonthlySubmission m ON m.clinicId = c.id AND m.month = ${m}
       LEFT JOIN ProvisionEntry p ON p.submissionId = m.id
       WHERE c.isActive = 1 AND c.id IN (${Prisma.join(clinicIds)})
-      GROUP BY c.id, c.name, m.id, m.status
+      GROUP BY c.id, c.name, c.customerName, m.id, m.status
       ORDER BY c.name ASC
     `);
 
     // Who to chase, shown on the tile — finance roles only (a clinic user is
     // looking at their own clinic, so the name tells them nothing). `null` for
     // everyone else keeps "not shown to you" distinct from "no SPOC assigned".
-    const spocsByClinic = isFinanceRole(user.role)
-      ? await this.spocNamesByClinic(clinicIds)
+    const finance = isFinanceRole(user.role);
+    const spocsByClinic = finance ? await this.namesByClinic(clinicIds, UserRole.CLINIC_SPOC) : null;
+    const managersByClinic = finance
+      ? await this.namesByClinic(clinicIds, UserRole.CLINIC_MANAGER)
       : null;
 
     return rows.map((r) => ({
@@ -207,6 +222,8 @@ export class DashboardService {
       submissionId: r.submissionId ?? null,
       total: r.total != null ? String(r.total) : null,
       spocNames: spocsByClinic ? (spocsByClinic.get(r.clinicId) ?? []) : null,
+      customerName: r.customerName,
+      managerNames: managersByClinic ? (managersByClinic.get(r.clinicId) ?? []) : null,
     }));
   }
 
@@ -218,12 +235,12 @@ export class DashboardService {
    * rather than hiding. Deactivated users are excluded: they cannot act on a
    * submission, so naming one as the contact would be misleading.
    */
-  private async spocNamesByClinic(clinicIds: string[]): Promise<Map<string, string[]>> {
+  private async namesByClinic(clinicIds: string[], role: UserRole): Promise<Map<string, string[]>> {
     if (clinicIds.length === 0) return new Map();
     const rows = await this.prisma.userClinicAssignment.findMany({
       where: {
         clinicId: { in: clinicIds },
-        user: { role: UserRole.CLINIC_SPOC, isActive: true },
+        user: { role, isActive: true },
       },
       select: { clinicId: true, user: { select: { name: true } } },
       orderBy: { user: { name: 'asc' } },
@@ -576,7 +593,15 @@ export class DashboardService {
   // ── Filter dropdown options (scoped) ────────────────────────────────────────
   async filterOptions(user: RequestUser): Promise<DashboardFilterOptions> {
     const clinicIds = await this.scope.accessibleClinicIds(user);
-    const [clinics, expenseHeads, spocs] = await Promise.all([
+    const people = (role: UserRole) =>
+      clinicIds.length
+        ? this.prisma.user.findMany({
+            where: { role, isActive: true, assignments: { some: { clinicId: { in: clinicIds } } } },
+            select: { id: true, name: true },
+            orderBy: { name: 'asc' },
+          })
+        : Promise.resolve([]);
+    const [clinics, expenseHeads, spocs, managers] = await Promise.all([
       clinicIds.length
         ? this.prisma.clinic.findMany({
             where: { id: { in: clinicIds } },
@@ -598,17 +623,9 @@ export class DashboardService {
       // derived FROM the caller's own clinic scope, so it can only ever name
       // SPOCs of clinics they already see, and a single-clinic SPOC just gets
       // themselves. Scope, not role, is the gate.
-      clinicIds.length
-        ? this.prisma.user.findMany({
-            where: {
-              role: UserRole.CLINIC_SPOC,
-              isActive: true,
-              assignments: { some: { clinicId: { in: clinicIds } } },
-            },
-            select: { id: true, name: true },
-            orderBy: { name: 'asc' },
-          })
-        : Promise.resolve([]),
+      people(UserRole.CLINIC_SPOC),
+      // Cluster managers, same scope rule — the "Cluster manager" filter's options.
+      people(UserRole.CLINIC_MANAGER),
     ]);
     // The dashboard filter/label contract stays `{ id, name }`; `name` is the head's
     // G/L Account Name (the color map keys on id, so palette assignment is unaffected).
@@ -616,6 +633,7 @@ export class DashboardService {
       clinics,
       expenseHeads: expenseHeads.map((e) => ({ id: e.id, name: e.glAccountName })),
       spocs,
+      managers,
     };
   }
 }

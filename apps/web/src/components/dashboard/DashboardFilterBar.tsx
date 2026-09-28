@@ -3,7 +3,6 @@ import {
   UserRole,
   type DashboardFilterOptions,
 } from '@portal/shared';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { MultiSelect } from '@/components/dashboard/MultiSelect';
 import { useAuthStore } from '@/store/auth.store';
@@ -49,9 +48,10 @@ export function DashboardFilterBar({
   // Left at `null` ("All") for a SPOC, so hiding the control cannot narrow their
   // reads — it only removes a choice that had no effect.
   const showSpocFilter = role !== UserRole.CLINIC_SPOC;
+  const showManagerFilter = role === UserRole.FINANCE_ADMIN || role === UserRole.FINANCE_MANAGER;
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+    <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 ${showManagerFilter ? 'xl:grid-cols-7' : 'xl:grid-cols-6'}`}>
       <div className="space-y-1.5">
         <Label>Clinic</Label>
         <MultiSelect
@@ -75,6 +75,21 @@ export function DashboardFilterBar({
             nounSingular="SPOC"
             nounPlural="SPOCs"
             ariaLabel="Filter by clinic SPOC"
+            allowEmpty
+            fullWidth
+          />
+        </div>
+      )}
+      {showManagerFilter && (
+        <div className="space-y-1.5">
+          <Label>Cluster manager</Label>
+          <MultiSelect
+            items={options?.managers ?? []}
+            selected={filters.managerUserIds}
+            onChange={filters.setManagerUserIds}
+            nounSingular="manager"
+            nounPlural="managers"
+            ariaLabel="Filter by cluster manager"
             allowEmpty
             fullWidth
           />
@@ -108,22 +123,70 @@ export function DashboardFilterBar({
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="from">From month</Label>
-        <Input
-          id="from"
-          type="month"
-          value={filters.fromMonth}
-          onChange={(e) => filters.setFromMonth(e.target.value)}
-        />
+        <MonthYearSelect id="from" value={filters.fromMonth} onChange={filters.setFromMonth} />
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="to">To month</Label>
-        <Input
-          id="to"
-          type="month"
-          value={filters.toMonth}
-          onChange={(e) => filters.setToMonth(e.target.value)}
-        />
+        <MonthYearSelect id="to" value={filters.toMonth} onChange={filters.setToMonth} />
       </div>
+    </div>
+  );
+}
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const SELECT_CLASS =
+  'h-9 min-w-0 flex-1 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+
+/**
+ * 'YYYY-MM' picker as separate Month + Year dropdowns — the native month input's
+ * popup hides year navigation. An empty value shows (and edits from) this month.
+ */
+function MonthYearSelect({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const now = new Date();
+  const thisYear = now.getFullYear();
+  const [y, m] = (value || `${thisYear}-${String(now.getMonth() + 1).padStart(2, '0')}`)
+    .split('-')
+    .map(Number);
+  // ponytail: fixed window (5 years back, 1 ahead); widen if older data matters.
+  const years = Array.from({ length: 7 }, (_, i) => thisYear - 5 + i);
+  if (!years.includes(y)) years.unshift(y);
+  const set = (year: number, month: number) =>
+    onChange(`${year}-${String(month).padStart(2, '0')}`);
+  return (
+    <div className="flex gap-2">
+      <select
+        id={id}
+        aria-label="Month"
+        className={SELECT_CLASS}
+        value={m}
+        onChange={(e) => set(y, Number(e.target.value))}
+      >
+        {MONTH_NAMES.map((name, i) => (
+          <option key={name} value={i + 1}>
+            {name}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="Year"
+        className={SELECT_CLASS}
+        value={y}
+        onChange={(e) => set(Number(e.target.value), m)}
+      >
+        {years.map((year) => (
+          <option key={year} value={year}>
+            {year}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

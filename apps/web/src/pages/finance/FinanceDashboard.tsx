@@ -1,4 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { Download } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { exportStatusTracker } from '@/api/export';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -51,6 +54,9 @@ export function FinanceDashboard() {
     queryKey: ['dashboard', 'status', asOf, spocUserIdList],
     queryFn: () => getStatusTracker(asOf, spocUserIdList),
     enabled: !anyEmpty,
+    // Keep the old tiles while a filter change loads, so the Chart/Table toggle
+    // (and the table's Excel button) isn't unmounted back to Chart.
+    placeholderData: keepPreviousData,
   });
   const { data: varianceData } = useQuery({
     queryKey: ['dashboard', 'variance', asOf, clinicIdList, spocUserIdList],
@@ -86,6 +92,21 @@ export function FinanceDashboard() {
   // handle []; variance falls to its "no data" state on undefined). The head-trend
   // views fold the same empty override into their useMemo (below).
   const tiles = anyEmpty ? [] : tilesData;
+  const [exportingStatus, setExportingStatus] = useState(false);
+  const statusExport = (
+    <Button
+      variant="outline"
+      size="sm"
+      disabled={exportingStatus || tiles.length === 0}
+      onClick={() => {
+        setExportingStatus(true);
+        exportStatusTracker(asOf, spocUserIdList).finally(() => setExportingStatus(false));
+      }}
+    >
+      <Download />
+      {exportingStatus ? 'Exporting…' : 'Excel'}
+    </Button>
+  );
   const variance = anyEmpty ? undefined : varianceData;
   const monthly = anyEmpty ? [] : monthlyData;
   const clinicTotals = anyEmpty ? [] : clinicTotalsData;
@@ -146,6 +167,7 @@ export function FinanceDashboard() {
             // Grouped into the finance manager's three stage columns. The tiles are
             // whatever the active filters left in `tiles`, so grouping applies to
             // the filtered set rather than fighting it.
+            controls={statusExport}
             chart={<StatusTiles tiles={tiles} grouped />}
             table={<StatusTable tiles={tiles} />}
           />

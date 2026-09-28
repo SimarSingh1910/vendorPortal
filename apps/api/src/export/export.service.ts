@@ -45,6 +45,9 @@ export interface ExportRow {
   particularName: string | null;
   rate: string; // DECIMAL(14,4) as string
   quantity: string; // DECIMAL(14,3) as string
+  // The clinic's ACTIVE SPOCs / cluster managers, comma-joined (null when none).
+  spocNames: string | null;
+  managerNames: string | null;
 }
 
 /** One clinic's month of particular rows, plus the clinic name (for the filename). */
@@ -61,6 +64,13 @@ interface ExportFilters {
   month?: string;
   // Matches the DTO/web field name (an array despite the singular).
   status?: SubmissionStatus[];
+}
+
+/** Comma-joined names of the clinic's ACTIVE users in `role` (correlated on `c`). */
+function clinicPeople(role: 'CLINIC_SPOC' | 'CLINIC_MANAGER'): Prisma.Sql {
+  return Prisma.sql`(SELECT GROUP_CONCAT(u.name ORDER BY u.name SEPARATOR ', ')
+      FROM UserClinicAssignment a JOIN \`User\` u ON u.id = a.userId
+      WHERE a.clinicId = c.id AND u.role = ${role} AND u.isActive = 1)`;
 }
 
 /**
@@ -119,7 +129,9 @@ export class ExportService {
              CAST(ep.value AS CHAR) AS amount,
              ep.particularName AS particularName,
              CAST(ep.rate AS CHAR) AS rate,
-             CAST(ep.quantity AS CHAR) AS quantity
+             CAST(ep.quantity AS CHAR) AS quantity,
+             ${clinicPeople('CLINIC_SPOC')} AS spocNames,
+             ${clinicPeople('CLINIC_MANAGER')} AS managerNames
       FROM ProvisionEntry p
       JOIN EntryParticular ep ON ep.entryId = p.id
       JOIN SubmissionExpenseHeadSnapshot s ON s.id = p.snapshotId

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Workbook, type Worksheet } from 'exceljs';
 import type { ClinicMonthExport, ExportRow } from './export.service';
 import type { CorpExportRow } from './corp-export.service';
+import { SUBMISSION_STATUS_LABELS, type DashboardStatusTile } from '@portal/shared';
 
 /**
  * INR amount format with Indian digit grouping (…,##,##,##0.00 — thousand/lakh/
@@ -54,6 +55,9 @@ const COLUMNS: Array<{ key: string; header: string; width: number }> = [
   { key: 'product', header: 'Product Code', width: 14 },
   // ── Free text last: it annotates the row, it isn't part of its arithmetic. ──
   { key: 'remarks', header: 'Remarks', width: 34 },
+  // Who to contact about the clinic — appended so the template columns above stay put.
+  { key: 'spoc', header: 'Clinic SPOC', width: 28 },
+  { key: 'manager', header: 'Cluster Manager', width: 28 },
 ];
 
 /** Rate carries 4 dp and quantity 3 dp — show them as entered, not as money. */
@@ -149,6 +153,8 @@ function writeLineSheet(sheet: Worksheet, rows: ExportRow[]): void {
       customerName: r.customerName,
       product: r.productCode ?? '',
       remarks: r.remark ?? '',
+      spoc: r.spocNames ?? '',
+      manager: r.managerNames ?? '',
     });
     added.getCell('amount').numFmt = INR_FMT;
     added.getCell('rate').numFmt = RATE_FMT;
@@ -186,6 +192,36 @@ export class ExcelExportService {
     const workbook = new Workbook();
     workbook.creator = 'Cost Provision Portal';
     writeLineSheet(workbook.addWorksheet('Provisions'), rows);
+    return toBuffer(workbook);
+  }
+
+  /** Finance dashboard status table: one row per clinic for the month. */
+  async statusTracker(tiles: DashboardStatusTile[]): Promise<Buffer> {
+    const workbook = new Workbook();
+    workbook.creator = 'Cost Provision Portal';
+    const sheet = workbook.addWorksheet('Submission status');
+    sheet.columns = [
+      { header: 'Clinic', key: 'clinic', width: 40 },
+      { header: 'Customer', key: 'customer', width: 28 },
+      { header: 'Clinic SPOC', key: 'spoc', width: 30 },
+      { header: 'Cluster Manager', key: 'manager', width: 30 },
+      { header: 'Month', key: 'month', width: 10 },
+      { header: 'Status', key: 'status', width: 22 },
+      { header: 'Total', key: 'total', width: 18 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+    for (const t of tiles) {
+      const row = sheet.addRow({
+        clinic: t.clinicName,
+        customer: t.customerName,
+        spoc: (t.spocNames ?? []).join(', '),
+        manager: (t.managerNames ?? []).join(', '),
+        month: t.month,
+        status: SUBMISSION_STATUS_LABELS[t.status],
+        total: t.total != null ? Number(t.total) : null,
+      });
+      row.getCell('total').numFmt = INR_FMT;
+    }
     return toBuffer(workbook);
   }
 

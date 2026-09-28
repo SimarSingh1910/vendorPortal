@@ -37,6 +37,15 @@ UI lists exactly the snapshotted heads using the `*AtSnapshot` labels.
   its entered amount, because they read from their own snapshot, not from the
   (now inactive) master. History is immutable by construction.
 
+  There is no delete endpoint for an expense head, so this holds unconditionally.
+  The two rows that *can* be deleted — a clinic and a user, via `DELETE /clinics/:id`
+  and `DELETE /users/:id` — are hard-deleted only when they carry **no** history:
+  the service counts every reference first (submissions for a clinic; provision
+  entries, comments, attachments, reviews and audit rows for a user) and refuses with
+  409 if any exist. So deletion never reaches history either; it only ever removes a
+  row nothing has recorded against. See `docs/IMPLEMENTATION_CONTEXT.md` for the full
+  blocker list.
+
 An open submission therefore keeps its snapshot even if a head is deactivated the
 day after the cycle opened. The deactivation is only visible from the *next*
 cycle, which simply won't snapshot that head.

@@ -411,10 +411,11 @@ describe('DashboardService (Phase 11, FR-07)', () => {
     await fx.makeUser(UserRole.CLINIC_MANAGER, [clinic.id], { name: 'The Manager' });
 
     const tiles = await dashboard.statusTracker(finance, '2026-06');
-    expect(tiles.find((t) => t.clinicName === 'Shared')!.spocNames).toEqual([
-      'Amit Verma',
-      'Zara Khan',
-    ]);
+    const shared = tiles.find((t) => t.clinicName === 'Shared')!;
+    expect(shared.spocNames).toEqual(['Amit Verma', 'Zara Khan']);
+    // …and the manager lands in its own column, with the clinic's customer.
+    expect(shared.managerNames).toEqual(['The Manager']);
+    expect(shared.customerName).toBeTruthy();
   });
 
   it('hides SPOC names from clinic-scoped viewers (null, not an empty list)', async () => {
@@ -427,6 +428,7 @@ describe('DashboardService (Phase 11, FR-07)', () => {
       expect(tiles).toHaveLength(1);
       // null ≠ [] — the tile hides the line rather than claiming "no SPOC".
       expect(tiles[0].spocNames).toBeNull();
+      expect(tiles[0].managerNames).toBeNull();
     }
   });
 
@@ -579,6 +581,24 @@ describe('DashboardService (Phase 11, FR-07)', () => {
 
     const tiles = await dashboard.statusTracker(finance, '2026-06', [asha.id, bhavin.id]);
     expect(tiles.map((t) => t.clinicName).sort()).toEqual(['Alpha', 'Bravo']);
+  });
+
+  it('a cluster manager pick intersects with the SPOC pick (AND across roles)', async () => {
+    const { alpha, bravo, bhavin } = await clinicsWithSpocs();
+    const lalit = (await fx.makeUser(UserRole.CLINIC_MANAGER, [alpha.id, bravo.id])).user;
+    const alphaOnly = (await fx.makeUser(UserRole.CLINIC_MANAGER, [alpha.id])).user;
+
+    // Manager alone → all their clinics.
+    const byManager = await dashboard.statusTracker(finance, '2026-06', [lalit.id]);
+    expect(byManager.map((t) => t.clinicName).sort()).toEqual(['Alpha', 'Bravo']);
+    // Manager AND SPOC → only the overlap.
+    const both = await dashboard.statusTracker(finance, '2026-06', [lalit.id, bhavin.id]);
+    expect(both.map((t) => t.clinicName)).toEqual(['Bravo']);
+    // No overlap → nothing (not a union).
+    expect(await dashboard.statusTracker(finance, '2026-06', [alphaOnly.id, bhavin.id])).toEqual([]);
+    // Options list the managers.
+    const opts = await dashboard.filterOptions(finance);
+    expect(opts.managers.map((m) => m.id).sort()).toEqual([lalit.id, alphaOnly.id].sort());
   });
 
   it('status filter accepts multiple statuses (OR within the filter)', async () => {

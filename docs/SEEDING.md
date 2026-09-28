@@ -41,6 +41,11 @@ Clinics are deleted **before** users on purpose: `ProvisionEntry.enteredById` is
 `Restrict`, so a user with surviving entries cannot be deleted. Cascading the
 clinics clears the entries first.
 
+The admin UI can delete a clinic or a user too (`DELETE /clinics/:id`,
+`DELETE /users/:id`, FINANCE_ADMIN only), but it will not cascade its way past
+history the way this seed does: those endpoints refuse with 409 the moment the row
+has any submission or audit history behind it. Wholesale reimport stays a seed job.
+
 **Masters only — no provision figures.** The spreadsheet carries no amounts, so
 none are invented: every clinic reads "No entry yet", never a fabricated ₹0
 (NULL ≠ 0). Written through `ClinicsService` / `UsersService` /

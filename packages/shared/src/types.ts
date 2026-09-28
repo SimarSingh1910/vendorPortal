@@ -327,6 +327,12 @@ export interface SubmissionDetail {
   submittedAt: string | null; // ISO-8601
   reviewStartedAt: string | null; // ISO-8601 — stamped when a reviewer opens it
   reviewStartedByName: string | null;
+  /** Who did the current round's submit / approvals (from the audit trail); null if not yet done. */
+  submittedByName: string | null;
+  approvedByManagerAt: string | null; // ISO-8601
+  approvedByManagerName: string | null;
+  approvedByFinanceAt: string | null; // ISO-8601
+  approvedByFinanceName: string | null;
   /** Reason from the most recent Finance-Admin unlock, if any. */
   unlockedReason: string | null;
   heads: ProvisionHeadRow[];
@@ -570,6 +576,10 @@ export interface DashboardStatusTile {
    *  - `[...]` → the assigned SPOC names; a clinic may legitimately have several.
    */
   spocNames: string[] | null;
+  /** The clinic's customer (e.g. HCL Technologies). */
+  customerName: string;
+  /** Active cluster managers (CLINIC_MANAGER) for the clinic; same null/[] rules as `spocNames`. */
+  managerNames: string[] | null;
 }
 
 /** A month → total point for the month-on-month expense comparison. */
@@ -679,6 +689,8 @@ export interface DashboardFilterOptions {
    * viewers, who have no cross-clinic filtering to do.
    */
   spocs: { id: string; name: string }[];
+  /** ACTIVE cluster managers (CLINIC_MANAGER) covering the accessible clinics. */
+  managers: { id: string; name: string }[];
 }
 
 // ── Corporate dashboards & analytics (Phase C4) ──────────────────────────────

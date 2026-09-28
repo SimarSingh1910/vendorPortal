@@ -136,6 +136,8 @@ describe('Export (Phase 12, FR-10)', () => {
     'Customer Name',
     'Product Code',
     'Remarks',
+    'Clinic SPOC',
+    'Cluster Manager',
   ];
   const col = (h: string) => EXPECTED_HEADERS.indexOf(h) + 1; // 1-based cell index
 
@@ -173,11 +175,26 @@ describe('Export (Phase 12, FR-10)', () => {
       // Description → Rate → Quantity → Amount are CONTIGUOUS and in that order:
       // the row reads as the arithmetic behind the figure it reports.
       expect(headers.slice(3, 7)).toEqual(['Description', 'Rate', 'Quantity', 'Amount (LCY)']);
-      // Remarks is last — free text never sits among the figures.
-      expect(headers[headers.length - 1]).toBe('Remarks');
+      // Remarks closes the template; the contact columns are appended after it.
+      expect(headers.slice(-3)).toEqual(['Remarks', 'Clinic SPOC', 'Cluster Manager']);
       // No 14th column bleeds in beyond the fixed layout.
       expect(sheet.getRow(1).getCell(EXPECTED_HEADERS.length + 1).value ?? null).toBeNull();
     }
+  });
+
+  it('fills Clinic SPOC / Cluster Manager with the clinic’s active people', async () => {
+    const clinic = await fx.makeClinic({ name: 'Pune' });
+    const head = await fx.makeExpenseHead();
+    await fx.mapHeads(clinic.id, [head.id]);
+    await enter(clinic.id, '2026-06', [{ id: head.id, amount: 1000 }]);
+    await fx.makeUser(UserRole.CLINIC_SPOC, [clinic.id], { name: 'Zed Spoc' });
+    await fx.makeUser(UserRole.CLINIC_SPOC, [clinic.id], { name: 'Amy Spoc' });
+    await fx.makeUser(UserRole.CLINIC_SPOC, [clinic.id], { name: 'Old Spoc', active: false });
+    await fx.makeUser(UserRole.CLINIC_MANAGER, [clinic.id], { name: 'Max Manager' });
+
+    const [row] = await exportService.detailRows(finance, { clinicId: clinic.id });
+    expect(row.spocNames).toBe('Amy Spoc, Zed Spoc');
+    expect(row.managerNames).toBe('Max Manager');
   });
 
   it('consolidated across 2 clinics × 2 months writes Month + Clinic Name on EVERY row', async () => {

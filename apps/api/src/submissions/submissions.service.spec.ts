@@ -7,6 +7,7 @@ import { CycleService } from './cycle.service';
 import { WorkflowService } from './workflow.service';
 import { SubmissionsService } from './submissions.service';
 import { AuditService } from '../audit/audit.service';
+import { runWithRequestContext } from '../audit/request-context';
 import { makeFixtures, type Fixtures } from '../../test/fixtures';
 import { resetDb } from '../../test/reset';
 import { AttachmentsService } from '../attachments/attachments.service';
@@ -93,6 +94,51 @@ describe('SubmissionsService queue/detail (Step 7.1 — manager review surface)'
 
     const reviewer = await prisma.user.findUniqueOrThrow({ where: { id: actors.manager.id } });
     expect(detail.reviewStartedByName).toBe(reviewer.name);
+  });
+
+  it('getDetail names the submitter and both approvers even when no comment was left', async () => {
+    const clinic = await fx.makeClinic();
+    const head = await fx.makeExpenseHead();
+    await fx.mapHeads(clinic.id, [head.id]);
+    const { submission } = await cycle.openClinicCycle(clinic.id, MONTH);
+    const [spoc, manager, finance] = await Promise.all([
+      fx.makeUser(UserRole.CLINIC_SPOC, [clinic.id]),
+      fx.makeUser(UserRole.CLINIC_MANAGER, [clinic.id]),
+      fx.makeUser(UserRole.FINANCE_ADMIN),
+    ]).then((r) => r.map((u) => u.user));
+    await fx.valueAllHeads(submission.id, { enteredById: spoc.id });
+
+    // Each step as its own request, so the audit row carries the actor — no comments.
+    const wf = moduleRef.get(WorkflowService);
+    const as = (u: typeof spoc, fn: () => Promise<unknown>) => runWithRequestContext({ user: u }, fn);
+    await as(spoc, () => wf.submit(submission.id, spoc));
+    await as(manager, () => wf.managerOpenReview(submission.id, manager));
+    await as(manager, () => wf.managerApprove(submission.id, manager));
+    await as(finance, () => wf.financeOpenReview(submission.id, finance));
+    await as(finance, () => wf.financeApprove(submission.id, finance));
+
+    const detail = await submissions.getDetail(submission.id, finance);
+    const name = async (id: string) => (await prisma.user.findUniqueOrThrow({ where: { id } })).name;
+
+    expect(detail.submittedByName).toBe(await name(spoc.id));
+    expect(detail.approvedByManagerName).toBe(await name(manager.id));
+    expect(detail.approvedByFinanceName).toBe(await name(finance.id));
+    expect(detail.approvedByManagerAt).not.toBeNull();
+  });
+
+  it('getDetail falls back to the step comment author when the audit row has no actor', async () => {
+    const clinic = await fx.makeClinic();
+    const head = await fx.makeExpenseHead();
+    await fx.mapHeads(clinic.id, [head.id]);
+    const { submission } = await cycle.openClinicCycle(clinic.id, MONTH);
+    // No request context → audit rows carry a null actor (like seeded history).
+    const actors = await fx.driveToStatus(submission.id, SubmissionStatus.CLINIC_MANAGER_REVIEW);
+    await moduleRef.get(WorkflowService).managerApprove(submission.id, actors.manager, 'ok');
+
+    const detail = await submissions.getDetail(submission.id, actors.manager);
+    const manager = await prisma.user.findUniqueOrThrow({ where: { id: actors.manager.id } });
+    expect(detail.approvedByManagerName).toBe(manager.name);
+    expect(detail.submittedByName).toBeNull(); // no actor, no comment → stays unknown
   });
 
   it('getDetail returns the clinic’s Acc. Location Code + Customer Code for the context panel', async () => {

@@ -242,6 +242,28 @@ export function FinanceReview() {
         </p>
       )}
 
+      {detail.submittedAt && (
+        <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
+          {[
+            ['Submitted by', detail.submittedByName, detail.submittedAt],
+            ['Approved by manager', detail.approvedByManagerName, detail.approvedByManagerAt],
+            ['Approved by finance', detail.approvedByFinanceName, detail.approvedByFinanceAt],
+          ].map(([label, name, at]) => (
+            <div key={label}>
+              <dt className="text-xs text-muted-foreground">{label}</dt>
+              <dd className="font-medium">
+                {at ? (name ?? 'Unknown') : '—'}
+                {at && (
+                  <span className="ml-1 text-xs font-normal text-muted-foreground">
+                    {formatIST(at)}
+                  </span>
+                )}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
       {detail.unlockedReason && (
         <div className="rounded-lg border border-warning-foreground/25 bg-warning p-3 text-sm text-warning-foreground">
           <span className="font-medium">Unlocked for correction:</span> {detail.unlockedReason}

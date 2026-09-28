@@ -38,6 +38,8 @@ export interface DashboardFiltersState {
   setClinicIds: (next: Set<string> | null) => void;
   spocUserIds: Set<string> | null;
   setSpocUserIds: (next: Set<string> | null) => void;
+  managerUserIds: Set<string> | null;
+  setManagerUserIds: (next: Set<string> | null) => void;
   statuses: Set<SubmissionStatus> | null;
   setStatuses: (next: Set<SubmissionStatus> | null) => void;
   expenseHeadIds: Set<string> | null;
@@ -74,6 +76,7 @@ export function useDashboardFilters(): DashboardFiltersState {
   // is the chosen subset. Empty is never reached — the control falls back to All.
   const [clinicIds, setClinicIds] = useState<Set<string> | null>(null);
   const [spocUserIds, setSpocUserIds] = useState<Set<string> | null>(null);
+  const [managerUserIds, setManagerUserIds] = useState<Set<string> | null>(null);
   const [statuses, setStatuses] = useState<Set<SubmissionStatus> | null>(null);
   const [expenseHeadIds, setExpenseHeadIds] = useState<Set<string> | null>(null);
   const [fromMonth, setFromMonth] = useState(shiftMonth(thisMonth, -11));
@@ -84,7 +87,10 @@ export function useDashboardFilters(): DashboardFiltersState {
 
   // A `null` (All) selection sends nothing; a Set sends the chosen ids/statuses.
   const clinicIdList = clinicIds ? [...clinicIds] : undefined;
-  const spocUserIdList = spocUserIds ? [...spocUserIds] : undefined;
+  // SPOC and cluster-manager picks share one wire param; the API intersects the
+  // two roles (SPOC AND manager) and unions within each.
+  const spocUserIdList =
+    spocUserIds || managerUserIds ? [...(spocUserIds ?? []), ...(managerUserIds ?? [])] : undefined;
   const expenseHeadIdList = expenseHeadIds ? [...expenseHeadIds] : undefined;
   // The Status filter offers one option per distinct LABEL, so a pick must be
   // expanded to every status behind that label before it reaches the API — picking
@@ -101,6 +107,7 @@ export function useDashboardFilters(): DashboardFiltersState {
   const anyEmpty =
     (clinicIds !== null && clinicIds.size === 0) ||
     (spocUserIds !== null && spocUserIds.size === 0) ||
+    (managerUserIds !== null && managerUserIds.size === 0) ||
     (statuses !== null && statuses.size === 0) ||
     (expenseHeadIds !== null && expenseHeadIds.size === 0);
 
@@ -121,7 +128,7 @@ export function useDashboardFilters(): DashboardFiltersState {
   // already flow through the export endpoints as-is. For a clinic role "all" is
   // already just their own clinics — the server resolves it from their scope.
   const soleClinicId = clinicIds && clinicIds.size === 1 ? [...clinicIds][0] : undefined;
-  const soleSpocUserId = spocUserIds && spocUserIds.size === 1 ? [...spocUserIds][0] : undefined;
+  const soleSpocUserId = spocUserIdList?.length === 1 ? spocUserIdList[0] : undefined;
   const soleExpenseHeadId =
     expenseHeadIds && expenseHeadIds.size === 1 ? [...expenseHeadIds][0] : undefined;
   const exportFilter: DashboardFilter = {
@@ -146,6 +153,8 @@ export function useDashboardFilters(): DashboardFiltersState {
     setClinicIds,
     spocUserIds,
     setSpocUserIds,
+    managerUserIds,
+    setManagerUserIds,
     statuses,
     setStatuses,
     expenseHeadIds,

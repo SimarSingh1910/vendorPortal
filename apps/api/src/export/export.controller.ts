@@ -1,5 +1,7 @@
 import { BadRequestException, Controller, Get, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
+import { UserRole } from '@portal/shared';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { RequestUser } from '../auth/request-user';
 import { currentMonthIST } from '../submissions/month.util';
@@ -69,6 +71,16 @@ export class ExportController {
     const rows = await this.data.detailRows(user, q);
     const buffer = await this.excel.consolidated(rows);
     this.send(res, buffer, XLSX_TYPE, `consolidated-${q.from ?? 'all'}_${q.to ?? asOf}.xlsx`);
+  }
+
+  /** Finance dashboard status table (clinic, customer, SPOC, manager, status, total). */
+  @Get('excel/status')
+  @Roles(UserRole.FINANCE_ADMIN, UserRole.FINANCE_MANAGER)
+  async statusTracker(@Query() q: DashboardQueryDto, @CurrentUser() user: RequestUser, @Res() res: Response) {
+    const month = q.month ?? currentMonthIST();
+    const spocIds = q.spocUserIds?.length ? q.spocUserIds : q.spocUserId ? [q.spocUserId] : undefined;
+    const tiles = await this.dashboard.statusTracker(user, month, spocIds);
+    this.send(res, await this.excel.statusTracker(tiles), XLSX_TYPE, `clinic-status-${month}.xlsx`);
   }
 
   /** One-click month-end provision report: all active clinics, current month. */
