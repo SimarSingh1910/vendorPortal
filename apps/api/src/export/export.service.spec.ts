@@ -13,7 +13,7 @@ import { AuditService } from '../audit/audit.service';
 import { CycleService } from '../submissions/cycle.service';
 import { WorkflowService } from '../submissions/workflow.service';
 import { ExportService } from './export.service';
-import { ExcelExportService } from './excel-export.service';
+import { ExcelExportService, vendorDescription } from './excel-export.service';
 import { makeFixtures, type Fixtures, expectStatus } from '../../test/fixtures';
 import { resetDb } from '../../test/reset';
 import type { RequestUser } from '../auth/request-user';
@@ -139,36 +139,53 @@ describe('Export (Phase 12, FR-10)', () => {
     'Clinic SPOC',
     'Cluster Manager',
   ];
+  // The consolidated Excel is VENDOR level: one row per vendor line under each G/L,
+  // no particular-level Rate / Quantity / Remarks; Description = "<G/L> <Mon>'<YY>".
+  const EXPECTED_VENDOR_HEADERS = [
+    'G/L Account No.',
+    'G/L Account Name',
+    'Month',
+    'Description',
+    'Amount (LCY)',
+    'Vendor Name',
+    'Clinic Name',
+    'Acc. Location Code',
+    'Customer Code',
+    'Customer Name',
+    'Product Code',
+    'Clinic SPOC',
+    'Cluster Manager',
+  ];
   const col = (h: string) => EXPECTED_HEADERS.indexOf(h) + 1; // 1-based cell index
 
   /** Load a produced .xlsx back and expose row 1 headers + the data rows by column. */
-  async function loadSheet(buffer: Buffer) {
+  async function loadSheet(buffer: Buffer, expected: string[] = EXPECTED_HEADERS) {
     const wb = new Workbook();
     // Cast around the @types/node generic-Buffer vs exceljs Buffer variance.
     await wb.xlsx.load(buffer as unknown as Parameters<typeof wb.xlsx.load>[0]);
     const sheet = wb.worksheets[0];
-    const headers = EXPECTED_HEADERS.map((_, i) => sheet.getRow(1).getCell(i + 1).value);
+    const headers = expected.map((_, i) => sheet.getRow(1).getCell(i + 1).value);
     const dataRows: Array<Record<string, unknown>> = [];
     for (let r = 2; r <= sheet.rowCount; r += 1) {
       const row = sheet.getRow(r);
       const record: Record<string, unknown> = {};
-      EXPECTED_HEADERS.forEach((h, i) => (record[h] = row.getCell(i + 1).value));
+      expected.forEach((h, i) => (record[h] = row.getCell(i + 1).value));
       dataRows.push(record);
     }
     return { sheet, headers, dataRows };
   }
 
-  it('all three clinic exports produce EXACTLY the finance columns in order (no extra column)', async () => {
+  it('clinic-month and month-end produce EXACTLY the particular-level columns; consolidated the vendor-level ones', async () => {
     const clinic = await fx.makeClinic({ name: 'Pune' });
     const head = await fx.makeExpenseHead({ glAccountName: 'Rent', glAccountNo: '400100' });
     await fx.mapHeads(clinic.id, [head.id]);
     await enter(clinic.id, '2026-06', [{ id: head.id, amount: 1000 }]);
 
     const individual = await excel.clinicMonth(await exportService.clinicMonth(finance, clinic.id, '2026-06'));
-    const consolidated = await excel.consolidated(await exportService.detailRows(finance, {}));
+    const consolidated = await excel.consolidated(await exportService.vendorLineRows(finance, {}));
     const monthEnd = await excel.monthEnd(await exportService.monthEnd(finance, '2026-06'));
 
-    for (const buffer of [individual, consolidated, monthEnd]) {
+    for (const buffer of [individual, monthEnd]) {
       expect(buffer.subarray(0, 2).toString('ascii')).toBe('PK'); // valid xlsx (ZIP)
       const { sheet, headers } = await loadSheet(buffer);
       expect(headers).toEqual(EXPECTED_HEADERS);
@@ -180,6 +197,11 @@ describe('Export (Phase 12, FR-10)', () => {
       // No 14th column bleeds in beyond the fixed layout.
       expect(sheet.getRow(1).getCell(EXPECTED_HEADERS.length + 1).value ?? null).toBeNull();
     }
+
+    expect(consolidated.subarray(0, 2).toString('ascii')).toBe('PK');
+    const vendor = await loadSheet(consolidated, EXPECTED_VENDOR_HEADERS);
+    expect(vendor.headers).toEqual(EXPECTED_VENDOR_HEADERS);
+    expect(vendor.sheet.getRow(1).getCell(EXPECTED_VENDOR_HEADERS.length + 1).value ?? null).toBeNull();
   });
 
   it('fills Clinic SPOC / Cluster Manager with the clinic’s active people', async () => {
@@ -208,8 +230,8 @@ describe('Export (Phase 12, FR-10)', () => {
     await enter(mum.id, '2026-05', [{ id: rent.id, amount: 300 }]);
     await enter(mum.id, '2026-06', [{ id: rent.id, amount: 400 }]);
 
-    const buffer = await excel.consolidated(await exportService.detailRows(finance, {}));
-    const { dataRows } = await loadSheet(buffer);
+    const buffer = await excel.consolidated(await exportService.vendorLineRows(finance, {}));
+    const { dataRows } = await loadSheet(buffer, EXPECTED_VENDOR_HEADERS);
     expect(dataRows).toHaveLength(4);
 
     // Every row carries its own Month + Clinic Name (never a section heading).
@@ -223,6 +245,9 @@ describe('Export (Phase 12, FR-10)', () => {
     expect(byKey.get('Pune|2026-06')!['Amount (LCY)']).toBe(200);
     expect(byKey.get('Mumbai|2026-05')!['Amount (LCY)']).toBe(300);
     expect(byKey.get('Mumbai|2026-06')!['Amount (LCY)']).toBe(400);
+    // Description carries each ROW'S own month, even within one multi-month file.
+    expect(byKey.get('Pune|2026-05')!['Description']).toBe("Rent May'26");
+    expect(byKey.get('Mumbai|2026-06')!['Description']).toBe("Rent Jun'26");
     // Per-clinic codes repeat correctly on that clinic's rows.
     expect(byKey.get('Pune|2026-05')!['Acc. Location Code']).toBe('LOC-PUN');
     expect(byKey.get('Mumbai|2026-06')!['Customer Code']).toBe('CUST-MUM');
@@ -345,6 +370,81 @@ describe('Export (Phase 12, FR-10)', () => {
     expect(rows.map((r) => r.amount)).toEqual(['100.00', '250.00']);
   });
 
+  it('consolidated Excel is one row per VENDOR LINE: particulars summed, same vendor kept separate, same grand total', async () => {
+    const clinic = await fx.makeClinic({ name: 'Pune', accLocationCode: 'LOC-PUN', customerCode: 'CUST-PUN' });
+    const head = await fx.makeExpenseHead({ glAccountName: 'Consumables', glAccountNo: '500100' });
+    await fx.mapHeads(clinic.id, [head.id]);
+    await enter(clinic.id, '2026-06', [
+      {
+        id: head.id,
+        amount: 0,
+        vendorName: 'Acme',
+        productCode: 'P20',
+        particulars: [
+          { name: 'Gloves (M)', rate: 400, quantity: 30, remark: 'switched supplier' }, // 12,000.00
+          { name: 'Masks', rate: 15, quantity: 300 }, //  4,500.00
+        ],
+      },
+      // Same vendor again under the same G/L -> its own row (not merged).
+      { id: head.id, amount: 0, vendorName: 'Acme', particulars: [{ name: 'Caps', rate: 10, quantity: 50 }] }, // 500.00
+    ]);
+
+    const rows = await exportService.vendorLineRows(finance, { clinicId: clinic.id, month: '2026-06' });
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.vendorName)).toEqual(['Acme', 'Acme']);
+    expect(rows.map((r) => r.amount)).toEqual(['16500.00', '500.00']);
+
+    const { dataRows } = await loadSheet(await excel.consolidated(rows), EXPECTED_VENDOR_HEADERS);
+    expect(dataRows.map((r) => r['Amount (LCY)'])).toEqual([16500, 500]);
+    expect(dataRows.map((r) => r['Description'])).toEqual(["Consumables Jun'26", "Consumables Jun'26"]);
+    expect(dataRows.map((r) => r['Product Code'] ?? '')).toEqual(['P20', '']);
+    expect(dataRows.every((r) => r['G/L Account No.'] === '500100' && r['Clinic Name'] === 'Pune')).toBe(true);
+
+    // The grain changed, the grand total did not: vendor rows sum to the particular rows.
+    const particular = await exportService.detailRows(finance, { clinicId: clinic.id, month: '2026-06' });
+    const sum = (xs: Array<{ amount: string }>) => xs.reduce((t, r) => t + Number(r.amount), 0);
+    expect(sum(rows)).toBe(sum(particular));
+    expect(sum(rows)).toBe(17000);
+  });
+
+  it("vendorDescription is '<G/L name> <Mon>'<YY>' from the row's own month", () => {
+    expect(vendorDescription('Locum', '2026-09')).toBe("Locum Sep'26");
+    expect(vendorDescription('Staff welfare expense', '2025-10')).toBe("Staff welfare expense Oct'25");
+    expect(vendorDescription('Rent', '2027-01')).toBe("Rent Jan'27");
+    expect(vendorDescription('Locum ', '2026-12')).toBe("Locum Dec'26"); // stray space trimmed
+  });
+
+  it('vendor-level export keeps scope rules and skips incomplete (NULL-total) lines', async () => {
+    const mine = await fx.makeClinic({ name: 'Mine' });
+    const other = await fx.makeClinic({ name: 'Other' });
+    const head = await fx.makeExpenseHead();
+    await fx.mapHeads(mine.id, [head.id]);
+    await fx.mapHeads(other.id, [head.id]);
+    await enter(mine.id, '2026-06', [{ id: head.id, amount: 100 }]);
+    await enter(other.id, '2026-06', [{ id: head.id, amount: 200 }]);
+    // An incomplete draft line (NULL total) must never export as a 0 row.
+    const snap = await prisma.submissionExpenseHeadSnapshot.findFirstOrThrow({
+      where: { submission: { clinicId: mine.id }, expenseHeadId: head.id },
+    });
+    await prisma.provisionEntry.create({
+      data: {
+        submissionId: snap.submissionId,
+        snapshotId: snap.id,
+        lineOrder: 9,
+        amount: null,
+        vendorName: 'Half',
+        enteredById: spocId,
+        lastModifiedById: spocId,
+      },
+    });
+
+    const spoc = (await fx.makeUser(UserRole.CLINIC_SPOC, [mine.id])).user;
+    const rows = await exportService.vendorLineRows(spoc, {});
+    expect(rows.map((r) => r.clinicName)).toEqual(['Mine']);
+    expect(rows.map((r) => r.vendorName)).not.toContain('Half');
+    await expectStatus(exportService.vendorLineRows(spoc, { clinicId: other.id }), 403);
+  });
+
   it('emits one row per PARTICULAR, repeating the line context, and still totals the same', async () => {
     const clinic = await fx.makeClinic({ name: 'Pune', accLocationCode: 'LOC-PUN', customerCode: 'CUST-PUN' });
     const head = await fx.makeExpenseHead({ glAccountName: 'Consumables', glAccountNo: '500100' });
@@ -391,7 +491,7 @@ describe('Export (Phase 12, FR-10)', () => {
     // On the sheet: Description names the particular, Rate × Quantity sit beside the
     // Amount they derive (all real numbers), and Remarks trails at the end — blank,
     // not the neighbour's text, where the SPOC wrote none.
-    const { dataRows } = await loadSheet(await excel.consolidated(rows));
+    const { dataRows } = await loadSheet(await excel.monthEnd(rows));
     expect(dataRows.map((r) => r['Description'])).toEqual(['Gloves (M)', 'Masks']);
     expect(dataRows.map((r) => r['Rate'])).toEqual([400, 15]);
     expect(dataRows.map((r) => r['Quantity'])).toEqual([30, 300]);

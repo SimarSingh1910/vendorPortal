@@ -6,9 +6,9 @@ import { ClinicScopeService } from '../common/clinic-scope.service';
 import type { RequestUser } from '../auth/request-user';
 
 /**
- * One granular provisioned PARTICULAR — the single row shape behind ALL THREE
- * clinic Excel exports (individual / consolidated / month-end), which share one
- * unified finance layout.
+ * One granular provisioned PARTICULAR — the row shape behind the clinic-month and
+ * month-end Excel exports, which share the particular-level finance layout. (The
+ * consolidated export is vendor level: see VendorExportRow.)
  *
  * GRAIN: one row per particular (rate × quantity), NOT per vendor line. Since a
  * vendor line's amount is now just the sum of its particulars, exporting at the
@@ -50,6 +50,14 @@ export interface ExportRow {
   managerNames: string | null;
 }
 
+/**
+ * One VENDOR LINE (a ProvisionEntry) — the grain of the consolidated Excel. The
+ * amount is the line's stored total (the sum of its particulars), so there is no
+ * particular name / rate / quantity / remark at this level. Two lines naming the
+ * same vendor under one G/L stay two rows, exactly as the SPOC entered them.
+ */
+export type VendorExportRow = Omit<ExportRow, 'remark' | 'particularName' | 'rate' | 'quantity'>;
+
 /** One clinic's month of particular rows, plus the clinic name (for the filename). */
 export interface ClinicMonthExport {
   clinicName: string;
@@ -86,8 +94,11 @@ export class ExportService {
     private readonly scope: ClinicScopeService,
   ) {}
 
-  /** Granular provisioned rows for the given filters, scoped to the caller. */
-  async detailRows(user: RequestUser, filters: ExportFilters): Promise<ExportRow[]> {
+  /**
+   * The WHERE conditions shared by every clinic export query: the caller's clinic
+   * scope narrowed by the filters. `null` when the caller can see no clinic.
+   */
+  private async scopedConds(user: RequestUser, filters: ExportFilters): Promise<Prisma.Sql[] | null> {
     const accessible = await this.scope.accessibleClinicIds(user);
     // A clinic filter may only ever NARROW the caller's own scope. Asking for a
     // clinic outside it is a scope violation, not an empty result set — answering
@@ -99,7 +110,7 @@ export class ExportService {
       throw new ForbiddenException('Clinic not in your accessible scope');
     }
     const clinicIds = filters.clinicId ? [filters.clinicId] : accessible;
-    if (clinicIds.length === 0) return [];
+    if (clinicIds.length === 0) return null;
 
     const conds: Prisma.Sql[] = [Prisma.sql`m.clinicId IN (${Prisma.join(clinicIds)})`];
     if (filters.month) conds.push(Prisma.sql`m.month = ${filters.month}`);
@@ -107,6 +118,13 @@ export class ExportService {
     if (filters.to) conds.push(Prisma.sql`m.month <= ${filters.to}`);
     if (filters.expenseHeadId) conds.push(Prisma.sql`s.expenseHeadId = ${filters.expenseHeadId}`);
     if (filters.status?.length) conds.push(Prisma.sql`m.status IN (${Prisma.join(filters.status)})`);
+    return conds;
+  }
+
+  /** Granular provisioned rows (one per PARTICULAR) for the given filters, scoped to the caller. */
+  async detailRows(user: RequestUser, filters: ExportFilters): Promise<ExportRow[]> {
+    const conds = await this.scopedConds(user, filters);
+    if (!conds) return [];
     // A blank line/particular is an incomplete draft with no finance value — never
     // export it as a "0" row (NULL ≠ 0). `p.amount IS NOT NULL` already implies
     // every particular of the line is complete (the line amount is NULL if any of
@@ -148,6 +166,40 @@ export class ExportService {
     }));
   }
 
+  /**
+   * One row per VENDOR LINE for the given filters, scoped to the caller — the
+   * consolidated Excel's grain. Same scope and filters as `detailRows`; only lines
+   * with a complete (non-NULL) total are exported, so the Amount column sums to the
+   * same grand total as the particular-level exports.
+   */
+  async vendorLineRows(user: RequestUser, filters: ExportFilters): Promise<VendorExportRow[]> {
+    const conds = await this.scopedConds(user, filters);
+    if (!conds) return [];
+    conds.push(Prisma.sql`p.amount IS NOT NULL`);
+
+    const rows = await this.prisma.$queryRaw<VendorExportRow[]>(Prisma.sql`
+      SELECT c.id AS clinicId, c.name AS clinicName,
+             c.accLocationCode AS accLocationCode, c.customerCode AS customerCode,
+             c.customerName AS customerName,
+             m.month AS month, m.status AS status,
+             s.expenseHeadId AS expenseHeadId,
+             s.expenseHeadGlNameAtSnapshot AS glAccountName,
+             s.expenseHeadGlNoAtSnapshot AS glAccountNo,
+             p.vendorName AS vendorName,
+             p.productCode AS productCode,
+             CAST(p.amount AS CHAR) AS amount,
+             ${clinicPeople('CLINIC_SPOC')} AS spocNames,
+             ${clinicPeople('CLINIC_MANAGER')} AS managerNames
+      FROM ProvisionEntry p
+      JOIN SubmissionExpenseHeadSnapshot s ON s.id = p.snapshotId
+      JOIN MonthlySubmission m ON m.id = p.submissionId
+      JOIN Clinic c ON c.id = m.clinicId
+      WHERE ${Prisma.join(conds, ' AND ')}
+      ORDER BY c.name ASC, c.id ASC, m.month ASC, s.expenseHeadGlNoAtSnapshot ASC, s.expenseHeadGlNameAtSnapshot ASC, p.lineOrder ASC, p.id ASC
+    `);
+    return rows.map((r) => ({ ...r, amount: String(r.amount) }));
+  }
+
   /** One clinic's month of lines (FR-10: single-clinic Excel export). */
   async clinicMonth(user: RequestUser, clinicId: string, month: string): Promise<ClinicMonthExport> {
     if (!this.scope.canAccessClinic(user, clinicId)) {
@@ -163,9 +215,9 @@ export class ExportService {
 
   /**
    * Month-end provision report (FR-10 one-click): every provisioned line across
-   * every ACTIVE in-scope clinic for the month, as flat per-line rows (same
-   * unified 10-column layout as the other exports — Month + Clinic Name on every
-   * row keep a multi-clinic sheet unambiguous). Clinics with no entries add no rows.
+   * every ACTIVE in-scope clinic for the month, as flat per-particular rows (the
+   * same particular-level layout as the clinic-month export — Month + Clinic Name on
+   * every row keep a multi-clinic sheet unambiguous). Clinics with no entries add no rows.
    */
   async monthEnd(user: RequestUser, month: string): Promise<ExportRow[]> {
     const accessible = await this.scope.accessibleClinicIds(user);

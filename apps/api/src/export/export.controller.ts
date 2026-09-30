@@ -64,11 +64,11 @@ export class ExportController {
     this.send(res, buffer, XLSX_TYPE, `clinic-${slug(data.clinicName)}-${q.month}.xlsx`);
   }
 
-  /** Consolidated data across clinics for a month or range, after filters. */
+  /** Consolidated data across clinics for a month or range, after filters — one row per vendor line. */
   @Get('excel/consolidated')
   async consolidated(@Query() q: DashboardQueryDto, @CurrentUser() user: RequestUser, @Res() res: Response) {
     const asOf = q.to ?? q.month ?? currentMonthIST();
-    const rows = await this.data.detailRows(user, q);
+    const rows = await this.data.vendorLineRows(user, q);
     const buffer = await this.excel.consolidated(rows);
     this.send(res, buffer, XLSX_TYPE, `consolidated-${q.from ?? 'all'}_${q.to ?? asOf}.xlsx`);
   }
