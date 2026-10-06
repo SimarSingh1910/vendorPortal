@@ -62,6 +62,31 @@ export enum SubmissionStatus {
 }
 
 /**
+ * What a Finance "Send reminder" does for a submission in this status:
+ *  - SUBMISSION_PENDING — the SPOC must act (not started, draft, or sent back):
+ *    the clinic's SPOCs and cluster managers are emailed.
+ *  - APPROVAL_PENDING — submitted and waiting for the cluster manager: the
+ *    clinic's cluster managers are emailed.
+ *  - null — nothing to chase (waiting on Finance itself, or already approved).
+ */
+export type ReminderKind = 'SUBMISSION_PENDING' | 'APPROVAL_PENDING';
+
+export function reminderKind(status: SubmissionStatus): ReminderKind | null {
+  switch (status) {
+    case SubmissionStatus.NOT_STARTED:
+    case SubmissionStatus.DRAFT:
+    case SubmissionStatus.SENT_BACK_BY_MANAGER:
+    case SubmissionStatus.SENT_BACK_BY_FINANCE:
+      return 'SUBMISSION_PENDING';
+    case SubmissionStatus.SUBMITTED:
+    case SubmissionStatus.CLINIC_MANAGER_REVIEW:
+      return 'APPROVAL_PENDING';
+    default:
+      return null;
+  }
+}
+
+/**
  * Corporate department classification. SHARED_COST_POOL is the single Sec 24
  * department carrying an HCL Avitas allocation %; STANDARD and INTERNAL_BU are
  * ordinary corporate/HQ departments.

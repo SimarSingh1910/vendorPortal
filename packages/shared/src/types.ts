@@ -10,6 +10,7 @@
 import type { CommentAttachmentView } from './attachments';
 import type {
   CorpDepartmentType,
+  ReminderKind,
   CorpSubmissionStatus,
   PortalTab,
   SubmissionStatus,
@@ -580,6 +581,15 @@ export interface DashboardStatusTile {
   customerName: string;
   /** Active cluster managers (CLINIC_MANAGER) for the clinic; same null/[] rules as `spocNames`. */
   managerNames: string[] | null;
+  /** Last Finance "Send reminder" for this submission (finance viewers only; null otherwise / never). */
+  lastReminderAt: string | null; // ISO-8601
+  lastReminderByName: string | null;
+}
+
+/** Outcome of a Finance "Send reminder" batch — per submission, sent or skipped (with why). */
+export interface SendRemindersResult {
+  sent: Array<{ submissionId: string; clinicName: string; kind: ReminderKind; recipients: number }>;
+  skipped: Array<{ submissionId: string; clinicName: string; reason: string }>;
 }
 
 /** A month → total point for the month-on-month expense comparison. */

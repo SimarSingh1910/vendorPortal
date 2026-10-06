@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Portal, Prisma } from '@prisma/client';
 import {
+  AuditAction,
   DEFAULT_MONTHWISE_PRESET,
   FINANCE_ROLES,
   SubmissionStatus,
@@ -213,6 +214,9 @@ export class DashboardService {
     const managersByClinic = finance
       ? await this.namesByClinic(clinicIds, UserRole.CLINIC_MANAGER)
       : null;
+    const reminders = finance
+      ? await this.lastReminders(rows.flatMap((r) => (r.submissionId ? [r.submissionId] : [])))
+      : null;
 
     return rows.map((r) => ({
       clinicId: r.clinicId,
@@ -224,6 +228,8 @@ export class DashboardService {
       spocNames: spocsByClinic ? (spocsByClinic.get(r.clinicId) ?? []) : null,
       customerName: r.customerName,
       managerNames: managersByClinic ? (managersByClinic.get(r.clinicId) ?? []) : null,
+      lastReminderAt: (r.submissionId && reminders?.get(r.submissionId)?.at) || null,
+      lastReminderByName: (r.submissionId && reminders?.get(r.submissionId)?.by) || null,
     }));
   }
 
@@ -252,6 +258,29 @@ export class DashboardService {
       byClinic.set(row.clinicId, list);
     }
     return byClinic;
+  }
+
+  /** submissionId → the latest Finance "Send reminder" (when + who), from the audit trail. */
+  private async lastReminders(
+    submissionIds: string[],
+  ): Promise<Map<string, { at: string; by: string | null }>> {
+    const latest = new Map<string, { at: string; by: string | null }>();
+    if (submissionIds.length === 0) return latest;
+    const rows = await this.prisma.auditLog.findMany({
+      where: {
+        entityType: 'MonthlySubmission',
+        action: AuditAction.SUBMISSION_REMINDER_SENT,
+        entityId: { in: submissionIds },
+      },
+      orderBy: { performedAt: 'desc' },
+      select: { entityId: true, performedAt: true, performedBy: { select: { name: true } } },
+    });
+    for (const r of rows) {
+      if (!latest.has(r.entityId)) {
+        latest.set(r.entityId, { at: r.performedAt.toISOString(), by: r.performedBy?.name ?? null });
+      }
+    }
+    return latest;
   }
 
   // ── (b) Month-on-month expense comparison ───────────────────────────────────

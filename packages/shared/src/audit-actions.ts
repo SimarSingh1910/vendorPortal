@@ -21,6 +21,8 @@ export const AuditAction = {
    * the engine stamps this exact name so the viewer can filter recalls.
    */
   SUBMISSION_RECALLED: 'SUBMISSION_RECALLED',
+  /** Finance sent a manual "Send reminder" email for a pending submission (at most one per IST day). */
+  SUBMISSION_REMINDER_SENT: 'SUBMISSION_REMINDER_SENT',
 
   CLINIC_CREATE: 'CLINIC_CREATE',
   CLINIC_UPDATE: 'CLINIC_UPDATE',

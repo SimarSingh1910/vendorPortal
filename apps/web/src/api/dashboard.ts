@@ -6,6 +6,7 @@ import type {
   HeadVendorTrendPoint,
   MonthlyTotalPoint,
   MonthwiseReport,
+  SendRemindersResult,
   SubmissionStatus,
   VarianceReport,
 } from '@portal/shared';
@@ -90,6 +91,12 @@ export async function getVariance(
   const { data } = await apiClient.get<VarianceReport>('/dashboard/variance', {
     params: clean({ month, clinicIds, spocUserIds }),
   });
+  return data;
+}
+
+/** Finance "Send reminder": email the people each submission is waiting on (once per clinic per day). */
+export async function sendReminders(submissionIds: string[]): Promise<SendRemindersResult> {
+  const { data } = await apiClient.post<SendRemindersResult>('/reminders', { submissionIds });
   return data;
 }
 

@@ -2,6 +2,16 @@
 
 export const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
+/** The IST (Asia/Kolkata) calendar day of a Date as 'YYYY-MM-DD' (en-CA = ISO). */
+export function istDateKey(date: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
 export function isValidMonth(month: string): boolean {
   return MONTH_RE.test(month);
 }

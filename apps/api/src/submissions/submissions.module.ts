@@ -11,6 +11,8 @@ import { SubmissionWorkflowController } from './submission-workflow.controller';
 import { SubmissionCommentsController } from './submission-comments.controller';
 import { SubmissionsController } from './submissions.controller';
 import { ProvisionEntryController } from './provision-entry.controller';
+import { RemindersController } from './reminders.controller';
+import { ReminderService } from './reminder.service';
 
 /**
  * Submission workflow engine (Phases 5–6). Step 5.1 ships cycle opening; 5.2 the
@@ -23,6 +25,7 @@ import { ProvisionEntryController } from './provision-entry.controller';
   imports: [ClinicExpenseHeadsModule, NotificationsModule, AttachmentsModule],
   controllers: [
     SubmissionWorkflowController,
+    RemindersController,
     SubmissionCommentsController,
     SubmissionsController,
     ProvisionEntryController,
@@ -30,6 +33,7 @@ import { ProvisionEntryController } from './provision-entry.controller';
   providers: [
     CycleService,
     WorkflowService,
+    ReminderService,
     SubmissionCommentsService,
     SubmissionsService,
     ProvisionEntryService,

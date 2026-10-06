@@ -21,7 +21,9 @@ export {
   SUBMISSION_STATUS_LABELS,
   SUBMISSION_STATUS_FILTER_OPTIONS,
   statusesSharingLabel,
+  reminderKind,
 } from './enums';
+export type { ReminderKind } from './enums';
 
 export {
   AuditAction,
@@ -113,6 +115,7 @@ export type {
   NotificationConfigInput,
   NotificationView,
   DashboardStatusTile,
+  SendRemindersResult,
   MonthlyTotalPoint,
   HeadTrendPoint,
   HeadVendorTrendPoint,

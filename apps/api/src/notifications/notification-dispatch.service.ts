@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { MonthlySubmission } from '@prisma/client';
-import { SubmissionStatus, UserRole } from '@portal/shared';
+import { SubmissionStatus, UserRole, type ReminderKind } from '@portal/shared';
 import { FINANCE_APPROVER_ROLES } from '../common/rbac.constants';
 import { PrismaService } from '../prisma/prisma.service';
+import { istDateKey } from '../submissions/month.util';
 import { NotificationService } from './notification.service';
 
 /**
@@ -19,6 +20,7 @@ export const NotificationType = {
   MANAGER_SENT_BACK: 'MANAGER_SENT_BACK',
   FINANCE_APPROVED: 'FINANCE_APPROVED',
   FINANCE_SENT_BACK: 'FINANCE_SENT_BACK',
+  MANUAL_REMINDER: 'MANUAL_REMINDER',
 } as const;
 
 const EMAIL_PREFIX = 'Cost Provision Portal';
@@ -185,6 +187,58 @@ export class NotificationDispatchService {
       submissionId: submission.id,
       message: `The ${submission.month} submission for ${clinic} was sent back by Finance. Reason: "${comment}"`,
       emailSubject: `${EMAIL_PREFIX} — ${clinic} ${submission.month} sent back by Finance`,
+    });
+  }
+
+  // ── Manual reminder from Finance ("Send reminder" on the dashboard) ────────
+  /**
+   * Who a Finance reminder goes to: the clinic's active SPOCs + cluster managers
+   * when the SPOC must act, only its cluster managers when it awaits their approval.
+   */
+  reminderRecipients(clinicId: string, kind: ReminderKind): Promise<string[]> {
+    return this.clinicUserIds(
+      clinicId,
+      kind === 'APPROVAL_PENDING'
+        ? [UserRole.CLINIC_MANAGER]
+        : [UserRole.CLINIC_SPOC, UserRole.CLINIC_MANAGER],
+    );
+  }
+
+  /**
+   * The reminder itself. Everything it needs is passed in (looked up before the
+   * caller's once-a-day claim), so after the claim only the fan-out runs.
+   */
+  async manualReminder(
+    submission: SubmissionRef & { status: SubmissionStatus },
+    kind: ReminderKind,
+    recipientIds: string[],
+    ctx: { clinicName: string; cutoffDate: Date | null; now: Date },
+  ): Promise<void> {
+    const clinic = ctx.clinicName;
+    const { month } = submission;
+    let message: string;
+    let subject: string;
+    if (kind === 'APPROVAL_PENDING') {
+      message = `Reminder from Finance: the ${month} cost-provision submission for ${clinic} is waiting for your approval.`;
+      subject = `${EMAIL_PREFIX} — reminder: ${clinic} ${month} awaiting your approval`;
+    } else {
+      const sentBack =
+        submission.status === SubmissionStatus.SENT_BACK_BY_MANAGER ||
+        submission.status === SubmissionStatus.SENT_BACK_BY_FINANCE;
+      // Compare IST calendar days: on the cutoff day itself it is still "is due".
+      const due = ctx.cutoffDate
+        ? ` It ${istDateKey(ctx.cutoffDate) < istDateKey(ctx.now) ? 'was' : 'is'} due by ${istDay(ctx.cutoffDate)}.`
+        : '';
+      message = sentBack
+        ? `Reminder from Finance: the ${month} cost-provision submission for ${clinic} was sent back and still needs to be corrected and resubmitted.${due}`
+        : `Reminder from Finance: the ${month} cost-provision submission for ${clinic} has not been submitted yet. Please complete and submit it.${due}`;
+      subject = `${EMAIL_PREFIX} — reminder: ${clinic} ${month} submission pending`;
+    }
+    await this.fanOut(recipientIds, {
+      type: NotificationType.MANUAL_REMINDER,
+      submissionId: submission.id,
+      message,
+      emailSubject: subject,
     });
   }
 

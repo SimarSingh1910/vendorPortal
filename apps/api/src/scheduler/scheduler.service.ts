@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { Portal } from '@prisma/client';
 import { CorpSubmissionStatus, SubmissionStatus } from '@portal/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { istDateKey } from '../submissions/month.util';
 import { CycleService, type OpenMonthResult } from '../submissions/cycle.service';
 import { CorpCycleService, type OpenCorpMonthResult } from '../corp-submissions/corp-cycle.service';
 import { NotificationDispatchService } from '../notifications/notification-dispatch.service';
@@ -10,16 +11,6 @@ import { CorpNotificationDispatchService } from '../corp-submissions/corp-notifi
 
 const IST_TZ = 'Asia/Kolkata';
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-/** The IST (Asia/Kolkata) calendar day of a Date as 'YYYY-MM-DD' (en-CA = ISO). */
-function istDateKey(date: Date): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: IST_TZ,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date);
-}
 
 /** Statuses that count as "not yet submitted" for the pre-cutoff reminder. */
 const LAGGARD_STATUSES = [SubmissionStatus.NOT_STARTED, SubmissionStatus.DRAFT];

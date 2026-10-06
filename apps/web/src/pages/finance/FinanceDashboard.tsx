@@ -19,12 +19,14 @@ import {
   MonthlyTotalsChart,
   VarianceDivergingChart,
 } from '@/components/dashboard/charts';
-import { ChartTableView } from '@/components/dashboard/ChartTableView';
+import { ChartTableView, type ChartTableViewMode } from '@/components/dashboard/ChartTableView';
+import { reminderKind } from '@portal/shared';
 import { ExpenseHeadSplitBlock } from '@/components/dashboard/ExpenseHeadSplitBlock';
 import { HeadTrendBlock } from '@/components/dashboard/HeadTrendBlock';
 import { MonthSelect } from '@/components/dashboard/MonthSelect';
 import { KpiRow, SubmissionPipeline } from '@/components/dashboard/DashboardKpis';
 import { DashboardExportButtons } from '@/components/dashboard/DashboardExportButtons';
+import { SendReminderButton } from '@/components/dashboard/SendReminderButton';
 import { DashboardFilterBar } from '@/components/dashboard/DashboardFilterBar';
 import { useDashboardFilters } from '@/components/dashboard/useDashboardFilters';
 import {
@@ -92,6 +94,18 @@ export function FinanceDashboard() {
   // handle []; variance falls to its "no data" state on undefined). The head-trend
   // views fold the same empty override into their useMemo (below).
   const tiles = anyEmpty ? [] : tilesData;
+  // Rows ticked for "Send reminder" — only ids still on screen AND still remindable
+  // count (a refetch may hide a row or move it on), and only in the Table view, where
+  // the ticks are visible.
+  const [statusView, setStatusView] = useState<ChartTableViewMode>('chart');
+  const [reminderPicks, setReminderPicks] = useState<Set<string>>(new Set());
+  const visiblePicks = new Set(
+    tiles.flatMap((t) =>
+      t.submissionId && reminderKind(t.status) && reminderPicks.has(t.submissionId)
+        ? [t.submissionId]
+        : [],
+    ),
+  );
   const [exportingStatus, setExportingStatus] = useState(false);
   const statusExport = (
     <Button
@@ -167,9 +181,25 @@ export function FinanceDashboard() {
             // Grouped into the finance manager's three stage columns. The tiles are
             // whatever the active filters left in `tiles`, so grouping applies to
             // the filtered set rather than fighting it.
-            controls={statusExport}
+            view={statusView}
+            onViewChange={setStatusView}
+            controls={
+              <>
+                <SendReminderButton
+                  tiles={tiles}
+                  selected={statusView === 'table' ? visiblePicks : new Set()}
+                  onDone={() => setReminderPicks(new Set())}
+                />
+                {statusExport}
+              </>
+            }
             chart={<StatusTiles tiles={tiles} grouped />}
-            table={<StatusTable tiles={tiles} />}
+            table={
+              <StatusTable
+                tiles={tiles}
+                selection={{ selected: visiblePicks, onChange: setReminderPicks }}
+              />
+            }
           />
         )}
       </section>

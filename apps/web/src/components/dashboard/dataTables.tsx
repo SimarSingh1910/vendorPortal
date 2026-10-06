@@ -7,6 +7,7 @@ import type {
   MonthlyTotalPoint,
   VarianceReport,
 } from '@portal/shared';
+import { reminderKind } from '@portal/shared';
 import { Badge } from '@/components/ui/badge';
 import {
   Table,
@@ -16,7 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { formatINR, statusBadgeVariant, statusLabel } from '@/lib/format';
+import { formatINR, formatIST, statusBadgeVariant, statusLabel } from '@/lib/format';
 import { headSplitTotals } from '@/lib/headSplit';
 
 /** 'YYYY-MM' → 'Jun 26' for compact column headers (matches the chart axis). */
@@ -35,27 +36,78 @@ function Empty({ label }: { label: string }) {
 }
 
 /** (a) Submission-status tracker as a table. */
-export function StatusTable({ tiles }: { tiles: DashboardStatusTile[] }) {
+export function StatusTable({
+  tiles,
+  selection,
+}: {
+  tiles: DashboardStatusTile[];
+  /** Finance "Send reminder": tick boxes on the rows that can be reminded. */
+  selection?: { selected: Set<string>; onChange: (next: Set<string>) => void };
+}) {
   if (tiles.length === 0) return <Empty label="No active clinics in scope." />;
   // SPOC / manager names only reach finance viewers (null for clinic users).
   const showPeople = tiles[0].spocNames != null;
   const names = (list: string[] | null) =>
     list?.length ? list.join(', ') : <span className="text-muted-foreground">—</span>;
+  const remindable = tiles.flatMap((t) =>
+    t.submissionId && reminderKind(t.status) ? [t.submissionId] : [],
+  );
+  const allTicked = remindable.length > 0 && remindable.every((id) => selection?.selected.has(id));
+  const toggle = (id: string) => {
+    if (!selection) return;
+    const next = new Set(selection.selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    selection.onChange(next);
+  };
   return (
     <Table>
       <TableHeader>
         <TableRow>
+          {selection && (
+            <TableHead className="w-8">
+              <input
+                type="checkbox"
+                aria-label="Select all clinics that can be reminded"
+                checked={allTicked}
+                disabled={remindable.length === 0}
+                onChange={() => selection.onChange(allTicked ? new Set() : new Set(remindable))}
+              />
+            </TableHead>
+          )}
           <TableHead>Clinic</TableHead>
           <TableHead>Customer</TableHead>
           {showPeople && <TableHead>Clinic SPOC</TableHead>}
           {showPeople && <TableHead>Cluster manager</TableHead>}
           <TableHead>Status</TableHead>
+          {showPeople && <TableHead>Last reminder</TableHead>}
           <TableHead className="text-right">Total</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {tiles.map((t) => (
           <TableRow key={t.clinicId}>
+            {selection && (
+              <TableCell>
+                {!t.submissionId ? (
+                  <span
+                    className="text-muted-foreground"
+                    title="Cycle not opened for this month — nothing to remind yet"
+                  >
+                    —
+                  </span>
+                ) : (
+                  reminderKind(t.status) && (
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${t.clinicName} for a reminder`}
+                      checked={selection.selected.has(t.submissionId)}
+                      onChange={() => toggle(t.submissionId!)}
+                    />
+                  )
+                )}
+              </TableCell>
+            )}
             <TableCell className="font-medium">{t.clinicName}</TableCell>
             <TableCell>{t.customerName}</TableCell>
             {showPeople && <TableCell>{names(t.spocNames)}</TableCell>}
@@ -63,6 +115,18 @@ export function StatusTable({ tiles }: { tiles: DashboardStatusTile[] }) {
             <TableCell>
               <Badge variant={statusBadgeVariant(t.status)}>{statusLabel(t.status)}</Badge>
             </TableCell>
+            {showPeople && (
+              <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                {t.lastReminderAt ? (
+                  <>
+                    <div>{formatIST(t.lastReminderAt)}</div>
+                    {t.lastReminderByName && <div>{t.lastReminderByName}</div>}
+                  </>
+                ) : (
+                  '—'
+                )}
+              </TableCell>
+            )}
             <TableCell className="text-right tabular-nums">
               {t.total != null ? formatINR(t.total) : <span className="text-muted-foreground">—</span>}
             </TableCell>
